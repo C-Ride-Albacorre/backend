@@ -20,3 +20,6 @@
 {"context":"Bootstrap","level":"info","message":"🚀 Application running on: http://localhost:3000/api","timestamp":"2025-10-14T13:54:57.052Z"}
 {"context":"Bootstrap","level":"info","message":"📘 Swagger docs available at: http://localhost:3000/api/docs","timestamp":"2025-10-14T13:54:57.063Z"}
 {"context":"Bootstrap","level":"info","message":"📊 Metrics available at: http://localhost:9100/metrics","timestamp":"2025-10-14T13:54:57.070Z"}
+{"context":"PrismaService","level":"info","message":"Received SIGINT. Cleaning up Prisma connections...","timestamp":"2025-10-14T13:59:42.931Z"}
+{"context":"Bootstrap","level":"warn","message":"\n🛑 Received SIGINT. Shutting down gracefully...","timestamp":"2025-10-14T13:59:42.932Z"}
+{"context":"PrismaService","level":"info","message":"🔌 Disconnecting Prisma...","timestamp":"2025-10-14T13:59:42.936Z"}
