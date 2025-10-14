@@ -1,0 +1,22 @@
+{"context":"NestFactory","level":"info","message":"Starting Nest application...","timestamp":"2025-10-14T13:08:33.379Z"}
+{"context":"InstanceLoader","level":"info","message":"AppModule dependencies initialized","timestamp":"2025-10-14T13:08:33.381Z"}
+{"context":"RoutesResolver","level":"info","message":"AppController {/api} (version: 1):","timestamp":"2025-10-14T13:08:33.382Z"}
+{"context":"RouterExplorer","level":"info","message":"Mapped {/api, GET} (version: 1) route","timestamp":"2025-10-14T13:08:33.383Z"}
+{"context":"PrismaService","level":"info","message":"🔗 Connecting to Prisma database...","timestamp":"2025-10-14T13:08:33.385Z"}
+{"context":"Bootstrap","level":"info","message":"✅ Prometheus metrics available on: http://localhost:9100/metrics","timestamp":"2025-10-14T13:08:33.386Z"}
+{"context":"PrismaService","level":"info","message":"✅ Prisma successfully connected","timestamp":"2025-10-14T13:08:33.386Z"}
+{"context":"NestApplication","level":"info","message":"Nest application successfully started","timestamp":"2025-10-14T13:08:33.387Z"}
+{"context":"Bootstrap","level":"info","message":"🚀 Application running on: http://localhost:3000/api","timestamp":"2025-10-14T13:08:33.391Z"}
+{"context":"Bootstrap","level":"info","message":"📘 Swagger docs available at: http://localhost:3000/api/docs","timestamp":"2025-10-14T13:08:33.392Z"}
+{"context":"Bootstrap","level":"info","message":"📊 Metrics available at: http://localhost:9100/metrics","timestamp":"2025-10-14T13:08:33.393Z"}
+{"context":"NestFactory","level":"info","message":"Starting Nest application...","timestamp":"2025-10-14T13:54:56.915Z"}
+{"context":"InstanceLoader","level":"info","message":"AppModule dependencies initialized","timestamp":"2025-10-14T13:54:56.931Z"}
+{"context":"RoutesResolver","level":"info","message":"AppController {/api} (version: 1):","timestamp":"2025-10-14T13:54:56.941Z"}
+{"context":"RouterExplorer","level":"info","message":"Mapped {/api, GET} (version: 1) route","timestamp":"2025-10-14T13:54:56.943Z"}
+{"context":"PrismaService","level":"info","message":"🔗 Connecting to Prisma database...","timestamp":"2025-10-14T13:54:56.951Z"}
+{"context":"Bootstrap","level":"info","message":"✅ Prometheus metrics available on: http://localhost:9100/metrics","timestamp":"2025-10-14T13:54:57.006Z"}
+{"context":"PrismaService","level":"info","message":"✅ Prisma successfully connected","timestamp":"2025-10-14T13:54:57.013Z"}
+{"context":"NestApplication","level":"info","message":"Nest application successfully started","timestamp":"2025-10-14T13:54:57.038Z"}
+{"context":"Bootstrap","level":"info","message":"🚀 Application running on: http://localhost:3000/api","timestamp":"2025-10-14T13:54:57.052Z"}
+{"context":"Bootstrap","level":"info","message":"📘 Swagger docs available at: http://localhost:3000/api/docs","timestamp":"2025-10-14T13:54:57.063Z"}
+{"context":"Bootstrap","level":"info","message":"📊 Metrics available at: http://localhost:9100/metrics","timestamp":"2025-10-14T13:54:57.070Z"}
