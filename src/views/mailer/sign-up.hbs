@@ -1,0 +1,22 @@
+    {{> mailHeader }}
+      <div class="email-body">
+        <p >Hi {{user}},</p>
+        <p>
+          Welcome to {{appName}} where creating surveys is a breeze! We're
+          excited to have you onboard.
+        </p>
+        <p>
+          Before you get started, please verify your email address by clicking
+          the link below:
+        </p>
+
+        <!-- Call to Action Button -->
+        <a href="{{verificationLink}}" style="background-color: #154e8d; font-weight: bold; color: white; margin: 0; padding: 10px;" class="button">Verify Email</a>
+
+        <p> Here’s your verification code: {{verificationCode}} </p>
+        <p>
+          If you didn't sign up for this account, please ignore this message.
+        </p>
+        <p>Thank you,<br />The {{appName}} Team</p>
+      </div>
+{{> mailFooter }}
