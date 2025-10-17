@@ -55,3 +55,15 @@ model OAuthProvider {
 //   used      Boolean  @default(false)
 //   createdAt DateTime @default(now())
 // }
+
+
+
+model Menu {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  Name       String
+  description String?
+  imageUrl    String?
+  location    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
