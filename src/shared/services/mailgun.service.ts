@@ -1,35 +1,69 @@
-// mail.service.ts
-import { Injectable } from "@nestjs/common";
-import * as Handlebars from "handlebars";
-import * as fs from "fs";
-import * as path from "path";
-import mailgun from "mailgun-js";
-import { PrismaService } from "./prisma.service";
+import { Injectable, Logger } from '@nestjs/common';
+import * as Handlebars from 'handlebars';
+import * as fs from 'fs';
+import * as path from 'path';
+import { PrismaService } from './prisma.service';
 
 @Injectable()
 export class MailGunService {
-  private mailgun;
+  private mailClient: any;
+  private logger = new Logger(MailGunService.name);
 
   constructor(private readonly prisma: PrismaService) {
-    this.mailgun = mailgun({
-      apiKey: `${process.env.MAILGUN_API_KEY}`,
-      domain: `${process.env.MAILGUN_DOMAIN}`,
-    });
+    try {
+      // ==============================
+      // Try new official SDK (mailgun.js)
+      // ==============================
+      const Mailgun = require('mailgun.js');
+      const formData = require('form-data');
+      const mailgun = new Mailgun(formData);
+
+      this.mailClient = mailgun.client({
+        username: 'api',
+        key: process.env.MAILGUN_API_KEY!,
+      });
+
+      this.logger.log('✅ Using new Mailgun SDK (mailgun.js)');
+    } catch {
+      // ==============================
+      // Fallback to legacy SDK (mailgun-js)
+      // ==============================
+      const mailgun = require('mailgun-js');
+      this.mailClient = mailgun({
+        apiKey: process.env.MAILGUN_API_KEY!,
+        domain: process.env.MAILGUN_DOMAIN!,
+      });
+
+      this.logger.warn('⚠️ Using legacy Mailgun SDK (mailgun-js)');
+    }
   }
 
-
+  // ==============================
+  // Send plain email
+  // ==============================
   async sendEmail(to: string, subject: string, html: string) {
     const data = {
-      from: `Incite360 - ${process.env.DEFAULT_MAILER}`,
+      from: `${process.env.APP_NAME || 'Clear Essence'} - ${process.env.DEFAULT_MAILER}`,
       to,
       subject,
       html,
     };
 
-    return this.mailgun.messages().send(data);
-    //await this.mailgun.messages().send(data);
+    // Detect which SDK is active
+    if (this.mailClient.messages && this.mailClient.messages.create) {
+      // New mailgun.js syntax
+      return this.mailClient.messages.create(process.env.MAILGUN_DOMAIN!, data);
+    } else if (this.mailClient.messages && this.mailClient.messages().send) {
+      // Old mailgun-js syntax
+      return this.mailClient.messages().send(data);
+    } else {
+      throw new Error('No valid Mailgun client initialized.');
+    }
   }
 
+  // ==============================
+  // Send email using Handlebars template
+  // ==============================
   async sendEmailWithTemplate(arg: {
     to: string;
     subject: string;
@@ -40,44 +74,48 @@ export class MailGunService {
     const html = this.renderTemplate(template, arg.context);
 
     const data = {
-      from: `Incite360 - ${process.env.DEFAULT_MAILER}`,
+      from: `${process.env.APP_NAME || 'Clear Essence'} - ${process.env.DEFAULT_MAILER}`,
       to: arg.to,
       subject: arg.subject,
       html,
     };
 
-    return this.mailgun.messages().send(data);
-    //await this.mailgun.messages().send(data);
+    if (this.mailClient.messages && this.mailClient.messages.create) {
+      return this.mailClient.messages.create(process.env.MAILGUN_DOMAIN!, data);
+    } else if (this.mailClient.messages && this.mailClient.messages().send) {
+      return this.mailClient.messages().send(data);
+    } else {
+      throw new Error('No valid Mailgun client initialized.');
+    }
   }
 
-
+  // ==============================
+  // Load Handlebars template
+  // ==============================
   private loadTemplate(templateName: string): string {
-    // const templateDir =
-    //   process.env.TEMPLATE_DIR ||
-    //   path.resolve(__dirname, "../../../src/templates");
-
     const templateDir = path.join(
       __dirname,
-      "..",
-      "..",
-      "..",
-      "..",
-      "dist",
-      "views",
-      "mailer",
+      '..',
+      '..',
+      '..',
+      '..',
+      'dist',
+      'views',
+      'mailer',
     );
 
-    //console.log(`Template directory: ${templateDir}`); // Log the template directory
     const templatePath = path.join(templateDir, `${templateName}.hbs`);
 
     if (!fs.existsSync(templatePath)) {
       throw new Error(`Template not found: ${templatePath}`);
     }
 
-    //console.log(`Using template path: ${templatePath}`);
-    return fs.readFileSync(templatePath, "utf-8");
+    return fs.readFileSync(templatePath, 'utf-8');
   }
 
+  // ==============================
+  // Compile template
+  // ==============================
   private renderTemplate(template: string, context: object): string {
     const compiledTemplate = Handlebars.compile(template);
     return compiledTemplate(context);
