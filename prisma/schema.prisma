@@ -13,3 +13,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+
+model Menu {
+  id          String   @id @map("_id") @default(auto()) @db.ObjectId
+  name       String
+  location    String?
+  description String?
+  price       Float?
+  category    String?
+  imageUrl    String?
+  isSpecial   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
