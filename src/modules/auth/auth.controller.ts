@@ -15,6 +15,8 @@ import { ApiResponseDto } from '../../common/dto/api-response.dto';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { UserService } from '../user/user.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -56,7 +58,40 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  @Post('forgot-password')
+  @ApiOperation({ summary: 'Request a password reset email' })
+  @ApiResponse({
+    status: 200,
+    description: 'Password reset email sent if user exists',
+    type: ApiResponseDto<AuthResponseDto>,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation or bad request error',
+    type: ApiErrorResponseDto,
+  })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  @ApiOperation({ summary: 'Reset password using reset token' })
+  @ApiResponse({
+    status: 200,
+    description: 'Password successfully reset',
+    type: ApiResponseDto<AuthResponseDto>,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation or bad request error',
+    type: ApiErrorResponseDto,
+  })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
+  }
+
   @Get('profile')
+  @ApiOperation({ summary: 'Get logged-in user profile' })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get logged-in user profile' })
@@ -72,5 +107,23 @@ export class AuthController {
   })
   async profile(@GetUser() user: any) {
     return this.userService.profile(user.id);
+  }
+
+  // Google OAuth routes (frontend flow)
+  // Initiates Google OAuth redirect
+  @Get('google')
+  @ApiOperation({ summary: 'Login with Google OAuth' })
+  @UseGuards(/* passport google */) // register passport route in module
+  // The route setup for redirect will be handled by passport middleware; in Nest you can do redirect flow in separate controller wired to passport
+  async googleLogin() {
+    return { msg: 'Redirect to Google' }; // passport will redirect
+  }
+
+  // Callback - after Google returns
+  @Get('google/callback')
+  @ApiOperation({ summary: 'Google OAuth callback' })
+  async googleCallback() {
+    // passport handles callback; this endpoint returns JWT or redirects to frontend with token
+    return { ok: true };
   }
 }
