@@ -12,6 +12,8 @@ import { SignupDto } from './dto/signup.dto';
 import { ConfigService } from '@nestjs/config';
 import { MailGunService } from '../../shared/services/mailgun.service';
 import * as jwt from 'jsonwebtoken';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @Injectable()
 export class AuthService {
@@ -67,7 +69,9 @@ export class AuthService {
   }
 
   /* ---------- Forgot Password flow ---------- */
-  async forgotPassword(email: string) {
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const { email } = dto;
+    if (!email) throw new BadRequestException('Email is required');
     const user = await this.userService.findByEmail(email);
     if (!user) {
       // do not reveal whether user exists — respond success anyway
@@ -109,7 +113,11 @@ export class AuthService {
     return 'Password reset email sent'; //{ ok: true };
   }
 
-  async resetPassword(token: string, newPassword: string) {
+  async resetPassword(dto: ResetPasswordDto) {
+    const { token, newPassword } = dto;
+    if (!token || !newPassword) {
+      throw new BadRequestException('Token and new password are required');
+    }
     const decoded = this.jwtService.verify(token);
     if (!decoded || !decoded.userId) {
       throw new UnauthorizedException('Invalid token');
