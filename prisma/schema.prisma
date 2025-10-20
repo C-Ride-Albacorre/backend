@@ -47,11 +47,4 @@ model OAuthProvider {
   @@unique([provider, providerId]) 
 }
 
-// model PasswordReset {
-//   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-//   userId    String   @db.ObjectId
-//   token     String   @unique
-//   expiresAt DateTime
-//   used      Boolean  @default(false)
-//   createdAt DateTime @default(now())
-// }
+
