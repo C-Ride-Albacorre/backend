@@ -47,16 +47,6 @@ model OAuthProvider {
   @@unique([provider, providerId]) 
 }
 
-<<<<<<< HEAD
-// model PasswordReset {
-//   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-//   userId    String   @db.ObjectId
-//   token     String   @unique
-//   expiresAt DateTime
-//   used      Boolean  @default(false)
-//   createdAt DateTime @default(now())
-// }
-
 
 
 model Menu {
@@ -68,6 +58,3 @@ model Menu {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }
-=======
-
->>>>>>> f456aeccdd6cef3494916fbcf9f6c073ab85db99

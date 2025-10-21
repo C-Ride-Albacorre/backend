@@ -1,4 +1,5 @@
-import { Controller, Post, Body, Get, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Put, Req, Res } from '@nestjs/common';
+import { Request, Response } from 'express';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -17,6 +18,8 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import { UserService } from '../user/user.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
+import { ConfigService } from '@nestjs/config';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -24,6 +27,8 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly userService: UserService,
+    private config: ConfigService,
+    
   ) {}
 
   @Post('signup')
@@ -74,7 +79,7 @@ export class AuthController {
     return this.authService.forgotPassword(dto);
   }
 
-  @Post('reset-password')
+  @Put('reset-password')
   @ApiOperation({ summary: 'Reset password using reset token' })
   @ApiResponse({
     status: 200,
@@ -113,17 +118,31 @@ export class AuthController {
   // Initiates Google OAuth redirect
   @Get('google')
   @ApiOperation({ summary: 'Login with Google OAuth' })
-  @UseGuards(/* passport google */) // register passport route in module
+  @UseGuards(GoogleAuthGuard)  /* passport google */ // register passport route in module
   // The route setup for redirect will be handled by passport middleware; in Nest you can do redirect flow in separate controller wired to passport
   async googleLogin() {
     return { msg: 'Redirect to Google' }; // passport will redirect
   }
 
-  // Callback - after Google returns
+
+  /**
+   * Handles Google OAuth callback
+   */
   @Get('google/callback')
-  @ApiOperation({ summary: 'Google OAuth callback' })
-  async googleCallback() {
-    // passport handles callback; this endpoint returns JWT or redirects to frontend with token
-    return { ok: true };
+  @UseGuards(GoogleAuthGuard)
+  @ApiOperation({ summary: 'Google OAuth callback (JWT returned or redirect)' })
+  async googleCallback(@Req() req: Request, @Res() res: Response) {
+    const result = req.user as any;
+
+    // Option 1: Return JWT to frontend as JSON
+    // return res.status(HttpStatus.OK).json(result);
+
+    // Option 2: Redirect to frontend with token in URL
+    
+    const frontendUrl = this.config.get('FRONTEND_URL');
+    if (!frontendUrl) throw new Error('FRONTEND_URL not configured');
+
+    const redirectUrl = `${frontendUrl}/login-success?token=${result.accessToken}`;
+    return res.redirect(redirectUrl);
   }
 }
