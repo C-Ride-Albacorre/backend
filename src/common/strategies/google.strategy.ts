@@ -1,37 +1,47 @@
 import { PassportStrategy } from '@nestjs/passport';
-import { Strategy } from 'passport-google-oauth20';
 import { Injectable } from '@nestjs/common';
+import { Strategy, VerifyCallback } from 'passport-google-oauth20';
 import { ConfigService } from '@nestjs/config';
+import { OAuthProviderType } from '@prisma/client';
 import { AuthService } from '../../modules/auth/auth.service';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   constructor(
-    private config: ConfigService,
-    private authService: AuthService,
+    private readonly configService: ConfigService,
+    private readonly authService: AuthService,
   ) {
     super({
-      clientID: config.get('GOOGLE_CLIENT_ID'),
-      clientSecret: config.get('GOOGLE_CLIENT_SECRET'),
-      callbackURL: config.get('GOOGLE_CALLBACK_URL'),
+      clientID: configService.get<string>('GOOGLE_CLIENT_ID'),
+      clientSecret: configService.get<string>('GOOGLE_CLIENT_SECRET'),
+      callbackURL:
+        configService.get<string>('GOOGLE_CALLBACK_URL') ||
+        'http://localhost:4000/api/v1/auth/google/callback',
       scope: ['email', 'profile'],
     });
   }
 
-  async validate(accessToken: string, refreshToken: string, profile: any) {
-    // profile contains emails[0].value, id, name
-    const email = profile.emails?.[0]?.value;
-    const providerId = profile.id;
-    const name = profile.name?.name;
+  async validate(
+    accessToken: string,
+    refreshToken: string,
+    profile: any,
+    done: VerifyCallback,
+  ): Promise<any> {
+    try {
+      const { id: providerId, name, emails } = profile;
+      const email = emails?.[0]?.value;
+      const fullName = name?.givenName + ' ' + (name?.familyName || '');
 
-    // delegate to AuthService to find or create user
-    const user = await this.authService.validateOAuthLogin({
-      provider: 'google',
-      providerId,
-      email,
-      name
-    });
+      const result = await this.authService.validateOAuthLogin({
+        provider: OAuthProviderType.GOOGLE,
+        providerId,
+        email,
+        name: fullName,
+      });
 
-    return user;
+      done(null, result);
+    } catch (error) {
+      done(error, false);
+    }
   }
 }

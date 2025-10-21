@@ -6,9 +6,28 @@ import { SharedModule } from './shared/shared.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 import { MenusModule } from './modules/menu/menus.module';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [SharedModule, AuthModule, UserModule, MenusModule],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: (() => {
+        switch (process.env.NODE_ENV) {
+          case 'production':
+            return '.env.production';
+          case 'staging':
+            return '.env.staging';
+          default:
+            return '.env.development';
+        }
+      })(),
+    }),
+    SharedModule,
+    AuthModule,
+    UserModule,
+    MenusModule,
+  ],
   controllers: [AppController],
   providers: [AppService, PrismaService],
   exports: [PrismaService],

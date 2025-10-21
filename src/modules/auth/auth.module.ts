@@ -5,10 +5,10 @@ import { PrismaService } from '../../shared/services/prisma.service';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from '../../common/strategies/jwt.strategy';
-// import { LocalStrategy } from './local.strategy';
 import { GoogleStrategy } from '../../common/strategies/google.strategy';
 import { AuthController } from './auth.controller';
 import { MailGunService } from '../../shared/services/mailgun.service';
+import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 
 @Module({
   imports: [
@@ -23,12 +23,13 @@ import { MailGunService } from '../../shared/services/mailgun.service';
     }),
   ],
   controllers: [AuthController],
+
   providers: [
     AuthService,
     UserService,
     PrismaService,
     JwtStrategy,
-    // LocalStrategy,
+    GoogleAuthGuard,
     GoogleStrategy,
     MailGunService,
   ],
