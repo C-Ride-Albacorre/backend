@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { SignupDto } from '../auth/dto/signup.dto';
 import { OAuthProviderType } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UserService {
@@ -138,8 +139,53 @@ export class UserService {
       throw new NotFoundException('User not found');
     }
 
-    // ✅ Automatically wrapped by TransformInterceptor
     return user;
   }
+
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    if (!userId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, password: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // 3️⃣ Check if the user has a password (in case of OAuth-only users)
+    if (!user.password) {
+      throw new BadRequestException('Password change not allowed for OAuth users');
+    }
+
+    // 4️⃣ Compare current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    // 5️⃣ Prevent reusing old password
+    const isSameAsOld = await bcrypt.compare(newPassword, user.password);
+    if (isSameAsOld) {
+      throw new BadRequestException('New password cannot be the same as the old password');
+    }
+
+    // 6️⃣ Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // 7️⃣ Update password in DB
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword },
+    });
+
+    return { message: 'Password changed successfully' };
+  }
+
+
 
 }
