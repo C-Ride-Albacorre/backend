@@ -61,6 +61,30 @@ export class MailGunService {
     }
   }
 
+  private registerPartials() {
+    const srcDir = path.join(process.cwd(), 'src', 'views', 'partials');
+    const distDir = path.join(__dirname, '..', '..', 'views', 'partials');
+    const partialsDir = fs.existsSync(srcDir) ? srcDir : distDir;
+
+    if (fs.existsSync(partialsDir)) {
+      const files = fs.readdirSync(partialsDir);
+      files.forEach((file) => {
+        const match = /(.+)\.hbs$/.exec(file);
+        if (match) {
+          const name = match[1];
+          const filePath = path.join(partialsDir, file);
+          const template = fs.readFileSync(filePath, 'utf8');
+          Handlebars.registerPartial(name, template);
+        }
+      });
+      this.logger.log(
+        `✅ Registered ${files.length} mail partials from ${partialsDir}`,
+      );
+    } else {
+      this.logger.warn(`⚠️ No partials directory found in ${partialsDir}`);
+    }
+  }
+
   // ==============================
   // Send email using Handlebars template
   // ==============================
@@ -70,6 +94,9 @@ export class MailGunService {
     templateName: string;
     context: object;
   }) {
+    //  Register partials first
+    this.registerPartials();
+
     const template = this.loadTemplate(arg.templateName);
     const html = this.renderTemplate(template, arg.context);
 
@@ -92,18 +119,10 @@ export class MailGunService {
   // ==============================
   // Load Handlebars template
   // ==============================
-  private loadTemplate(templateName: string): string {
-    const templateDir = path.join(
-      __dirname,
-      '..',
-      '..',
-      '..',
-      '..',
-      'dist',
-      'views',
-      'mailer',
-    );
 
+  private loadTemplate(templateName: string): string {
+    // Use process.cwd() to get the root of the project (not dist)
+    const templateDir = path.join(process.cwd(), 'src', 'views', 'mailer');
     const templatePath = path.join(templateDir, `${templateName}.hbs`);
 
     if (!fs.existsSync(templatePath)) {
