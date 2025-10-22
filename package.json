@@ -1,7 +1,7 @@
 {
   "name": "clear-essence-backend",
   "version": "0.0.1",
-  "description": "resturnt,automation, menu, order, table, reservation, pos, kitchen, staff, inventory, analytics, qrcode, feedback",
+  "description": "restuarant,automation, menu, order, table, reservation, pos, kitchen, staff, inventory, analytics, qrcode, feedback",
   "author": "Ime Samuel",
   "private": true,
   "license": "UNLICENSED",
@@ -109,5 +109,8 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
