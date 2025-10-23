@@ -1,12 +1,22 @@
-import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { SignupDto } from '../auth/dto/signup.dto';
 import { OAuthProviderType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { CreateBusinessProfileDto } from './dto/create-business-profile.dto';
+import { CloudinaryService } from '../../shared/services/cloudinary.service';
 
 @Injectable()
 export class UserService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cloudinary: CloudinaryService,
+  ) {}
 
   async createUser(dto: SignupDto, hashedPassword: string) {
     const emailLower = dto.email.toLowerCase();
@@ -47,7 +57,6 @@ export class UserService {
     });
   }
 
-
   async createOrGetOAuthUser({
     email,
     name,
@@ -56,7 +65,7 @@ export class UserService {
   }: {
     email?: string;
     name?: string;
-    provider: OAuthProviderType; 
+    provider: OAuthProviderType;
     providerId: string;
   }) {
     // 1. Check if OAuth provider exists
@@ -94,9 +103,6 @@ export class UserService {
     return newUser;
   }
 
-
-
-
   async updatePassword(userId: string, hashedPassword: string) {
     return this.prisma.user.update({
       where: { id: userId },
@@ -104,8 +110,6 @@ export class UserService {
     });
   }
 
-
-  
   /**
    * Get profile of the currently authenticated user
    * @param userId string
@@ -132,6 +136,7 @@ export class UserService {
             providerId: true,
           },
         },
+        businessProfile: true,
       },
     });
 
@@ -142,8 +147,52 @@ export class UserService {
     return user;
   }
 
+  async createOrUpdateProfile(
+    userId: string,
+    dto: CreateBusinessProfileDto,
+    file?: Express.Multer.File,
+  ) {
+    let logoUrl: string | undefined;
+    
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    if (file) {
+      const uploadResult = await this.cloudinary.uploadLogo(file);
+      logoUrl = uploadResult.secure_url;
+    }
+
+    const existingProfile = await this.prisma.businessProfile.findUnique({
+      where: { userId },
+    });
+
+    const data = {
+      businessName: dto.businessName,
+      type: dto.type,
+      phoneNumber: dto.phoneNumber,
+      email: dto.email,
+      address: dto.address,
+      openingHours: dto.openingHours,
+      shortDesc: dto.shortDescription,
+      ...(logoUrl && { logoUrl }),
+    };
+
+    if (existingProfile) {
+      return this.prisma.businessProfile.update({
+        where: { userId },
+        data,
+      });
+    }
+
+    return this.prisma.businessProfile.create({
+      data: { ...data, userId },
+    });
+  }
+
+
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
     if (!userId) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -159,7 +208,9 @@ export class UserService {
 
     // 3️⃣ Check if the user has a password (in case of OAuth-only users)
     if (!user.password) {
-      throw new BadRequestException('Password change not allowed for OAuth users');
+      throw new BadRequestException(
+        'Password change not allowed for OAuth users',
+      );
     }
 
     // 4️⃣ Compare current password
@@ -171,7 +222,9 @@ export class UserService {
     // 5️⃣ Prevent reusing old password
     const isSameAsOld = await bcrypt.compare(newPassword, user.password);
     if (isSameAsOld) {
-      throw new BadRequestException('New password cannot be the same as the old password');
+      throw new BadRequestException(
+        'New password cannot be the same as the old password',
+      );
     }
 
     // 6️⃣ Hash new password
@@ -185,7 +238,4 @@ export class UserService {
 
     return { message: 'Password changed successfully' };
   }
-
-
-
 }

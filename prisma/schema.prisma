@@ -26,14 +26,15 @@ enum OAuthProviderType {
 }
 
 model User {
-  id             String          @id @default(auto()) @map("_id") @db.ObjectId
-  email          String          @unique
-  password       String?         // null when OAuth-only
-  name           String?
-  roles          Role[]          @default([USER])
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  oauthProviders OAuthProvider[]
+  id              String           @id @default(auto()) @map("_id") @db.ObjectId
+  email           String           @unique
+  password        String? // null when OAuth-only
+  name            String?
+  roles           Role[]           @default([USER])
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  oauthProviders  OAuthProvider[]
+  businessProfile BusinessProfile?
 }
 
 model OAuthProvider {
@@ -44,17 +45,31 @@ model OAuthProvider {
   user       User              @relation(fields: [userId], references: [id])
   createdAt  DateTime          @default(now())
 
-  @@unique([provider, providerId]) 
+  @@unique([provider, providerId])
 }
 
-
+model BusinessProfile {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  businessName       String
+  type               String
+  phoneNumber        String?
+  email              String
+  logoUrl            String?
+  address            String
+  openingHours       String
+  shortDesc          String?
+  userId             String   @unique @db.ObjectId
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
 
 model Menu {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  Name       String
+  Name        String
   description String?
   imageUrl    String?
   location    String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
