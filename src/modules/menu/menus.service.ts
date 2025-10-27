@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { CreateMenuDto } from './dto/create-menu.dto';
@@ -12,7 +12,7 @@ export class MenusService {
     private cloudinary: CloudinaryService,
   ) {}
 
-  async create(dto: CreateMenuDto, file?: Express.Multer.File) {
+  async create(userId: string, dto: CreateMenuDto, file?: Express.Multer.File) {
     let imageUrl: string | undefined;
 
     if (file) {
@@ -20,11 +20,17 @@ export class MenusService {
       imageUrl = uploadResult.secure_url;
     }
 
+    
+    if (!imageUrl && dto.imageUrl) {
+      imageUrl = dto.imageUrl;
+    }
+
     const data: any = {
       Name: dto.name,
       description: dto.description,
       imageUrl,
       location: dto.location,
+      userId,
     };
 
     const menu = await (this.prisma as any).menu.create({
@@ -34,7 +40,31 @@ export class MenusService {
     return menu;
   }
 
-  async findAll(query: ListQueryDto) {
+  async findAll(userId: string, query: ListQueryDto) {
+    const { skip = 0, take = 20, location, search } = query;
+
+    return (this.prisma as any).menu.findMany({
+      skip,
+      take,
+      where: {
+        AND: [
+          { userId },
+          location ? { location } : {},
+          search
+            ? {
+                OR: [
+                  { Name: { contains: search, mode: 'insensitive' } },
+                  { description: { contains: search, mode: 'insensitive' } },
+                ],
+              }
+            : {},
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findAllSystemWide(query: ListQueryDto) {
     const { skip = 0, take = 20, location, search } = query;
 
     return (this.prisma as any).menu.findMany({
@@ -57,14 +87,20 @@ export class MenusService {
     });
   }
 
-  async findOne(id: string) {
+  async findOne(userId: string, id: string) {
     const menu = await (this.prisma as any).menu.findUnique({ where: { id } });
     if (!menu) throw new NotFoundException('Menu item not found');
+    if (menu.userId !== userId) throw new ForbiddenException('Not your menu item');
     return menu;
   }
 
-  async update(id: string, dto: UpdateMenuDto, file?: Express.Multer.File) {
-    const existing = await this.findOne(id);
+  async update(
+    userId: string,
+    id: string,
+    dto: UpdateMenuDto,
+    file?: Express.Multer.File,
+  ) {
+    const existing = await this.findOne(userId, id);
     let imageUrl = existing.imageUrl;
 
     if (file) {
@@ -73,6 +109,10 @@ export class MenusService {
     }
 
    
+    if (!file && dto.imageUrl) {
+      imageUrl = dto.imageUrl;
+    }
+
     const updateData: any = {
       ...(dto.name ? { Name: dto.name } : {}),
       ...(dto.description ? { description: dto.description } : {}),
@@ -86,8 +126,8 @@ export class MenusService {
     });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(userId: string, id: string) {
+    await this.findOne(userId, id);
     await (this.prisma as any).menu.delete({ where: { id } });
     return { message: 'Menu item deleted successfully' };
   }
