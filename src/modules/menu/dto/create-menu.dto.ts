@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsNumber, IsBoolean } from 'class-validator';
+import { IsString, IsOptional } from 'class-validator';
 
 export class CreateMenuDto {
   @ApiProperty({ example: 'Grilled Chicken Salad' })
@@ -19,12 +19,15 @@ export class CreateMenuDto {
   @ApiPropertyOptional({ example: 'Lunch' })
   @IsOptional()
   @IsString()
-  imageUrl?: string;
+  imageUrl?: string; 
 
   @ApiPropertyOptional({ example: 'Main Restaurant' })
   @IsOptional()
   @IsString()
   location?: string;
+
+  @ApiPropertyOptional({ type: 'string', format: 'binary', description: 'Menu image file (optional). If provided, it overrides imageUrl.' })
+  file?: any;
 
 
 }
