@@ -5,7 +5,7 @@ import {
   Body,
   Param,
   Delete,
-  Patch,
+  Put,
   Query,
   UploadedFile,
   UseInterceptors,
@@ -18,7 +18,6 @@ import { CreateMenuDto } from './dto/create-menu.dto';
 import { UpdateMenuDto } from './dto/update-menu.dto';
 import { ListQueryDto } from './dto/list-query.dto';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
-import { RolesGuard } from '../../common/guards/role.guard';
 import { Roles } from '../../common/decorators/role.decorator';
 import { UserRole } from '../../shared/enums/user-role.enum';
 import { GetUser } from '../../common/decorators/get-user.decorator';
@@ -56,25 +55,26 @@ export class MenusController {
 
   @Get()
   @ApiOperation({ summary: 'List all menu items (SUPER_ADMIN only)' })
-  // @UseGuards(RolesGuard)
   @Roles(UserRole.SuperAdmin)
-  findAll(@Query() query: ListQueryDto) {
-    return this.menusService.findAllSystemWide(query);
+  findAllMenus(@Query() query: ListQueryDto) {
+    return this.menusService.findAllMenus(query);
   }
 
-  @Get('me')
+  @Get('/user')
   @ApiOperation({ summary: 'Get menus for the current user' })
-  findMine(@GetUser('id') userId: string, @Query() query: ListQueryDto) {
-    return this.menusService.findAll(userId, query);
+  findUserMenu(@GetUser('id') userId: string, @Query() query: ListQueryDto) {
+    return this.menusService.findUserMenu(userId, query);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single menu item by ID (owned by requester)' })
+  @ApiOperation({
+    summary: 'Get a single menu item by ID (owned by requester)',
+  })
   findOne(@GetUser('id') userId: string, @Param('id') id: string) {
     return this.menusService.findOne(userId, id);
   }
 
-  @Patch(':id')
+  @Put(':id')
   @ApiOperation({ summary: 'Update a menu item' })
   @UseInterceptors(FileInterceptor('file'))
   @ApiConsumes('multipart/form-data')
