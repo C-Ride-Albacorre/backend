@@ -11,15 +11,6 @@ export class CreateMenuDto {
   @IsString()
   description?: string;
 
-//   @ApiPropertyOptional({ example: 12.99 })
-//   @IsOptional()
-//   @IsNumber()
-//   price?: number;
-
-  // @ApiPropertyOptional({ example: 'Lunch' })
-  // @IsOptional()
-  // @IsString()
-  // imageUrl?: string; 
 
   @ApiPropertyOptional({ example: 'Main Restaurant' })
   @IsOptional()
