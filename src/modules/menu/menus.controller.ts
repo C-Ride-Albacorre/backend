@@ -40,7 +40,6 @@ export class MenusController {
         name: { type: 'string' },
         location: { type: 'string' },
         description: { type: 'string' },
-        imageUrl: { type: 'string', nullable: true },
         file: { type: 'string', format: 'binary' },
       },
     },
