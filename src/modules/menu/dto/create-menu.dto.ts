@@ -16,10 +16,10 @@ export class CreateMenuDto {
 //   @IsNumber()
 //   price?: number;
 
-  @ApiPropertyOptional({ example: 'Lunch' })
-  @IsOptional()
-  @IsString()
-  imageUrl?: string; 
+  // @ApiPropertyOptional({ example: 'Lunch' })
+  // @IsOptional()
+  // @IsString()
+  // imageUrl?: string; 
 
   @ApiPropertyOptional({ example: 'Main Restaurant' })
   @IsOptional()

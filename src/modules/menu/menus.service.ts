@@ -4,6 +4,7 @@ import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { CreateMenuDto } from './dto/create-menu.dto';
 import { UpdateMenuDto } from './dto/update-menu.dto';
 import { ListQueryDto } from './dto/list-query.dto';
+import { buildQuery } from '../../shared/utils/query.util';
 
 @Injectable()
 export class MenusService {
@@ -12,38 +13,35 @@ export class MenusService {
     private cloudinary: CloudinaryService,
   ) {}
 
+
   async create(userId: string, dto: CreateMenuDto, file?: Express.Multer.File) {
-    let imageUrl: string | undefined;
+    let imageUrl: string | null = null;
 
+    // Upload image if provided
     if (file) {
-      const uploadResult = await this.cloudinary.uploadLogo(file);
-      imageUrl = uploadResult.secure_url;
+      const { secure_url } = await this.cloudinary.uploadLogo(file);
+      imageUrl = secure_url;
     }
 
-    
-    if (!imageUrl && dto.imageUrl) {
-      imageUrl = dto.imageUrl;
-    }
-
-    const data: any = {
-      Name: dto.name,
+    // Build menu data
+    const data = {
+      name: dto.name,
       description: dto.description,
-      imageUrl,
       location: dto.location,
+      imageUrl,
       userId,
     };
 
-    const menu = await (this.prisma as any).menu.create({
-      data,
-    });
+    // 4️⃣ Save to database
+    const menu = await this.prisma.menu.create({ data });
 
     return menu;
   }
 
-  async findAll(userId: string, query: ListQueryDto) {
+  async findUserMenu(userId: string, query: ListQueryDto) {
     const { skip = 0, take = 20, location, search } = query;
 
-    return (this.prisma as any).menu.findMany({
+    return this.prisma.menu.findMany({
       skip,
       take,
       where: {
@@ -53,7 +51,7 @@ export class MenusService {
           search
             ? {
                 OR: [
-                  { Name: { contains: search, mode: 'insensitive' } },
+                  { name: { contains: search, mode: 'insensitive' } },
                   { description: { contains: search, mode: 'insensitive' } },
                 ],
               }
@@ -64,33 +62,42 @@ export class MenusService {
     });
   }
 
-  async findAllSystemWide(query: ListQueryDto) {
-    const { skip = 0, take = 20, location, search } = query;
+  async findAllMenus(query: ListQueryDto) {
+    const { skip = 0, take = 20, search, location } = query;
 
-    return (this.prisma as any).menu.findMany({
+    const prismaQuery = buildQuery({
       skip,
       take,
-      where: {
-        AND: [
-          location ? { location } : {},
-          search
-            ? {
-                OR: [
-                  { Name: { contains: search, mode: 'insensitive' } },
-                  { description: { contains: search, mode: 'insensitive' } },
-                ],
-              }
-            : {},
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
+      search,
+      searchFields: ['name', 'description'],
+      filters: { location },
     });
+
+    const [data, total] = await Promise.all([
+      this.prisma.menu.findMany(prismaQuery),
+      this.prisma.menu.count({ where: prismaQuery.where }),
+    ]);
+
+    const page = Math.floor(skip / take) + 1;
+    const totalPages = Math.ceil(total / take);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        totalPages,
+        skip,
+        take,
+      },
+    };
   }
 
   async findOne(userId: string, id: string) {
-    const menu = await (this.prisma as any).menu.findUnique({ where: { id } });
+    const menu = await this.prisma.menu.findUnique({ where: { id } });
     if (!menu) throw new NotFoundException('Menu item not found');
-    if (menu.userId !== userId) throw new ForbiddenException('Not your menu item');
+    if (menu.userId !== userId)
+      throw new ForbiddenException('Not your menu item');
     return menu;
   }
 
@@ -100,27 +107,30 @@ export class MenusService {
     dto: UpdateMenuDto,
     file?: Express.Multer.File,
   ) {
-    const existing = await this.findOne(userId, id);
-    let imageUrl = existing.imageUrl;
+    // 1️⃣ Verify the menu belongs to the user
+    const existingMenu = await this.findOne(userId, id);
+    if (!existingMenu) {
+      throw new NotFoundException('Menu item not found');
+    }
 
+    let imageUrl = existingMenu.imageUrl;
+
+    // 2️⃣ If a new file is uploaded, replace image
     if (file) {
-      const uploadResult = await this.cloudinary.uploadLogo(file);
-      imageUrl = uploadResult.secure_url;
+      const { secure_url } = await this.cloudinary.uploadLogo(file);
+      imageUrl = secure_url;
     }
 
-   
-    if (!file && dto.imageUrl) {
-      imageUrl = dto.imageUrl;
-    }
-
-    const updateData: any = {
-      ...(dto.name ? { Name: dto.name } : {}),
-      ...(dto.description ? { description: dto.description } : {}),
-      ...(dto.location ? { location: dto.location } : {}),
+    // 3️⃣ Build update payload dynamically
+    const updateData = {
+      ...(dto.name && { name: dto.name }),
+      ...(dto.description && { description: dto.description }),
+      ...(dto.location && { location: dto.location }),
       imageUrl,
     };
 
-    return (this.prisma as any).menu.update({
+    // 4️⃣ Update record
+    return await this.prisma.menu.update({
       where: { id },
       data: updateData,
     });
@@ -128,7 +138,7 @@ export class MenusService {
 
   async remove(userId: string, id: string) {
     await this.findOne(userId, id);
-    await (this.prisma as any).menu.delete({ where: { id } });
+    await this.prisma.menu.delete({ where: { id } });
     return { message: 'Menu item deleted successfully' };
   }
 }
