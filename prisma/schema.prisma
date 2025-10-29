@@ -35,8 +35,7 @@ model User {
   updatedAt       DateTime         @updatedAt
   oauthProviders  OAuthProvider[]
   businessProfile BusinessProfile?
-  menus            Menu[]
-
+  menus           Menu[]
 }
 
 model OAuthProvider {
@@ -51,30 +50,29 @@ model OAuthProvider {
 }
 
 model BusinessProfile {
-  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
-  businessName       String
-  type               String
-  phoneNumber        String?
-  email              String
-  logoUrl            String?
-  address            String
-  openingHours       String
-  shortDesc          String?
-  userId             String   @unique @db.ObjectId
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  businessName String
+  type         String
+  phoneNumber  String?
+  email        String
+  logoUrl      String?
+  address      String
+  openingHours String
+  shortDesc    String?
+  userId       String   @unique @db.ObjectId
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Menu {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  Name        String
+  name        String
   description String?
   imageUrl    String?
   location    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  user        User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId      String   @db.ObjectId  
-
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String   @db.ObjectId
 }

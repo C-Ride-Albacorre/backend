@@ -1,28 +1,27 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsNumber, Min } from 'class-validator';
+// import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString, IsNumber } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ListQueryDto {
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @Min(0)
-  skip?: number = 0;
+  skip?: number;
 
   @ApiPropertyOptional({ example: 20 })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @Min(1)
-  take?: number = 20;
+  take?: number;
 
   @ApiPropertyOptional({ example: 'Main Restaurant' })
   @IsOptional()
   @IsString()
   location?: string;
 
-  @ApiPropertyOptional({ example: 'breakfast' })
+  @ApiPropertyOptional({ example: 'chicken' })
   @IsOptional()
   @IsString()
   search?: string;
