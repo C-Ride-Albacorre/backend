@@ -206,20 +206,17 @@ export class UserService {
       throw new NotFoundException('User not found');
     }
 
-    // 3️⃣ Check if the user has a password (in case of OAuth-only users)
     if (!user.password) {
       throw new BadRequestException(
         'Password change not allowed for OAuth users',
       );
     }
 
-    // 4️⃣ Compare current password
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
       throw new BadRequestException('Current password is incorrect');
     }
 
-    // 5️⃣ Prevent reusing old password
     const isSameAsOld = await bcrypt.compare(newPassword, user.password);
     if (isSameAsOld) {
       throw new BadRequestException(
@@ -227,10 +224,8 @@ export class UserService {
       );
     }
 
-    // 6️⃣ Hash new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // 7️⃣ Update password in DB
     await this.prisma.user.update({
       where: { id: userId },
       data: { password: hashedPassword },
