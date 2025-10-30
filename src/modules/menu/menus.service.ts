@@ -13,7 +13,6 @@ export class MenusService {
     private cloudinary: CloudinaryService,
   ) {}
 
-
   async create(userId: string, dto: CreateMenuDto, file?: Express.Multer.File) {
     let imageUrl: string | null = null;
 
@@ -39,27 +38,34 @@ export class MenusService {
   }
 
   async findUserMenu(userId: string, query: ListQueryDto) {
-    const { skip = 0, take = 20, location, search } = query;
+    const { skip = 0, take = 20, search, location } = query;
 
-    return this.prisma.menu.findMany({
+    const prismaQuery = buildQuery({
       skip,
       take,
-      where: {
-        AND: [
-          { userId },
-          location ? { location } : {},
-          search
-            ? {
-                OR: [
-                  { name: { contains: search, mode: 'insensitive' } },
-                  { description: { contains: search, mode: 'insensitive' } },
-                ],
-              }
-            : {},
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
+      search,
+      searchFields: ['name', 'description'],
+      filters: { userId, location },
     });
+
+    const [data, total] = await Promise.all([
+      this.prisma.menu.findMany(prismaQuery),
+      this.prisma.menu.count({ where: prismaQuery.where }),
+    ]);
+
+    const page = Math.floor(skip / take) + 1;
+    const totalPages = Math.ceil(total / take);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        totalPages,
+        skip,
+        take,
+      },
+    };
   }
 
   async findAllMenus(query: ListQueryDto) {
