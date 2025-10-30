@@ -43,4 +43,7 @@ export class CreateBusinessProfileDto {
   @IsString()
   @IsOptional()
   shortDescription?: string;
+
+  @ApiPropertyOptional({ type: 'string', format: 'binary', description: 'Business logo image file (optional). If provided, it overrides logoUrl.' })
+  file?: any;
 }
