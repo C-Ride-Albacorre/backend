@@ -13,6 +13,7 @@ import {
   ApiConsumes,
   ApiOperation,
   ApiResponse,
+  ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
@@ -22,6 +23,7 @@ import { CreateBusinessProfileDto } from './dto/create-business-profile.dto';
 import { ApiResponseDto } from 'src/common/dto/api-response.dto';
 import { ApiErrorResponseDto } from 'src/common/dto/api-error-response.dto';
 
+@ApiTags('User')
 @Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) {}
