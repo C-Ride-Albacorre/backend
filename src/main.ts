@@ -129,7 +129,7 @@ async function bootstrap() {
     .setDescription('API documentation for the Clear Essence backend.')
     .setVersion('1.0')
     .addBearerAuth()
-    .addTag('clear-essence')
+    .addTag('') //Clear Essence
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
