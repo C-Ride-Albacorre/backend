@@ -20,6 +20,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 import { ConfigService } from '@nestjs/config';
+import { OAuthProviderType } from '@prisma/client';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -28,7 +29,6 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly userService: UserService,
     private config: ConfigService,
-    
   ) {}
 
   @Post('signup')
@@ -118,12 +118,11 @@ export class AuthController {
   // Initiates Google OAuth redirect
   @Get('google')
   @ApiOperation({ summary: 'Login with Google OAuth' })
-  @UseGuards(GoogleAuthGuard)  /* passport google */ // register passport route in module
+  @UseGuards(GoogleAuthGuard) /* passport google */ // register passport route in module
   // The route setup for redirect will be handled by passport middleware; in Nest you can do redirect flow in separate controller wired to passport
   async googleLogin() {
     return { msg: 'Redirect to Google' }; // passport will redirect
   }
-
 
   /**
    * Handles Google OAuth callback
@@ -132,17 +131,16 @@ export class AuthController {
   @UseGuards(GoogleAuthGuard)
   @ApiOperation({ summary: 'Google OAuth callback (JWT returned or redirect)' })
   async googleCallback(@Req() req: Request, @Res() res: Response) {
-    const result = req.user as any;
+    const googleUser = req.user as any;
+    const jwtPayload = await this.authService.handleOAuthCallback(
+      googleUser,
+      OAuthProviderType.GOOGLE,
+    );
 
-    // Option 1: Return JWT to frontend as JSON
-    // return res.status(HttpStatus.OK).json(result);
-
-    // Option 2: Redirect to frontend with token in URL
-    
     const frontendUrl = this.config.get('FRONTEND_URL');
     if (!frontendUrl) throw new Error('FRONTEND_URL not configured');
 
-    const redirectUrl = `${frontendUrl}/login-success?token=${result.accessToken}`;
+    const redirectUrl = `${frontendUrl}/redirect?token=${jwtPayload.accessToken}`;
     return res.redirect(redirectUrl);
   }
 }
