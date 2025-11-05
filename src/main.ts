@@ -150,7 +150,7 @@ async function bootstrap() {
   const metricsPort = process.env.METRICS_PORT || 9100;
   metricsApp.listen(metricsPort, () =>
     appLogger.log(
-      `✅ Prometheus metrics available on: http://localhost:${metricsPort}/metrics`,
+      `✅ Prometheus metrics available on: http://${process.env.BACKEND_URI}:${metricsPort}/metrics`,
     ),
   );
 
@@ -162,12 +162,12 @@ async function bootstrap() {
   const port = process.env.PORT || 4000;
   await app.listen(port);
 
-  appLogger.log(`🚀 Application running on: http://localhost:${port}/api`);
+  appLogger.log(`🚀 Application running on: http://${process.env.BACKEND_URI}:${port}/api`);
   appLogger.log(
-    `📘 Swagger docs available at: http://localhost:${port}/api/docs`,
+    `📘 Swagger docs available at: http://${process.env.BACKEND_URI}:${port}/api/docs`,
   );
   appLogger.log(
-    `📊 Metrics available at: http://localhost:${metricsPort}/metrics`,
+    `📊 Metrics available at: http://${process.env.BACKEND_URI}:${metricsPort}/metrics`,
   );
 
   // ================= Graceful Exit (Optional Extra Safety) =================
