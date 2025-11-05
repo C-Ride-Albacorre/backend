@@ -16,7 +16,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       clientSecret: configService.get<string>('GOOGLE_CLIENT_SECRET'),
       callbackURL:
         configService.get<string>('GOOGLE_CALLBACK_URL') ||
-        'http://localhost:4000/api/v1/auth/google/callback',
+        'https://staging.menuapi.tezzasolutions.com/api/v1/auth/google/callback',
       scope: ['email', 'profile'],
     });
   }
