@@ -158,7 +158,8 @@ export class AuthService {
     // sign token
     return this.signJwt(user);
   }
-
+  
+  /* ---------- OAuth (Google) ---------- */
   async handleOAuthCallback(profile: any, provider: OAuthProviderType) {
     if (!profile?.email) {
       throw new BadRequestException(`${provider} account has no email`);
