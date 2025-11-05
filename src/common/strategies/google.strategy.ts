@@ -10,7 +10,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     super({
       clientID: config.get('GOOGLE_CLIENT_ID'),
       clientSecret: config.get('GOOGLE_CLIENT_SECRET'),
-      callbackURL: `${config.get('BACKEND_URL')}/auth/google/callback`,
+      callbackURL: `${config.get('GOOGLE_CALLBACK_URL')} || https://clear-essence-backend.onrender.com/api/v1/auth/google/callback`,
       scope: ['email', 'profile'],
     });
   }
