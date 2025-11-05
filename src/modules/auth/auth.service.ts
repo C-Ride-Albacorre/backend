@@ -16,6 +16,7 @@ import * as jwt from 'jsonwebtoken';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { LoginDto } from './dto/login.dto';
+import { OAuthProviderType } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -24,8 +25,6 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private mailGunService: MailGunService,
-    
-
   ) {}
 
   async signup(dto: SignupDto) {
@@ -157,6 +156,23 @@ export class AuthService {
     });
 
     // sign token
+    return this.signJwt(user);
+  }
+
+  async handleOAuthCallback(profile: any, provider: OAuthProviderType) {
+    if (!profile?.email) {
+      throw new BadRequestException(`${provider} account has no email`);
+    }
+
+    // Call existing helper in UserService
+    const user = await this.userService.createOrGetOAuthUser({
+      email: profile.email,
+      name: `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim(),
+      provider,
+      providerId: profile.id, // Google ID
+    });
+
+    // Sign JWT (same as manual signup)
     return this.signJwt(user);
   }
 }
