@@ -13,7 +13,11 @@ export class MenusService {
     private cloudinary: CloudinaryService,
   ) {}
 
-  async createold(userId: string, dto: CreateMenuDto, file?: Express.Multer.File) {
+  async createold(
+    userId: string,
+    dto: CreateMenuDto,
+    file?: Express.Multer.File,
+  ) {
     let imageUrl: string | null = null;
 
     // Upload image if provided
@@ -42,8 +46,9 @@ export class MenusService {
     let fileUrl: string | null = null;
 
     if (file) {
-      const { secure_url } = await this.cloudinary.uploadFile(file);
-      fileUrl = secure_url;
+
+      const { rawUrl, viewableUrl } = await this.cloudinary.uploadFile(file);
+      fileUrl = rawUrl;
     }
 
     const data = {
@@ -55,8 +60,7 @@ export class MenusService {
       userId,
     };
 
-    const menu = await this.prisma.menu.create({ data });
-    return menu;
+    return this.prisma.menu.create({ data });
   }
 
   async findUserMenu(userId: string, query: ListQueryDto) {
