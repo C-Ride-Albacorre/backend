@@ -28,7 +28,7 @@ enum OAuthProviderType {
 model User {
   id              String           @id @default(auto()) @map("_id") @db.ObjectId
   email           String           @unique
-  password        String? // null when OAuth-only
+  password        String?         // null when OAuth-only
   name            String?
   roles           Role[]           @default([USER])
   createdAt       DateTime         @default(now())
@@ -71,7 +71,8 @@ model Menu {
   name        String
   description String?
   imageUrl    String?
-  location    String?
+  category    String?
+  type        String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
