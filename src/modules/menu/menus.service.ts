@@ -99,11 +99,11 @@ export class MenusService {
     };
   }
 
-  async findOne(userId: string, id: string) {
+  async findOne(id: string) {
     const menu = await this.prisma.menu.findUnique({ where: { id } });
     if (!menu) throw new NotFoundException('Menu item not found');
-    if (menu.userId !== userId)
-      throw new ForbiddenException('Not your menu item');
+    // if (menu.userId !== userId)
+    //   throw new ForbiddenException('Not your menu item');
     return menu;
   }
 
@@ -114,7 +114,7 @@ export class MenusService {
     file?: Express.Multer.File,
   ) {
     // 1️⃣ Verify the menu belongs to the user
-    const existingMenu = await this.findOne(userId, id);
+    const existingMenu = await this.findOne(id);
     if (!existingMenu) {
       throw new NotFoundException('Menu item not found');
     }
@@ -143,7 +143,7 @@ export class MenusService {
   }
 
   async remove(userId: string, id: string) {
-    await this.findOne(userId, id);
+    await this.findOne(id);
     await this.prisma.menu.delete({ where: { id } });
     return { message: 'Menu item deleted successfully' };
   }

@@ -24,11 +24,11 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 
 @ApiTags('Menu')
 @Controller('menu')
-@UseGuards(JwtAuthGuard)
-@ApiBearerAuth()
 export class MenusController {
   constructor(private readonly menusService: MenusService) {}
-
+  
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @Post()
   @ApiOperation({ summary: 'Create a new menu item' })
   @UseInterceptors(FileInterceptor('file'))
@@ -53,7 +53,7 @@ export class MenusController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List all menu items (SUPER_ADMIN only)' })
+  @ApiOperation({ summary: 'List all menu items' })
   //@Roles(UserRole.SuperAdmin)
   findAllMenus(@Query() query: ListQueryDto) {
     return this.menusService.findAllMenus(query);
@@ -67,10 +67,12 @@ export class MenusController {
 
   @Get(':id')
   @ApiOperation({
-    summary: 'Get a single menu item by ID (owned by requester)',
+    summary: 'Get a single menu item by ID',
   })
-  findOne(@GetUser('id') userId: string, @Param('id') id: string) {
-    return this.menusService.findOne(userId, id);
+  findOne(
+    //@GetUser('id') userId: string, 
+    @Param('id') id: string) {
+    return this.menusService.findOne(id);
   }
 
   @Put(':id')
