@@ -26,7 +26,8 @@ export class MenusService {
     const data = {
       name: dto.name,
       description: dto.description,
-      location: dto.location,
+      category: dto.category,
+      type: dto.type,
       imageUrl,
       userId,
     };
@@ -38,14 +39,14 @@ export class MenusService {
   }
 
   async findUserMenu(userId: string, query: ListQueryDto) {
-    const { skip = 0, take = 20, search, location } = query;
+    const { skip = 0, take = 20, search, category, type } = query;
 
     const prismaQuery = buildQuery({
       skip,
       take,
       search,
       searchFields: ['name', 'description'],
-      filters: { userId, location },
+      filters: { userId, category, type },
     });
 
     const [data, total] = await Promise.all([
@@ -69,14 +70,14 @@ export class MenusService {
   }
 
   async findAllMenus(query: ListQueryDto) {
-    const { skip = 0, take = 20, search, location } = query;
+    const { skip = 0, take = 20, search, category, type } = query;
 
     const prismaQuery = buildQuery({
       skip,
       take,
       search,
       searchFields: ['name', 'description'],
-      filters: { location },
+      filters: { category, type },
     });
 
     const [data, total] = await Promise.all([
@@ -131,7 +132,8 @@ export class MenusService {
     const updateData = {
       ...(dto.name && { name: dto.name }),
       ...(dto.description && { description: dto.description }),
-      ...(dto.location && { location: dto.location }),
+      ...(dto.category && { category: dto.category }),
+      ...(dto.type && { type: dto.type }),
       imageUrl,
     };
 

@@ -11,14 +11,21 @@ export class CreateMenuDto {
   @IsString()
   description?: string;
 
+  @ApiPropertyOptional({ example: 'Main Restaurant' })
+  @IsOptional()
+  @IsString()
+  category?: string;
 
   @ApiPropertyOptional({ example: 'Main Restaurant' })
   @IsOptional()
   @IsString()
-  location?: string;
+  type?: string;
 
-  @ApiPropertyOptional({ type: 'string', format: 'binary', description: 'Menu image file (optional). If provided, it overrides imageUrl.' })
+  @ApiPropertyOptional({
+    type: 'string',
+    format: 'binary',
+    description:
+      'Menu image file (optional). If provided, it overrides imageUrl.',
+  })
   file?: any;
-
-
 }

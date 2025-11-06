@@ -19,7 +19,12 @@ export class ListQueryDto {
   @ApiPropertyOptional({ example: 'Main Restaurant' })
   @IsOptional()
   @IsString()
-  location?: string;
+  category?: string;
+
+  @ApiPropertyOptional({ example: 'Main Restaurant' })
+  @IsOptional()
+  @IsString()
+  type?: string;
 
   @ApiPropertyOptional({ example: 'chicken' })
   @IsOptional()

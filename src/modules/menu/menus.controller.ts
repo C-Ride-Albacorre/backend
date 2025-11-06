@@ -38,7 +38,8 @@ export class MenusController {
       type: 'object',
       properties: {
         name: { type: 'string' },
-        location: { type: 'string' },
+        category: { type: 'string' },
+        type: { type: 'string' },
         description: { type: 'string' },
         file: { type: 'string', format: 'binary' },
       },
