@@ -26,7 +26,7 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 @Controller('menu')
 export class MenusController {
   constructor(private readonly menusService: MenusService) {}
-  
+
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @Post()
@@ -59,6 +59,8 @@ export class MenusController {
     return this.menusService.findAllMenus(query);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @Get('/user')
   @ApiOperation({ summary: 'Get menus for the current user' })
   findUserMenu(@GetUser('id') userId: string, @Query() query: ListQueryDto) {
@@ -70,11 +72,14 @@ export class MenusController {
     summary: 'Get a single menu item by ID',
   })
   findOne(
-    //@GetUser('id') userId: string, 
-    @Param('id') id: string) {
+    //@GetUser('id') userId: string,
+    @Param('id') id: string,
+  ) {
     return this.menusService.findOne(id);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @Put(':id')
   @ApiOperation({ summary: 'Update a menu item' })
   @UseInterceptors(FileInterceptor('file'))
@@ -88,6 +93,8 @@ export class MenusController {
     return this.menusService.update(userId, id, dto, file);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a menu item' })
   remove(@GetUser('id') userId: string, @Param('id') id: string) {
