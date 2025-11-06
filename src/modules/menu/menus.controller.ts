@@ -54,7 +54,7 @@ export class MenusController {
 
   @Get()
   @ApiOperation({ summary: 'List all menu items (SUPER_ADMIN only)' })
-  @Roles(UserRole.SuperAdmin)
+  //@Roles(UserRole.SuperAdmin)
   findAllMenus(@Query() query: ListQueryDto) {
     return this.menusService.findAllMenus(query);
   }
