@@ -57,7 +57,7 @@ export class UserService {
     });
   }
 
-  async createOrGetOAuthUser({
+  async createOrGetOAuthUserold({
     email,
     name,
     provider,
@@ -89,6 +89,63 @@ export class UserService {
     }
 
     // 3. Create new user
+    const newUser = await this.prisma.user.create({
+      data: {
+        email,
+        name,
+        roles: ['USER'],
+        oauthProviders: {
+          create: { provider, providerId },
+        },
+      },
+    });
+
+    return newUser;
+  }
+
+  async createOrGetOAuthUser({
+    email,
+    name,
+    provider,
+    providerId,
+  }: {
+    email?: string;
+    name?: string;
+    provider: OAuthProviderType;
+    providerId: string;
+  }) {
+    // 1️⃣ Check if OAuth provider already exists (return existing user)
+    const existingProvider = await this.prisma.oAuthProvider.findUnique({
+      where: { provider_providerId: { provider, providerId } },
+      include: { user: true },
+    });
+
+    if (existingProvider) {
+      // update user info if needed (e.g., profile name changed on Google)
+      await this.prisma.user.update({
+        where: { id: existingProvider.user.id },
+        data: {
+          name: name || existingProvider.user.name,
+          updatedAt: new Date(),
+        },
+      });
+      return existingProvider.user;
+    }
+
+    // 2️⃣ If no provider found but user exists by email, link provider to user
+    if (email) {
+      const userByEmail = await this.prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (userByEmail) {
+        // ensure provider is attached
+        await this.attachOAuthProvider(userByEmail.id, provider, providerId);
+        return userByEmail;
+      }
+    }
+
+    // 3️⃣ Create a new user (first-time Google signup)
     const newUser = await this.prisma.user.create({
       data: {
         email,
@@ -153,7 +210,6 @@ export class UserService {
     file?: Express.Multer.File,
   ) {
     let logoUrl: string | undefined;
-    
 
     if (file) {
       const uploadResult = await this.cloudinary.uploadLogo(file);
@@ -186,7 +242,6 @@ export class UserService {
       data: { ...data, userId },
     });
   }
-
 
   async changePassword(
     userId: string,
