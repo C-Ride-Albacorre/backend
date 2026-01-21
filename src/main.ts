@@ -1,186 +1,100 @@
+import './otel';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
-import { ValidationPipe, VersioningType, Logger } from '@nestjs/common';
-import { HttpAdapterHost } from '@nestjs/core';
+import { ValidationPipe, VersioningType } from '@nestjs/common';
 import helmet from 'helmet';
+import * as morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import * as compression from 'compression';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import * as xss from 'xss-clean';
+import * as hpp from 'hpp';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { WinstonModule } from 'nest-winston';
 import * as winston from 'winston';
-import * as client from 'prom-client';
-import * as express from 'express';
-import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
-import { PrismaService } from './shared/services/prisma.service';
-import { TransformInterceptor } from './common/interceptors/transform.interceptor';
-import * as path from 'path';
-import * as fs from 'fs';
-import { engine } from 'express-handlebars';
-import * as Handlebars from 'handlebars';
-import { NestExpressApplication } from '@nestjs/platform-express';
+import { ConfigService } from '@nestjs/config';
+import { requestIdMiddleware } from './common/middleware/request-id.middleware';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { setupHandlebars } from './views/bootstrap/views.bootstrap';
 
 async function bootstrap() {
-  // ================= Winston Logger Setup =================
   const logger = WinstonModule.createLogger({
-    transports: [
-      new winston.transports.Console({
-        format: winston.format.combine(
-          winston.format.timestamp(),
-          winston.format.colorize(),
-          winston.format.printf(({ timestamp, level, message, context }) => {
-            return `[${timestamp}] ${level} ${context ? `[${context}]` : ''}: ${message}`;
-          }),
-        ),
-      }),
-      new winston.transports.File({
-        filename: 'logs/combined.log',
-        format: winston.format.combine(
-          winston.format.timestamp(),
-          winston.format.json(),
-        ),
-      }),
-    ],
+    level: process.env.LOG_LEVEL || 'info',
+    transports: [new winston.transports.Console()],
   });
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    bufferLogs: true,
     logger,
+    bufferLogs: true,
   });
 
-  const appLogger = new Logger('Bootstrap');
+  const config = app.get(ConfigService);
+
+  if (config.get('ENABLE_VIEWS') === 'true') {
+    setupHandlebars(app);
+  }
+
+  app.use(requestIdMiddleware);
 
   // ================= Security Middlewares =================
+
   app.use(helmet());
-  // app.use(
-  //   rateLimit({
-  //     windowMs: 15 * 60 * 1000, // 15 mins
-  //     max: 100, // limit each IP
-  //     standardHeaders: true,
-  //     legacyHeaders: false,
-  //   }),
-  // );
 
-  // ================= Performance =================
-  app.use(compression()); // Reduce response payload size
-
-  // ================= Global Configurations =================
+  //   // ================= Global Configurations =================
   app.enableCors({
-    origin: process.env.CLIENT_URL || '*',
+    origin: process.env.CLIENT_URL,
     credentials: true,
   });
 
-  app.setGlobalPrefix('api');
+  // ================= Performance =================
+  app.use(compression({ threshold: 1024 })); // Reduce response payload size
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
+  // =================  Sanitization =================
+  app.use(hpp());
+  app.use(xss());
+
+  // ================= Security Middlewares =================
+  app.use(
+    rateLimit({
+      windowMs: config.get('RATE_LIMIT_WINDOW_MS', 60000),
+      max: config.get('RATE_LIMIT_MAX', 100),
     }),
   );
 
+  // ================= Observability =================
+  app.use(morgan('combined'));
+
+  app.setGlobalPrefix('api');
   app.enableVersioning({
     type: VersioningType.URI,
     defaultVersion: '1',
   });
 
-  // ================= Global Exception Filter =================
-  const httpAdapterHost = app.get(HttpAdapterHost);
-  app.useGlobalFilters(new GlobalExceptionFilter(httpAdapterHost));
-
-  // ================= Global Response Transform Interceptor =================
-  app.useGlobalInterceptors(new TransformInterceptor());
-
-  // ================= Handlebars View Engine Setup =================
-  const partialsDir = path.join(__dirname, '..', 'views', 'partials');
-  const layoutsDir = path.join(__dirname, '..', 'views', 'layouts');
-  const viewsDir = path.join(__dirname, '..', 'views');
-  const publicDir = path.join(__dirname, '..', 'public');
-
-  if (fs.existsSync(partialsDir)) {
-    fs.readdirSync(partialsDir).forEach((file) => {
-      const filePath = path.join(partialsDir, file);
-      const partialName = path.basename(file, '.hbs');
-      const partialTemplate = fs.readFileSync(filePath, 'utf8');
-      Handlebars.registerPartial(partialName, partialTemplate);
-    });
-    appLogger.log(`🧩 Handlebars partials loaded from: ${partialsDir}`);
-  } else {
-    appLogger.warn(`⚠️ Partials directory not found: ${partialsDir}`);
-  }
-
-  app.engine(
-    'hbs',
-    engine({
-      extname: '.hbs',
-      defaultLayout: false,
-      layoutsDir,
-      partialsDir,
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      forbidNonWhitelisted: true,
     }),
   );
 
-  app.setBaseViewsDir(viewsDir);
-  app.useStaticAssets(publicDir);
-  app.setViewEngine('hbs');
+  app.useGlobalInterceptors(new LoggingInterceptor());
 
-  // ================= Swagger Documentation =================
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Clear Essence API')
-    .setDescription('API documentation for the Clear Essence backend.')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .addTag('') //Clear Essence
-    .build();
+  if (config.get('NODE_ENV') !== 'production') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('C-RIDE API')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: { persistAuthorization: true },
-  });
+    SwaggerModule.setup(
+      'api/docs',
+      app,
+      SwaggerModule.createDocument(app, swaggerConfig),
+    );
+  }
 
-  // ================= Prometheus Metrics Setup =================
-  const collectDefaultMetrics = client.collectDefaultMetrics;
-  collectDefaultMetrics();
-
-  const metricsApp = express();
-  metricsApp.get('/metrics', async (req, res) => {
-    res.set('Content-Type', client.register.contentType);
-    res.end(await client.register.metrics());
-  });
-
-  const metricsPort = process.env.METRICS_PORT || 9100;
-  metricsApp.listen(metricsPort, () =>
-    appLogger.log(
-      `✅ Prometheus metrics available on: ${process.env.BACKEND_URI}:${metricsPort}/metrics`,
-    ),
-  );
-
-  // ================= Prisma Graceful Shutdown =================
-  const prismaService = app.get(PrismaService);
-  await prismaService.enableShutdownHooks(); // handled via signals
-
-  // ================= Start Application =================
-  const port = process.env.PORT || 4000;
-  await app.listen(port);
-
-  appLogger.log(
-    `🚀 Application running on: ${process.env.BACKEND_URI}:${port}/api`,
-  );
-  appLogger.log(
-    `📘 Swagger docs available at: ${process.env.BACKEND_URI}:${port}/api/docs`,
-  );
-  appLogger.log(
-    `📊 Metrics available at: ${process.env.BACKEND_URI}:${metricsPort}/metrics`,
-  );
-
-  // ================= Graceful Exit (Optional Extra Safety) =================
-  const shutdown = async (signal: string) => {
-    appLogger.warn(`\n🛑 Received ${signal}. Shutting down gracefully...`);
-    await app.close();
-    process.exit(0);
-  };
-
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  await app.listen(config.get('PORT', 4000));
 }
 
 bootstrap();
