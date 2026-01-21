@@ -7,6 +7,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 import { MenusModule } from './modules/menu/menus.module';
 import { ConfigModule } from '@nestjs/config';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { ConfigModule } from '@nestjs/config';
     AuthModule,
     UserModule,
     MenusModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],

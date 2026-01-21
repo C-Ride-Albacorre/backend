@@ -43,7 +43,7 @@ export class MailGunService {
   // ==============================
   async sendEmail(to: string, subject: string, html: string) {
     const data = {
-      from: `${process.env.APP_NAME || 'Clear Essence'} - ${process.env.DEFAULT_MAILER}`,
+      from: `${process.env.APP_NAME || 'C-Ride'} - ${process.env.DEFAULT_MAILER}`,
       to,
       subject,
       html,
@@ -101,7 +101,7 @@ export class MailGunService {
     const html = this.renderTemplate(template, arg.context);
 
     const data = {
-      from: `${process.env.APP_NAME || 'Clear Essence'} - ${process.env.DEFAULT_MAILER}`,
+      from: `${process.env.APP_NAME || 'C-Ride'} - ${process.env.DEFAULT_MAILER}`,
       to: arg.to,
       subject: arg.subject,
       html,
