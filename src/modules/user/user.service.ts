@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
-import { SignupDto } from '../auth/dto/signup.dto';
+import { CreateCustomerDto } from '../auth/dto/signup.dto';
 import { OAuthProviderType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { CreateBusinessProfileDto } from './dto/create-business-profile.dto';
@@ -18,7 +18,7 @@ export class UserService {
     private cloudinary: CloudinaryService,
   ) {}
 
-  async createUser(dto: SignupDto, hashedPassword: string) {
+  async createUser(dto: CreateCustomerDto, hashedPassword: string) {
     const emailLower = dto.email.toLowerCase();
     const user = await this.prisma.user.create({
       data: {
@@ -288,4 +288,6 @@ export class UserService {
 
     return { message: 'Password changed successfully' };
   }
+
+  
 }

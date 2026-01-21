@@ -2,13 +2,14 @@ import { Controller, Post, Body, Get, UseGuards, Put, Req, Res } from '@nestjs/c
 import { Request, Response } from 'express';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { AuthResponseDto } from './dto/auth-response.dto';
-import { SignupDto } from './dto/signup.dto';
+import { CreateCustomerDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
@@ -31,8 +32,17 @@ export class AuthController {
     private config: ConfigService,
   ) {}
 
-  @Post('signup')
-  @ApiOperation({ summary: 'Register a new user' })
+  //CUSTOMER
+  @Post('/customer/signup')
+  @ApiOperation({ summary: 'Sign up a new customer' })
+  @ApiBody({
+    type: CreateCustomerDto,
+    description: 'Sign up a new customer',
+    required: true,
+    schema: {
+      example: { email: 'user@example.com', password: 'password' },
+    },
+  })
   @ApiResponse({
     status: 201,
     description: 'User successfully registered',
@@ -43,8 +53,8 @@ export class AuthController {
     description: 'Validation or bad request error',
     type: ApiErrorResponseDto,
   })
-  async signup(@Body() dto: SignupDto) {
-    return this.authService.signup(dto);
+  async createCustomer(@Body() dto: CreateCustomerDto) {
+    return this.authService.createCustomer(dto);
   }
 
   @Post('login')
