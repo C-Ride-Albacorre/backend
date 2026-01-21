@@ -9,7 +9,7 @@ import { UserService } from '../user/user.service';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { SignupDto } from './dto/signup.dto';
+import { CreateCustomerDto } from './dto/signup.dto';
 import { ConfigService } from '@nestjs/config';
 import { MailGunService } from '../../shared/services/mailgun.service';
 import * as jwt from 'jsonwebtoken';
@@ -27,7 +27,7 @@ export class AuthService {
     private mailGunService: MailGunService,
   ) {}
 
-  async signup(dto: SignupDto) {
+  async createCustomer(dto: CreateCustomerDto) {
     const existing = await this.userService.findByEmail(dto.email);
     if (existing) throw new BadRequestException('Email already in use');
 
@@ -158,7 +158,7 @@ export class AuthService {
     // sign token
     return this.signJwt(user);
   }
-  
+
   /* ---------- OAuth (Google) ---------- */
   async handleOAuthCallback(profile: any, provider: OAuthProviderType) {
     if (!profile?.email) {

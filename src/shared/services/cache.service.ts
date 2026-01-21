@@ -1,30 +1,12 @@
-
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-  Optional,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import Keyv from 'keyv';
 import KeyvRedis from '@keyv/redis';
-import { createClient, RedisClientType } from 'redis';
+import { RedisClientType, createClient } from 'redis';
 
 export interface CacheServiceOptions {
-  /** Redis connection URL */
-  redisUrl?: string;
-
-  /** Default TTL in seconds */
   defaultTtl?: number;
-
-  /** Namespace for cache keys */
   namespace?: string;
-
-  /** Enable compression */
-  compression?: boolean;
-
-  /** Connection timeout in milliseconds */
-  connectTimeout?: number;
 }
 
 export interface CacheHealth {
@@ -34,332 +16,216 @@ export interface CacheHealth {
 }
 
 @Injectable()
-export class CacheService implements OnModuleInit, OnModuleDestroy {
+export class CacheService implements OnModuleDestroy {
   private readonly logger = new Logger(CacheService.name);
-  private cache: Keyv;
-  private redisClient: RedisClientType;
-  private isConnected = false;
-  private readonly options: Required<CacheServiceOptions>;
+  private cache!: Keyv;
+  private redisClient?: RedisClientType;
+  private isRedis = false;
+  private redisConnected = false;
 
-  private readonly DEFAULT_OPTIONS: Required<CacheServiceOptions> = {
-    redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
-    defaultTtl: parseInt(process.env.REDIS_TTL || '600', 10),
-    namespace: process.env.REDIS_NAMESPACE || 'app:cache',
-    compression: process.env.REDIS_COMPRESSION === 'true',
-    connectTimeout: parseInt(process.env.REDIS_CONNECT_TIMEOUT || '5000', 10),
-  };
+  // Metrics
+  private hitCount = 0;
+  private missCount = 0;
 
-  constructor(@Optional() options?: CacheServiceOptions) {
-    this.options = { ...this.DEFAULT_OPTIONS, ...options };
+  private readonly DEFAULT_TTL =
+    parseInt(process.env.REDIS_TTL || '600', 10) * 1000;
 
-    this.initializeRedisClient();
+  constructor(@Inject(CACHE_MANAGER) cache: Keyv) {
+    this.cache = cache;
+    this.isRedis = !!(cache as any)?.opts?.store;
+
+    if (this.isRedis) {
+      this.logger.log('⚡ CacheService initialized with Redis store');
+      this.redisClient = (this.cache.opts.store as KeyvRedis<RedisClientType>)
+        .client as RedisClientType;
+
+      this.setupRedisEvents();
+    } else {
+      this.logger.warn(
+        '⚠️ CacheService using in-memory cache (Redis not configured)',
+      );
+    }
+
+    this.cache.on('error', (err) => {
+      this.logger.error('Cache error', err);
+    });
   }
 
-  private initializeRedisClient(): void {
-    this.redisClient = createClient({
-      url: this.options.redisUrl,
-      socket: {
-        connectTimeout: this.options.connectTimeout,
-        reconnectStrategy: (retries) => {
-          this.logger.warn(`Redis reconnecting attempt ${retries}`);
-          return Math.min(retries * 100, 3000);
-        },
-      },
-    });
+  /** Setup Redis events for hot-reconnect and graceful fallback */
+  private setupRedisEvents() {
+    if (!this.redisClient) return;
 
-    // Event listeners
     this.redisClient.on('connect', () => {
-      this.logger.debug('Redis client connecting...');
+      this.logger.debug('Redis connecting...');
     });
 
     this.redisClient.on('ready', () => {
-      this.isConnected = true;
-      this.logger.log('✅ Redis client ready');
+      this.redisConnected = true;
+      this.logger.log('✅ Redis connected and ready');
     });
 
     this.redisClient.on('end', () => {
-      this.isConnected = false;
-      this.logger.warn('Redis client disconnected');
+      this.redisConnected = false;
+      this.logger.warn(
+        '⚠️ Redis connection closed, falling back to memory cache',
+      );
     });
 
-    this.redisClient.on('error', (error) => {
-      this.logger.error(`Redis client error: ${error.message}`, error.stack);
+    this.redisClient.on('error', (err) => {
+      this.redisConnected = false;
+      this.logger.error('Redis client error', err);
     });
-  }
 
-  async onModuleInit(): Promise<void> {
-    this.logger.log('Initializing CacheService...');
-
-    try {
-      // Connect Redis client with timeout
-      await Promise.race([
-        this.redisClient.connect(),
-        new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Redis connection timeout')),
-            this.options.connectTimeout,
-          ),
-        ),
-      ]);
-
-      // Initialize Keyv with Redis store
-      this.cache = new Keyv({
-        store: new KeyvRedis(this.redisClient),
-        ttl: this.options.defaultTtl * 1000, // Convert to milliseconds
-        namespace: this.options.namespace,
-        compression: this.options.compression,
-        serialize: JSON.stringify,
-        deserialize: JSON.parse,
-      });
-
-      // Keyv error handling
-      this.cache.on('error', (error) => {
-        this.logger.error(`Keyv error: ${error.message}`, error.stack);
-      });
-
-      // Health check
-      const health = await this.checkHealth();
-      if (health.status === 'healthy') {
-        this.logger.log(`✅ CacheService ready (latency: ${health.latency}ms)`);
-      } else {
-        throw new Error(`Cache health check failed: ${health.error}`);
-      }
-    } catch (error) {
-      this.logger.error('❌ CacheService failed to initialize', error);
-      throw error; // Re-throw to fail startup
-    }
+    // Hot-reconnect logic
+    this.redisClient.on('reconnecting', (delay: number) => {
+      this.logger.warn(`Redis reconnecting in ${delay}ms...`);
+    });
   }
 
   async onModuleDestroy(): Promise<void> {
-    this.logger.log('Disconnecting CacheService...');
-
     try {
-      if (this.redisClient && this.redisClient.isOpen) {
+      if (this.redisClient?.isOpen) {
         await this.redisClient.quit();
       }
-      this.logger.log('✅ CacheService disconnected');
-    } catch (error) {
-      this.logger.error('Error during CacheService disconnect', error);
-    } finally {
-      this.isConnected = false;
+      await this.cache.clear();
+      this.logger.log('CacheService shutdown complete');
+    } catch (err) {
+      this.logger.error('Error during CacheService shutdown', err);
     }
   }
 
-  /**
-   * Check cache health and latency
-   */
+  /** Health check + latency */
   async checkHealth(): Promise<CacheHealth> {
     try {
       const start = Date.now();
-      await this.cache.set('healthcheck', 'ok', 1000);
-      const value = await this.cache.get('healthcheck');
+      await this.cache.set('__health__', 'ok', 1000);
+      const value = await this.cache.get('__health__');
       const latency = Date.now() - start;
 
-      if (value === 'ok') {
-        return { status: 'healthy', latency };
-      }
-      return {
-        status: 'unhealthy',
-        error: 'Health check value mismatch',
-      };
-    } catch (error) {
-      return {
-        status: 'unhealthy',
-        error: error.message,
-      };
+      if (value === 'ok') return { status: 'healthy', latency };
+      return { status: 'unhealthy', error: 'Health check value mismatch' };
+    } catch (err: any) {
+      return { status: 'unhealthy', error: err.message };
     }
   }
 
-  /**
-   * Get cached value with type safety
-   */
+  /** Get value with hit/miss metrics */
   async get<T = any>(key: string): Promise<T | undefined> {
-    if (!this.isConnected) {
-      this.logger.warn(`Cache not connected, skipping get for key: ${key}`);
-      return undefined;
-    }
-
     try {
       const value = await this.cache.get<T>(key);
+      if (value === undefined) this.missCount++;
+      else this.hitCount++;
 
-      if (value === undefined) {
-        this.logger.debug(`Cache miss for key: ${key}`);
-      } else {
-        this.logger.debug(`Cache hit for key: ${key}`);
-      }
+      this.logger.debug(
+        value === undefined ? `Cache miss: ${key}` : `Cache hit: ${key}`,
+      );
 
       return value;
-    } catch (error) {
-      this.logger.error(`Failed to get cache key "${key}"`, error.stack);
+    } catch (err: any) {
+      this.logger.error(`Cache get failed: ${key}`, err.stack);
+      this.missCount++;
       return undefined;
     }
   }
 
-  /**
-   * Set cached value with optional TTL
-   * @param ttl Time to live in seconds
-   */
-  async set<T = any>(key: string, value: T, ttl?: number): Promise<boolean> {
-    if (!this.isConnected) {
-      this.logger.warn(`Cache not connected, skipping set for key: ${key}`);
-      return false;
-    }
-
+  /** Set value */
+  async set<T = any>(
+    key: string,
+    value: T,
+    ttlSeconds?: number,
+  ): Promise<boolean> {
     try {
-      const ttlMs = ttl ? ttl * 1000 : undefined;
-      await this.cache.set(key, value, ttlMs);
-      this.logger.debug(`Cache set for key: ${key}`);
+      const ttl = ttlSeconds ? ttlSeconds * 1000 : this.DEFAULT_TTL;
+      await this.cache.set(key, value, ttl);
       return true;
-    } catch (error) {
-      this.logger.error(`Failed to set cache key "${key}"`, error.stack);
+    } catch (err: any) {
+      this.logger.error(`Cache set failed: ${key}`, err.stack);
       return false;
     }
   }
 
-  /**
-   * Delete cached value
-   */
   async delete(key: string): Promise<boolean> {
-    if (!this.isConnected) {
-      this.logger.warn(`Cache not connected, skipping delete for key: ${key}`);
-      return false;
-    }
-
     try {
-      const result = await this.cache.delete(key);
-      this.logger.debug(
-        `Cache delete for key: ${key} - ${result ? 'success' : 'not found'}`,
-      );
-      return result;
-    } catch (error) {
-      this.logger.error(`Failed to delete cache key "${key}"`, error.stack);
+      return await this.cache.delete(key);
+    } catch (err: any) {
+      this.logger.error(`Cache delete failed: ${key}`, err.stack);
       return false;
     }
   }
 
-  /**
-   * Clear all cache entries in namespace
-   */
   async clear(): Promise<boolean> {
-    if (!this.isConnected) {
-      this.logger.warn('Cache not connected, skipping clear');
-      return false;
-    }
-
     try {
       await this.cache.clear();
-      this.logger.debug('Cache cleared');
       return true;
-    } catch (error) {
-      this.logger.error('Failed to clear cache', error.stack);
+    } catch (err: any) {
+      this.logger.error('Cache clear failed', err.stack);
       return false;
     }
   }
 
-  /**
-   * Get or set pattern with cache stampede protection
-   */
-  async getOrSet<T = any>(
+  async getOrSet<T>(
     key: string,
     factory: () => Promise<T>,
-    ttl?: number,
+    ttlSeconds?: number,
   ): Promise<T> {
     const cached = await this.get<T>(key);
-    if (cached !== undefined) {
-      return cached;
-    }
+    if (cached !== undefined) return cached;
 
-    try {
-      const value = await factory();
-      await this.set(key, value, ttl);
-      return value;
-    } catch (error) {
-      this.logger.error(
-        `Factory function failed for key "${key}"`,
-        error.stack,
-      );
-      throw error;
-    }
+    const value = await factory();
+    await this.set(key, value, ttlSeconds);
+    return value;
   }
 
-  /**
-   * Get multiple keys at once
-   */
-  async mget<T = any>(keys: string[]): Promise<Map<string, T>> {
+  async mget<T>(keys: string[]): Promise<Map<string, T>> {
     const result = new Map<string, T>();
-
-    if (!this.isConnected) {
-      this.logger.warn('Cache not connected, skipping mget');
-      return result;
-    }
-
     for (const key of keys) {
       const value = await this.get<T>(key);
-      if (value !== undefined) {
-        result.set(key, value);
-      }
+      if (value !== undefined) result.set(key, value);
     }
-
     return result;
   }
 
-  /**
-   * Set multiple values at once
-   */
-  async mset<T = any>(entries: [string, T][], ttl?: number): Promise<boolean> {
-    if (!this.isConnected) {
-      this.logger.warn('Cache not connected, skipping mset');
-      return false;
-    }
-
-    try {
-      const promises = entries.map(([key, value]) => this.set(key, value, ttl));
-
-      const results = await Promise.all(promises);
-      return results.every((result) => result === true);
-    } catch (error) {
-      this.logger.error('Failed to mset cache entries', error.stack);
-      return false;
-    }
+  async mset<T>(entries: [string, T][], ttlSeconds?: number): Promise<boolean> {
+    const results = await Promise.all(
+      entries.map(([k, v]) => this.set(k, v, ttlSeconds)),
+    );
+    return results.every(Boolean);
   }
 
-  /**
-   * Check if cache has key (exists and not expired)
-   */
   async has(key: string): Promise<boolean> {
-    if (!this.isConnected) {
-      return false;
-    }
-
     try {
-      const value = await this.cache.get(key);
-      return value !== undefined;
-    } catch (error) {
-      this.logger.error(`Failed to check cache key "${key}"`, error.stack);
+      return (await this.cache.get(key)) !== undefined;
+    } catch {
       return false;
     }
   }
 
-  /**
-   * Get cache connection status
-   */
-  getConnectionStatus(): boolean {
-    return this.isConnected;
+  /** Metrics getters */
+  getHitRate(): number {
+    const total = this.hitCount + this.missCount;
+    return total === 0 ? 0 : this.hitCount / total;
   }
 
-  /**
-   * Get cache statistics
-   */
+  getMissRate(): number {
+    const total = this.hitCount + this.missCount;
+    return total === 0 ? 0 : this.missCount / total;
+  }
+
+  getConnectionStatus(): boolean {
+    return this.redisConnected;
+  }
+
   async getStats(): Promise<{
     connected: boolean;
-    namespace: string;
+    hitRate: number;
+    missRate: number;
     health: CacheHealth;
   }> {
     const health = await this.checkHealth();
-
     return {
-      connected: this.isConnected,
-      namespace: this.options.namespace,
+      connected: this.redisConnected,
+      hitRate: this.getHitRate(),
+      missRate: this.getMissRate(),
       health,
     };
   }

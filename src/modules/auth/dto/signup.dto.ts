@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsNotEmpty, MinLength } from 'class-validator';
 
-export class SignupDto {
+export class CreateCustomerDto {
   @ApiProperty({ example: 'Test User' })
   @IsNotEmpty()
   name: string;
