@@ -22,6 +22,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 import { ConfigService } from '@nestjs/config';
 import { OAuthProviderType } from '@prisma/client';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -57,6 +58,28 @@ export class AuthController {
     return this.authService.registerCustomer(dto);
   }
 
+
+  @Post('refresh')
+  @ApiOperation({ summary: 'Refresh access token' })
+  @ApiResponse({ status: 200, description: 'Token refreshed', type: AuthResponseDto })
+  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  async refreshTokens(@Body() refreshTokenDto: RefreshTokenDto) {
+    return this.authService.refreshTokens(refreshTokenDto);
+  }
+
+  @Post('logout')
+//  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Logout user' })
+  @ApiResponse({ status: 200, description: 'Logged out successfully' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  async logout(@Req() request): Promise<{ message: string }> {
+    const userId = request.user.id;
+    await this.authService.logout(userId);
+    return { message: 'Logged out successfully' };
+  }
+
+
   @Post('login')
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiResponse({
@@ -69,6 +92,8 @@ export class AuthController {
     description: 'Invalid credentials',
     type: ApiErrorResponseDto,
   })
+    @ApiResponse({ status: 403, description: 'Account deactivated' })
+//  @UsePipes(new ValidationPipe({ transform: true }))
   async login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }
