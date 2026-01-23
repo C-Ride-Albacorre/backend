@@ -2,7 +2,6 @@
 import { Global, Module, Logger } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { PrismaService } from './services/prisma.service';
-import { MailGunService } from './services/mailgun.service';
 import { CloudinaryService } from './services/cloudinary.service';
 import { GoogleService } from './services/google.service';
 import { CacheService } from './services/cache.service';
@@ -52,14 +51,12 @@ import { createClient } from 'redis';
   ],
   providers: [
     PrismaService,
-    MailGunService,
     CloudinaryService,
     GoogleService,
     CacheService,
   ],
   exports: [
     PrismaService,
-    MailGunService,
     CloudinaryService,
     GoogleService,
     CacheService,
