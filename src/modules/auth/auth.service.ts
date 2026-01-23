@@ -2,40 +2,203 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
-  ForbiddenException,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { UserService } from '../user/user.service';
-import { PrismaService } from '../../shared/services/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { CreateCustomerDto } from './dto/signup.dto';
+import { CreateCustomerDto } from './dto/create-customer.dto';
 import { ConfigService } from '@nestjs/config';
 import { MailGunService } from '../../shared/services/mailgun.service';
 import * as jwt from 'jsonwebtoken';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { OAuthProviderType } from '@prisma/client';
+import Helper from '../../shared/utils/helpers';
+import {
+  AuthResponse,
+  TokenPayload,
+} from './interface/auth-response.interface';
+import { User } from '../user/entities/user.entity';
+import { UserRole } from 'src/shared/enums';
+import { randomBytes } from 'crypto';
+import { StringValue } from 'ms';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  private readonly refreshTokenSecret: string;
+  private readonly accessTokenExpiresIn: string;
+  private readonly refreshTokenExpiresIn: string;
+  private readonly refreshTokenRotationEnabled: boolean;
   constructor(
     private userService: UserService,
     private jwtService: JwtService,
     private config: ConfigService,
     private mailGunService: MailGunService,
-  ) {}
+  ) {
+    this.refreshTokenSecret = this.config.get<string>('REFRESH_TOKEN_SECRET');
+    this.accessTokenExpiresIn =
+      this.config.get<string>('JWT_EXPIRES_IN') || '3600s';
+    this.refreshTokenExpiresIn =
+      this.config.get<string>('REFRESH_TOKEN_EXPIRES_IN') || '7d';
+    this.refreshTokenRotationEnabled =
+      this.config.get<boolean>('REFRESH_TOKEN_ROTATION_ENABLED') || false;
+  }
+
+  async registerCustomer(dto: CreateCustomerDto) {
+    const { email, phoneNumber, firstName, lastName, password } = dto;
+    this.logger.log(`Registering customer: ${email || phoneNumber}`);
+
+    const user = await this.userService.createCustomer({
+      email: email,
+      phoneNumber: phoneNumber,
+      password: password,
+      firstName: firstName,
+      lastName: lastName,
+    });
+
+    return this.generateAuthResponse(user);
+  }
+
+  async refreshTokens(refreshTokenDto: RefreshTokenDto): Promise<AuthResponse> {
+    const { refreshToken } = refreshTokenDto;
+
+    try {
+      // Verify the refresh token
+      const payload = this.jwtService.verify(refreshToken, {
+        secret: this.refreshTokenSecret,
+      });
+
+      const user = await this.userService.findById(payload.sub);
+
+      if (!user || !user.isActive) {
+        throw new UnauthorizedException('User not found or inactive');
+      }
+
+      // If rotation is enabled, verify stored hash
+      if (this.refreshTokenRotationEnabled && user.refreshTokenHash) {
+        const isValid = await bcrypt.compare(
+          refreshToken,
+          user.refreshTokenHash,
+        );
+        if (!isValid) {
+          this.logger.warn(`Invalid refresh token used for user: ${user.id}`);
+          // Invalidate all refresh tokens for this user (potential token theft)
+          await this.userService.updateRefreshToken(user.id, null);
+          throw new UnauthorizedException('Invalid refresh token');
+        }
+      }
+
+      // Generate new tokens
+      const newTokens = await this.generateAuthResponse(user);
+
+      // Invalidate old refresh token if rotation is enabled
+      if (this.refreshTokenRotationEnabled) {
+        await this.rotateRefreshToken(
+          user.id,
+          refreshToken,
+          newTokens.refreshToken,
+        );
+      }
+
+      this.logger.log(`Tokens refreshed for user: ${user.id}`);
+      return newTokens;
+    } catch (error) {
+      this.logger.error(`Token refresh failed: ${error.message}`);
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+  }
+
+  async logout(userId: string): Promise<void> {
+    this.logger.log(`Logging out user: ${userId}`);
+    await this.userService.updateRefreshToken(userId, null);
+  }
+
+  private async generateAuthResponse(user: User): Promise<AuthResponse> {
+    const tokens = await this.generateTokens(user);
+
+    // Hash and store refresh token if rotation is enabled
+    if (this.refreshTokenRotationEnabled) {
+      const refreshTokenHash = await bcrypt.hash(tokens.refreshToken, 12);
+      await this.userService.updateRefreshToken(user.id, refreshTokenHash);
+    }
+
+    await this.userService.markUserLogin(user.id);
+
+    return {
+      ...tokens,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: UserRole.CUSTOMER,
+      },
+    };
+  }
+
+  private async generateTokens(user: User) {
+    const accessTokenPayload = this.createAccessTokenPayload(user);
+    const refreshTokenPayload = this.createRefreshTokenPayload(user);
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(accessTokenPayload, {
+        secret: this.config.get<string>('JWT_SECRET'),
+        expiresIn: this.accessTokenExpiresIn as number | StringValue,
+      }),
+      this.jwtService.signAsync(refreshTokenPayload, {
+        secret: this.refreshTokenSecret,
+        expiresIn: this.refreshTokenExpiresIn as number | StringValue,
+      }),
+    ]);
+
+    return { accessToken, refreshToken };
+  }
+
+  private createAccessTokenPayload(user: User): TokenPayload {
+    return {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      type: 'access',
+    };
+  }
+
+  private createRefreshTokenPayload(user: User): TokenPayload {
+    return {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      type: 'refresh',
+      jti: randomBytes(16).toString('hex'), // Unique token identifier
+    };
+  }
+
+  private async rotateRefreshToken(
+    userId: string,
+    oldRefreshToken: string,
+    newRefreshToken: string,
+  ): Promise<void> {
+    // Store old token in blacklist or database for short period
+    // This prevents replay attacks
+    const newRefreshTokenHash = await bcrypt.hash(newRefreshToken, 12);
+    await this.userService.updateRefreshToken(userId, newRefreshTokenHash);
+
+    // Optional: Store old token hash in blacklist
+    this.logger.log(`Refresh token rotated for user: ${userId}`);
+  }
+
+  ////////////////////////////////////////////////////
 
   async createCustomer(dto: CreateCustomerDto) {
-    const existing = await this.userService.findByEmail(dto.email);
+    const { email, password } = dto;
+    const existing = await this.userService.findByEmail(email);
     if (existing) throw new BadRequestException('Email already in use');
+    const hashedPassword = await Helper.hashText(password);
 
-    const hashed = await bcrypt.hash(dto.password, 12);
-    const user = await this.userService.createUser(dto, hashed);
-
-    // optional: send confirmation email
-
+    const user = await this.userService.createUser(dto, hashedPassword);
     return this.signJwt(user);
   }
 
@@ -65,17 +228,23 @@ export class AuthService {
     const payload = {
       email: user.email,
       sub: user.id,
-      roles: user.roles || ['USER'],
+      role: user.role,
     };
 
-    const token = this.jwtService.sign(payload, {
+    const accessToken = this.jwtService.sign(payload, {
       secret,
       expiresIn: this.config.get('JWT_EXPIRES_IN') || '3600s',
     });
 
+    const refreshToken = this.jwtService.sign(payload, {
+      secret,
+      expiresIn: '7d',
+    });
+
     return {
-      accessToken: token,
-      user: { id: user.id, email: user.email, roles: user.roles },
+      accessToken,
+      refreshToken,
+      user: { id: user.id, email: user.email, role: user.role },
     };
   }
 
@@ -109,7 +278,11 @@ export class AuthService {
     const resetLink = `${frontendUrl}/auth/reset-password?token=${token}`;
     const timeframe = expiresAt;
     const subject = 'Password reset';
-    const context = { user: user?.name || 'there', resetLink, timeframe };
+    const context = {
+      user: user?.firstName + ' ' + user?.lastName || 'there',
+      resetLink,
+      timeframe,
+    };
     const templateName = 'forgotPassword';
 
     try {
@@ -152,7 +325,8 @@ export class AuthService {
       provider,
       providerId,
       email,
-      name,
+      firstName: name?.firstName,
+      lastName: name?.lastName,
     });
 
     // sign token
@@ -168,7 +342,8 @@ export class AuthService {
     // Call existing helper in UserService
     const user = await this.userService.createOrGetOAuthUser({
       email: profile.email,
-      name: `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim(),
+      firstName: profile.firstName,
+      lastName: profile.lastName,
       provider,
       providerId: profile.id, // Google ID
     });

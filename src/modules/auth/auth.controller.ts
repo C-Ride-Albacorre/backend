@@ -9,7 +9,7 @@ import {
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { AuthResponseDto } from './dto/auth-response.dto';
-import { CreateCustomerDto } from './dto/signup.dto';
+import { CreateCustomerDto } from './dto/create-customer.dto';
 import { LoginDto } from './dto/login.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
@@ -53,8 +53,8 @@ export class AuthController {
     description: 'Validation or bad request error',
     type: ApiErrorResponseDto,
   })
-  async createCustomer(@Body() dto: CreateCustomerDto) {
-    return this.authService.createCustomer(dto);
+  async registerCustomer(@Body() dto: CreateCustomerDto) {
+    return this.authService.registerCustomer(dto);
   }
 
   @Post('login')

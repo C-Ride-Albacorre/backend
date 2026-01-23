@@ -20,7 +20,7 @@ import { HealthModule } from './modules/health/health.module';
           case 'staging':
             return '.env.staging';
           default:
-            return '.env.development';
+            return '.env';
         }
       })(),
     }),
