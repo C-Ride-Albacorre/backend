@@ -16,6 +16,7 @@ import { UserRole } from 'src/shared/enums';
 import { AbstractUserRepository } from './repositories/abstract-user.repository';
 import { User } from './entities/user.entity';
 import Helper from 'src/shared/utils/helpers';
+import { LoginCustomerDto } from '../auth/dto/login-customer.dto';
 
 @Injectable()
 export class UserService {
@@ -54,6 +55,70 @@ export class UserService {
       lastLoginAt: new Date(),
     });
   }
+
+
+  /**
+   * Authenticate user with credentials
+   * Contains all user-related authentication logic
+   */
+  async authenticateUser(loginDto: LoginCustomerDto): Promise<User> {
+    const { email, phoneNumber, password } = loginDto;
+    
+    // if (!email && !phoneNumber) {
+    //   throw new UnauthorizedException('Email or phone number is required');
+    // }
+
+    // // Find user
+    // const user = await this.findUserByIdentifier(email, phoneNumber);
+    
+    // if (!user) {
+    //   this.logger.warn(`User not found: ${email || phoneNumber}`);
+    //   throw new UnauthorizedException('Invalid credentials');
+    // }
+
+     const user = await this.userRepository.findExistingUser(
+    email,
+    phoneNumber,
+  );
+
+  if (!user) {
+    throw new UnauthorizedException('Invalid credentials');
+  }
+
+    // Check if user is active
+    if (!user.isActive) {
+      this.logger.warn(`Login attempt for inactive user: ${user.id}`);
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
+    // Verify password
+        const isPasswordValid = await Helper.compareHashedText(password, user.password);
+
+    if (!isPasswordValid) {
+      this.logger.warn(`Invalid password for user: ${user.id}`);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    return user;
+  }
+
+  /**
+   * Find user by email or phone number
+   */
+  // async findUserByIdentifier(email?: string, phoneNumber?: string): Promise<User | null> {
+  //   try {
+  //     if (email) {
+  //       return await this.findByEmail(email);
+  //     } else if (phoneNumber) {
+  //       return await this.findByPhoneNumber(phoneNumber);
+  //     }
+  //     return null;
+  //   } catch (error) {
+  //     this.logger.error(`Error finding user: ${error.message}`);
+  //     return null;
+  //   }
+  // }
+
 
   async updateRefreshToken(
     userId: string,

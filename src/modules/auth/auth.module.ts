@@ -7,7 +7,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from '../../common/strategies/jwt.strategy';
 import { GoogleStrategy } from '../../common/strategies/google.strategy';
 import { AuthController } from './auth.controller';
-import { MailGunService } from '../../shared/services/mailgun.service';
 import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 import { UserModule } from '../user/user.module';
 
@@ -32,7 +31,6 @@ import { UserModule } from '../user/user.module';
     JwtStrategy,
     GoogleAuthGuard,
     GoogleStrategy,
-    MailGunService,
   ],
   exports: [AuthService],
 })
