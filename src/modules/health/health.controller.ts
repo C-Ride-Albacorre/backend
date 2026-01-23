@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../shared/services/prisma.service';
 import { CacheService, CacheHealth } from '../../shared/services/cache.service';
 import { ApiTags } from '@nestjs/swagger';
+import Helper from 'src/shared/utils/helpers';
 
 export interface HealthCheckResponse {
   status: string;
@@ -44,6 +45,7 @@ export class HealthController {
     let databaseLatency: number | undefined;
     let cacheLatency: number | undefined;
 
+    let env = Helper.getEnvironment();
     const healthChecks = [
       // Database health check
       async (): Promise<HealthIndicatorResult> => {
@@ -60,6 +62,7 @@ export class HealthController {
               details: {
                 connection: 'established',
                 timestamp: new Date().toISOString(),
+                environment: env
               },
             },
           };

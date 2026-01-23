@@ -19,7 +19,7 @@ import { UpdateMenuDto } from './dto/update-menu.dto';
 import { ListQueryDto } from './dto/list-query.dto';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { Roles } from '../../common/decorators/role.decorator';
-import { UserRole } from '../../shared/enums/user-role.enum';
+import { UserRole } from '../../shared/enums';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 
 @ApiTags('Menu')

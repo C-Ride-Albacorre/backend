@@ -9,10 +9,12 @@ import { GoogleStrategy } from '../../common/strategies/google.strategy';
 import { AuthController } from './auth.controller';
 import { MailGunService } from '../../shared/services/mailgun.service';
 import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
+import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [
     ConfigModule,
+    UserModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (cfg: ConfigService) => ({
@@ -26,7 +28,6 @@ import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 
   providers: [
     AuthService,
-    UserService,
     PrismaService,
     JwtStrategy,
     GoogleAuthGuard,
