@@ -21,11 +21,14 @@ enum Role {
   SUPER_ADMIN
 }
 
+
 enum OAuthProviderType {
   GOOGLE
   GITHUB
   FACEBOOK
+  APPLE
 }
+
 
 model User {
   id               String           @id @default(uuid())

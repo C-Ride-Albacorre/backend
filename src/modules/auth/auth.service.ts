@@ -10,7 +10,6 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { ConfigService } from '@nestjs/config';
-import { MailGunService } from '../../shared/services/mailgun.service';
 import * as jwt from 'jsonwebtoken';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -26,6 +25,7 @@ import { User } from '../user/entities/user.entity';
 import { UserRole } from 'src/shared/enums';
 import { randomBytes } from 'crypto';
 import { StringValue } from 'ms';
+import { LoginCustomerDto } from './dto/login-customer.dto';
 
 @Injectable()
 export class AuthService {
@@ -38,7 +38,6 @@ export class AuthService {
     private userService: UserService,
     private jwtService: JwtService,
     private config: ConfigService,
-    private mailGunService: MailGunService,
   ) {
     this.refreshTokenSecret = this.config.get<string>('REFRESH_TOKEN_SECRET');
     this.accessTokenExpiresIn =
@@ -60,6 +59,22 @@ export class AuthService {
       firstName: firstName,
       lastName: lastName,
     });
+
+    return this.generateAuthResponse(user);
+  }
+
+
+  /**
+   * Login user with email/phone and password
+   */
+  async loginCustomer(loginDto: LoginCustomerDto): Promise<AuthResponse> {
+     const { email, phoneNumber } = loginDto;
+    const identifier = email || phoneNumber;
+    
+    this.logger.log(`Login attempt: ${identifier}`);
+
+    // Delegate authentication to UserService
+    const user = await this.userService.authenticateUser(loginDto);
 
     return this.generateAuthResponse(user);
   }
@@ -285,19 +300,19 @@ export class AuthService {
     };
     const templateName = 'forgotPassword';
 
-    try {
-      await this.mailGunService.sendEmailWithTemplate({
-        to: email,
-        subject,
-        templateName,
-        context,
-      });
-    } catch (error) {
-      console.error('Mail sending failed:', error);
-      throw new InternalServerErrorException(
-        'Failed to send password reset email',
-      );
-    }
+    // try {
+    //   await this.mailGunService.sendEmailWithTemplate({
+    //     to: email,
+    //     subject,
+    //     templateName,
+    //     context,
+    //   });
+    // } catch (error) {
+    //   console.error('Mail sending failed:', error);
+    //   throw new InternalServerErrorException(
+    //     'Failed to send password reset email',
+    //   );
+    // }
 
     return { ok: true, message: 'Password reset email sent' };
   }

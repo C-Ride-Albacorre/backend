@@ -8,6 +8,7 @@ import { UserModule } from './modules/user/user.module';
 import { MenusModule } from './modules/menu/menus.module';
 import { ConfigModule } from '@nestjs/config';
 import { HealthModule } from './modules/health/health.module';
+import { JwtStrategy } from './common/strategies/jwt.strategy';
 
 @Module({
   imports: [
@@ -31,7 +32,8 @@ import { HealthModule } from './modules/health/health.module';
     HealthModule,
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService],
+  providers: [AppService, PrismaService, JwtStrategy,
+],
   exports: [PrismaService],
 })
 export class AppModule {}
