@@ -1,6 +1,6 @@
 import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { UserRole } from '../../shared/enums/user-role.enum';
+import { UserRole } from '../../shared/enums';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -9,9 +9,11 @@ export class RolesGuard implements CanActivate {
   private normalizeRole(role: string): string {
     if (!role) return '';
     const r = role.toLowerCase().replace(/[-\s]/g, '');
-    if (r === 'superadmin' || r === 'super_admin') return 'SUPER_ADMIN';
-    if (r === 'admin') return 'ADMIN';
-    if (r === 'user') return 'USER';
+    if (r === 'SUPER_ADMIN' || r === 'SUPER_ADMIN') return 'SUPER_ADMIN';
+    if (r === 'ADMIN') return 'ADMIN';
+    if (r === 'CUSTOMER') return 'CUSTOMER';
+    if (r === 'VENDOR') return 'VENDOR';
+    if (r === 'DISPATCHER') return 'DISPATCHER';
      return role.toUpperCase();
   }
 

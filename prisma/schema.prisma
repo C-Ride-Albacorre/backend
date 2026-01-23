@@ -13,9 +13,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-
 enum Role {
-  USER
+  CUSTOMER
+  VENDOR
+  DISPATCHER
   ADMIN
   SUPER_ADMIN
 }
@@ -27,18 +28,24 @@ enum OAuthProviderType {
 }
 
 model User {
-  id              String           @id @default(uuid())
-  email           String           @unique
-  password        String? // null when OAuth-only
-  name            String?
-  roles           Role[]           @default([USER])
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  oauthProviders  OAuthProvider[]
-  businessProfile BusinessProfile?
-  menus           Menu[]
+  id               String           @id @default(uuid())
+  email            String?          @unique
+  phoneNumber      String?          @unique
+  password         String?
+  firstName        String
+  lastName         String
+  role             Role             @default(CUSTOMER)
+  isActive         Boolean          @default(true)
+  refreshTokenHash String?
+  lastLoginAt      DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  oauthProviders   OAuthProvider[]
+  businessProfile  BusinessProfile?
+  menus            Menu[]
 
-  @@map("users")
+  @@index([email])
+  @@index([phoneNumber])
 }
 
 model OAuthProvider {
