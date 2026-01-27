@@ -9,6 +9,8 @@ import { MenusModule } from './modules/menu/menus.module';
 import { ConfigModule } from '@nestjs/config';
 import { HealthModule } from './modules/health/health.module';
 import { JwtStrategy } from './common/strategies/jwt.strategy';
+// import { VerificationModule } from './modules/verification/verification.module';
+import { RedisModule } from './modules/redis/redis.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { JwtStrategy } from './common/strategies/jwt.strategy';
     UserModule,
     MenusModule,
     HealthModule,
+    RedisModule,
+    // VerificationModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService, JwtStrategy,

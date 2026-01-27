@@ -178,4 +178,6 @@ export class AuthController {
     const redirectUrl = `${frontendUrl}/redirect?token=${jwtPayload.accessToken}`;
     return res.redirect(redirectUrl);
   }
+
+  
 }
