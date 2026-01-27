@@ -19,3 +19,4 @@ export const UserRole = {
   DISPATCHER: 'DISPATCHER' as UserRole,
   SUPER_ADMIN: 'SUPER_ADMIN' as UserRole,
 };
+
