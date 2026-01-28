@@ -23,11 +23,11 @@ export const RedisProvider: Provider = {
     });
 
     client.on('connect', () => {
-      logger.log('Redis socket connected');
+      logger.log('✅ Redis socket connected');
     });
 
     client.on('ready', () => {
-      logger.log('Redis ready');
+      logger.log('✅ Redis ready');
     });
 
     client.on('error', (err) => {

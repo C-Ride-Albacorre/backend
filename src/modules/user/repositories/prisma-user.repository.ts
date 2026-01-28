@@ -42,11 +42,11 @@ export class PrismaUserRepository implements AbstractUserRepository {
     }
   }
 
-  async findExistingUser0(email?: string, phone?: string): Promise<User | null> {
+  async findExistingUser0(email?: string, phoneNumber?: string): Promise<User | null> {
     try {
       const conditions = [];
       if (email) conditions.push({ email });
-      if (phone) conditions.push({ phone });
+      if (phoneNumber) conditions.push({ phoneNumber });
 
       return await this.prisma.user.findFirst({
         where: { OR: conditions },
@@ -59,13 +59,13 @@ export class PrismaUserRepository implements AbstractUserRepository {
 
   async findExistingUser(
   email?: string,
-  phone?: string,
+  phoneNumber?: string,
 ): Promise<User | null> {
   try {
     const conditions: any[] = [];
 
     if (email) conditions.push({ email });
-    if (phone) conditions.push({ phone });
+    if (phoneNumber) conditions.push({ phoneNumber });
 
     if (conditions.length === 0) {
       return null;

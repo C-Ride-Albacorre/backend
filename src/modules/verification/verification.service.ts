@@ -134,9 +134,9 @@ export class VerificationService {
   /**
    * Send welcome SMS after successful verification
    */
-  async sendWelcomeSms(phone: string, name: string): Promise<void> {
+  async sendWelcomeSms(phoneNumber: string, name: string): Promise<void> {
     const message = `Welcome ${name}! Your account has been verified. Thank you for joining us!`;
 
-    await this.smsProvider.sendSms(phone, message);
+    await this.smsProvider.sendSms(phoneNumber, message);
   }
 }

@@ -26,6 +26,7 @@ import { UserRole } from 'src/shared/enums';
 import { randomBytes } from 'crypto';
 import { StringValue } from 'ms';
 import { LoginCustomerDto } from './dto/login-customer.dto';
+import { VerifyOtpDto } from '../verification/dto/verify-otp.dto';
 
 @Injectable()
 export class AuthService {
@@ -48,35 +49,124 @@ export class AuthService {
       this.config.get<boolean>('REFRESH_TOKEN_ROTATION_ENABLED') || false;
   }
 
+  /**
+   * Register customer with automatic OTP
+   */
   async registerCustomer(dto: CreateCustomerDto) {
-    const { email, phoneNumber, firstName, lastName, password } = dto;
+    const { email, phoneNumber } = dto;
     this.logger.log(`Registering customer: ${email || phoneNumber}`);
 
-    const user = await this.userService.createCustomer({
-      email: email,
-      phoneNumber: phoneNumber,
-      password: password,
-      firstName: firstName,
-      lastName: lastName,
-    });
+    const { user, requiresVerification } =
+      await this.userService.createCustomer({
+        email: email,
+        phoneNumber: phoneNumber,
+        password: dto.password,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+      });
+
+    // Return different response based on verification status
+    if (requiresVerification) {
+      return {
+        success: true,
+        requiresVerification: true,
+        message: 'Registration successful. Please verify your account.',
+        verificationIdentifier: user.email || user.phoneNumber,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          isVerified: false,
+        },
+      };
+    }
+
+    // If no verification required, generate tokens immediately
+    return this.generateAuthResponse(user);
+  }
+
+  // async registerCustomer(dto: CreateCustomerDto) {
+  //   const { email, phoneNumber, firstName, lastName, password } = dto;
+  //   this.logger.log(`Registering customer: ${email || phoneNumber}`);
+
+  //   const user = await this.userService.createCustomer({
+  //     email: email,
+  //     phoneNumber: phoneNumber,
+  //     password: password,
+  //     firstName: firstName,
+  //     lastName: lastName,
+  //   });
+
+  //   return this.generateAuthResponse(user);
+  // }
+
+  /**
+   * Verify OTP during registration
+   */
+  async verifyRegistration(dto: VerifyOtpDto) {
+    const { identifier, otp } = dto;
+
+    const result = await this.userService.verifyUser(identifier, otp);
+
+    if (!result.success || !result.user) {
+      throw new UnauthorizedException('Invalid OTP');
+    }
+
+    // Generate tokens after successful verification
+    return this.generateAuthResponse(result.user);
+  }
+
+  /**
+   * Login - user with email/phone and password - only works for verified users
+   */
+  async loginCustomer(loginDto: LoginCustomerDto) {
+    const { email, phoneNumber } = loginDto;
+    const identifier = email || phoneNumber;
+
+    this.logger.log(`Login attempt: ${identifier}`);
+
+    // This will throw if user is not verified
+    const user = await this.userService.authenticateUser(loginDto);
+
+    // Check if user is verified (redundant but safe)
+    if (!user.isVerified) {
+      throw new UnauthorizedException(
+        'Account not verified. Please verify your account.',
+      );
+    }
 
     return this.generateAuthResponse(user);
   }
 
-
   /**
    * Login user with email/phone and password
    */
-  async loginCustomer(loginDto: LoginCustomerDto): Promise<AuthResponse> {
-     const { email, phoneNumber } = loginDto;
+  async loginCustomer2(loginDto: LoginCustomerDto): Promise<AuthResponse> {
+    const { email, phoneNumber } = loginDto;
     const identifier = email || phoneNumber;
-    
+
     this.logger.log(`Login attempt: ${identifier}`);
 
     // Delegate authentication to UserService
     const user = await this.userService.authenticateUser(loginDto);
 
     return this.generateAuthResponse(user);
+  }
+
+  /**
+   * Resend OTP for registration
+   */
+  async resendOtp(identifier: string) {
+    const result = await this.userService.resendVerificationOtp(identifier);
+
+    if (!result.success) {
+      throw new UnauthorizedException(result.message);
+    }
+
+    return {
+      success: true,
+      message: 'OTP sent successfully',
+    };
   }
 
   async refreshTokens(refreshTokenDto: RefreshTokenDto): Promise<AuthResponse> {

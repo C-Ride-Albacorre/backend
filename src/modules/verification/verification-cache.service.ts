@@ -127,13 +127,13 @@ export class VerificationCacheService {
     }
 
     // Check attempt limits
-    const currentAttempts = await this.getCurrentAttempts(identifier);
-    if (currentAttempts >= this.MAX_ATTEMPTS) {
-      this.logger.warn(
-        `Max attempts (${this.MAX_ATTEMPTS}) reached for ${identifier}`,
-      );
-      return false;
-    }
+    // const currentAttempts = await this.getCurrentAttempts(identifier);
+    // if (currentAttempts >= this.MAX_ATTEMPTS) {
+    //   this.logger.warn(
+    //     `Max attempts (${this.MAX_ATTEMPTS}) reached for ${identifier}`,
+    //   );
+    //   return false;
+    // }
 
     // Validate OTP
     if (cacheData.otp !== otp) {
