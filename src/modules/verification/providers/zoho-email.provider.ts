@@ -17,6 +17,36 @@ export class ZohoEmailProvider implements IEmailProvider {
     this.fromEmail = this.configService.get<string>('ZOHO_FROM_EMAIL');
   }
 
+  // async sendEmail(
+  //   to: string,
+  //   subject: string,
+  //   body: string,
+  //   html?: string,
+  // ): Promise<any> {
+  //   try {
+  //     const response = await axios.post(
+  //       `${this.apiUrl}`,
+  //       {
+  //         from: this.fromEmail,
+  //         to: [to],
+  //         subject,
+  //         ...(html ? { htmlbody: html } : { textbody: body }),
+  //       },
+  //       {
+  //         headers: {
+  //           Authorization: `Zoho-authtoken ${this.apiKey}`,
+  //           'Content-Type': 'application/json',
+  //         },
+  //       },
+  //     );
+
+  //     this.logger.log(`Email sent to ${to}: ${response.data.message}`);
+  //     return response.data;
+  //   } catch (error) {
+  //     this.logger.error(`Failed to send email to ${to}: ${error.message}`);
+  //     throw new Error(`Email sending failed: ${error.message}`);
+  //   }
+  // }
   async sendEmail(
     to: string,
     subject: string,
@@ -24,30 +54,41 @@ export class ZohoEmailProvider implements IEmailProvider {
     html?: string,
   ): Promise<any> {
     try {
-      const response = await axios.post(
-        `${this.apiUrl}/api/v1/mail`,
-        {
-          from: this.fromEmail,
-          to: [to],
-          subject,
-          ...(html ? { htmlbody: html } : { textbody: body }),
+      const payload = {
+        from: {
+          address: this.fromEmail,
+          name: 'noreply',
         },
-        {
-          headers: {
-            Authorization: `Zoho-authtoken ${this.apiKey}`,
-            'Content-Type': 'application/json',
+        to: [
+          {
+            email_address: {
+              address: to,
+              name: to.split('@')[0],
+            },
           },
-        },
-      );
+        ],
+        subject,
+        ...(html ? { htmlbody: html } : { textbody: body }),
+      };
 
-      this.logger.log(`Email sent to ${to}: ${response.data.message}`);
+      const response = await axios.post(this.apiUrl, payload, {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Zoho-enczapikey ${this.apiKey}`,
+        },
+      });
+
+      this.logger.log(`Email sent to ${to}`);
       return response.data;
     } catch (error) {
-      this.logger.error(`Failed to send email to ${to}: ${error.message}`);
-      throw new Error(`Email sending failed: ${error.message}`);
+      this.logger.error(
+        `Failed to send email to ${to}: ${error?.response?.data || error.message}`,
+      );
+      throw new Error(`Email sending failed`);
     }
   }
-
+  
   async sendOtp(to: string, otp: string, templateId?: string): Promise<any> {
     const subject = 'Your Verification Code';
     const html = this.generateOtpEmail(otp);

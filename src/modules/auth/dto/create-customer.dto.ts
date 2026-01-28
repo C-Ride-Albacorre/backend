@@ -24,7 +24,7 @@ export class CreateCustomerDto {
   email?: string;
 
   // This decorator validates that at least one of email or phone is provided
-  @ValidateIf((o) => !o.email && !o.phone)
+  @ValidateIf((o) => !o.email && !o.phoneNumber)
   @IsEmailOrPhone()
   emailOrPhone?: never; // This property doesn't actually exist, just for validation
 
@@ -36,4 +36,10 @@ export class CreateCustomerDto {
       'Password must contain at least one uppercase letter, one lowercase letter, and one number',
   })
   password: string;
+
+  @ApiProperty({ example: 'REF12345', required: false })
+  @IsOptional()
+  @IsString()
+  referralCode?: string;
+
 }

@@ -17,20 +17,30 @@ import { AbstractUserRepository } from './repositories/abstract-user.repository'
 import { User } from './entities/user.entity';
 import Helper from 'src/shared/utils/helpers';
 import { LoginCustomerDto } from '../auth/dto/login-customer.dto';
+import { VerificationService } from '../verification/verification.service';
+import { VerificationPurpose } from '../verification/dto/send-otp.dto';
 
 @Injectable()
 export class UserService {
- private readonly logger = new Logger(UserService.name)
+  private readonly logger = new Logger(UserService.name)
+
   constructor(
-    private prisma: PrismaService,
-    private cloudinary: CloudinaryService,
+    private readonly prisma: PrismaService,
+    private readonly cloudinary: CloudinaryService,
     private readonly userRepository: AbstractUserRepository,
+    private readonly verificationService: VerificationService, // Inject verification service
   ) {}
 
-  async createCustomer(userData: Partial<User>): Promise<User> {
+
+  
+  /**
+   * Create a new customer with automatic OTP verification
+   */
+  async createCustomer(userData: Partial<User>): Promise<{ user: User; requiresVerification: boolean }> {
     const { email, password, phoneNumber } = userData;
     this.logger.log(`Creating customer with email: ${email}`);
 
+    // Check if user already exists
     const existingUser = await this.userRepository.findExistingUser(
       email,
       phoneNumber,
@@ -45,45 +55,168 @@ export class UserService {
       );
     }
 
+    // Hash password
     const hashedPassword = await Helper.hashText(password);
 
-    return this.userRepository.create({
+    // // Create user with unverified status
+    const user = await this.userRepository.create({
       ...userData,
       password: hashedPassword,
       role: UserRole.CUSTOMER,
       isActive: true,
+      isVerified: false, // User starts as unverified
       lastLoginAt: new Date(),
     });
+
+    //const savedUser = await this.userRepository.create(user);
+
+    // Send OTP based on primary contact method
+    await this.sendVerificationOtp(user);
+
+    return {
+      user: user,
+      requiresVerification: true // Frontend should show verification screen
+    };
   }
 
+  /**
+   * Send verification OTP after registration
+   */
+  private async sendVerificationOtp(user: User): Promise<void> {
+    try {
+      // Determine primary verification method
+      // Priority: email > phoneNumber
+      const identifier = user.email || user.phoneNumber;
+      
+      if (!identifier) {
+        this.logger.warn(`No contact identifier for user ${user.id}`);
+        return;
+      }
+      
+      await this.verificationService.sendOtp({
+        identifier,
+        purpose: VerificationPurpose.REGISTRATION,
+      });
+      
+      this.logger.log(`Verification OTP sent to ${identifier}`);
+    } catch (error) {
+      this.logger.error(`Failed to send verification OTP: ${error.message}`);
+      // Don't fail registration if OTP sending fails
+      // User can request resend later
+    }
+  }
 
   /**
-   * Authenticate user with credentials
-   * Contains all user-related authentication logic
+   * Verify user with OTP
+   */
+  async verifyUser(identifier: string, otp: string): Promise<{ success: boolean; user?: User }> {
+    const isValid = await this.verificationService.verifyOtp({
+      identifier,
+      otp,
+    });
+    
+    if (isValid) {
+      // Find user by identifier (email or phone)
+      const user = await this.findUserByIdentifier(identifier);
+      
+      if (user) {
+        // Update verification status
+        user.isVerified = true;
+        user.verifiedAt = new Date();
+        const updatedUser = await this.userRepository.update(user.id, user);
+
+        //const updatedUser = await this.userRepository.create(user);
+        // const updatedUser = await this.userRepository.update(
+        //   { id: user.id },
+        //   {
+        //     isVerified: true,
+        //     verifiedAt: new Date(),
+        //   },
+        // );
+
+        // Send welcome message
+        await this.sendWelcomeMessage(user);
+
+        this.logger.log(`User ${user.id} verified successfully`);
+
+        return {
+          success: true,
+          user: updatedUser,
+        };
+      }
+    }
+    
+    // Get remaining attempts for error message
+   // const remainingAttempts = await this.verificationService.getRemainingAttempts(identifier);
+    
+    // this.logger.warn(`OTP verification failed for ${identifier}. Remaining attempts: ${remainingAttempts}`);
+        this.logger.warn(
+          `OTP verification failed for ${identifier}`,
+        );
+
+    return {
+      success: false
+    };
+  }
+
+  /**
+   * Resend verification OTP
+   */
+  async resendVerificationOtp(identifier: string): Promise<{ success: boolean; message: string }> {
+    try {
+      // Check if user exists
+      const user = await this.findUserByIdentifier(identifier);
+      
+      if (!user) {
+        return {
+          success: false,
+          message: 'User not found'
+        };
+      }
+      
+      if (user.isVerified) {
+        return {
+          success: false,
+          message: 'User is already verified'
+        };
+      }
+      
+      // Send new OTP
+      await this.verificationService.sendOtp({
+        identifier,
+        purpose: VerificationPurpose.REGISTRATION,
+      });
+      
+      this.logger.log(`Verification OTP resent to ${identifier}`);
+      
+      return {
+        success: true,
+        message: 'OTP sent successfully'
+      };
+      
+    } catch (error) {
+      this.logger.error(`Failed to resend OTP: ${error.message}`);
+      return {
+        success: false,
+        message: 'Failed to send OTP. Please try again later.'
+      };
+    }
+  }
+
+  /**
+   * Authenticate user with credentials (only verified users can login)
    */
   async authenticateUser(loginDto: LoginCustomerDto): Promise<User> {
     const { email, phoneNumber, password } = loginDto;
     
-    // if (!email && !phoneNumber) {
-    //   throw new UnauthorizedException('Email or phone number is required');
-    // }
+    const user = await this.userRepository.findExistingUser(
+      email,
+      phoneNumber,
+    );
 
-    // // Find user
-    // const user = await this.findUserByIdentifier(email, phoneNumber);
-    
-    // if (!user) {
-    //   this.logger.warn(`User not found: ${email || phoneNumber}`);
-    //   throw new UnauthorizedException('Invalid credentials');
-    // }
-
-     const user = await this.userRepository.findExistingUser(
-    email,
-    phoneNumber,
-  );
-
-  if (!user) {
-    throw new UnauthorizedException('Invalid credentials');
-  }
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     // Check if user is active
     if (!user.isActive) {
@@ -91,16 +224,141 @@ export class UserService {
       throw new UnauthorizedException('Account is deactivated');
     }
 
+    // Check if user is verified
+    if (!user.isVerified) {
+      this.logger.warn(`Login attempt for unverified user: ${user.id}`);
+      throw new UnauthorizedException('Account not verified. Please verify your email/phone.');
+    }
+
     // Verify password
-        const isPasswordValid = await Helper.compareHashedText(password, user.password);
+    const isPasswordValid = await Helper.compareHashedText(password, user.password);
 
     if (!isPasswordValid) {
       this.logger.warn(`Invalid password for user: ${user.id}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Update last login
+    user.lastLoginAt = new Date();
+    await this.userRepository.create(user);
+
     return user;
   }
+
+  /**
+   * Send welcome message after verification
+   */
+  private async sendWelcomeMessage(user: User): Promise<void> {
+    try {
+      if (user.email) {
+        await this.verificationService.sendWelcomeEmail(user.email, user.firstName);
+      }
+      if (user.phoneNumber) {
+        await this.verificationService.sendWelcomeSms(user.phoneNumber, user.firstName);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to send welcome message: ${error.message}`);
+      // Non-critical error, don't fail verification
+    }
+  }
+
+  /**
+   * Find user by identifier (email or phone)
+   */
+  private async findUserByIdentifier(identifier: string): Promise<User | null> {
+    // Check if identifier is email or phone
+    const isEmail = identifier.includes('@');
+    
+    if (isEmail) {
+      // return this.userRepository.findOne({
+      //   where: { email: identifier }
+      // });
+      return await this.findByEmail(identifier);
+    } else {
+      // return this.userRepository.findOne({
+      //   where: { phoneNumber: identifier }
+      // });
+      return await this.findByPhoneNumber(identifier);
+    }
+  }
+
+
+  // async createCustomer(userData: Partial<User>): Promise<User> {
+  //   const { email, password, phoneNumber } = userData;
+  //   this.logger.log(`Creating customer with email: ${email}`);
+
+  //   const existingUser = await this.userRepository.findExistingUser(
+  //     email,
+  //     phoneNumber,
+  //   );
+
+  //   if (existingUser) {
+  //     this.logger.warn(
+  //       `User already exists with email: ${email} or phone: ${phoneNumber}`,
+  //     );
+  //     throw new ConflictException(
+  //       'User with this email or phone already exists',
+  //     );
+  //   }
+
+  //   const hashedPassword = await Helper.hashText(password);
+
+  //   return this.userRepository.create({
+  //     ...userData,
+  //     password: hashedPassword,
+  //     role: UserRole.CUSTOMER,
+  //     isActive: true,
+  //     lastLoginAt: new Date(),
+  //   });
+
+    
+  // }
+
+
+  /**
+   * Authenticate user with credentials
+   * Contains all user-related authentication logic
+   */
+  // async authenticateUser(loginDto: LoginCustomerDto): Promise<User> {
+  //   const { email, phoneNumber, password } = loginDto;
+    
+  //   // if (!email && !phoneNumber) {
+  //   //   throw new UnauthorizedException('Email or phone number is required');
+  //   // }
+
+  //   // // Find user
+  //   // const user = await this.findUserByIdentifier(email, phoneNumber);
+    
+  //   // if (!user) {
+  //   //   this.logger.warn(`User not found: ${email || phoneNumber}`);
+  //   //   throw new UnauthorizedException('Invalid credentials');
+  //   // }
+
+  //    const user = await this.userRepository.findExistingUser(
+  //   email,
+  //   phoneNumber,
+  // );
+
+  // if (!user) {
+  //   throw new UnauthorizedException('Invalid credentials');
+  // }
+
+  //   // Check if user is active
+  //   if (!user.isActive) {
+  //     this.logger.warn(`Login attempt for inactive user: ${user.id}`);
+  //     throw new UnauthorizedException('Account is deactivated');
+  //   }
+
+  //   // Verify password
+  //       const isPasswordValid = await Helper.compareHashedText(password, user.password);
+
+  //   if (!isPasswordValid) {
+  //     this.logger.warn(`Invalid password for user: ${user.id}`);
+  //     throw new UnauthorizedException('Invalid credentials');
+  //   }
+
+  //   return user;
+  // }
 
   /**
    * Find user by email or phone number
@@ -134,6 +392,10 @@ export class UserService {
 
   async findByEmail(email: string): Promise<User | null> {
     return this.userRepository.findByEmail(email);
+  }
+
+  async findByPhoneNumber(phoneNumber: string): Promise<User | null> {
+    return this.userRepository.findByPhone(phoneNumber);
   }
 
   async markUserLogin(userId: string): Promise<void> {

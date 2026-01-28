@@ -15,8 +15,8 @@ export function IsEmailOrPhone(validationOptions?: ValidationOptions) {
       validator: {
         validate(value: any, args: ValidationArguments) {
           const email = args.object['email'];
-          const phone = args.object['phone'];
-          return !!(email || phone);
+          const phoneNumber = args.object['phoneNumber'];
+          return !!(email || phoneNumber);
         },
         defaultMessage(args: ValidationArguments) {
           return 'Either email or phone number must be provided';
