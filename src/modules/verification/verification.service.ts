@@ -12,7 +12,7 @@ import {
   ConsoleSmsProvider,
 } from './providers/console.provider';
 import { VerificationCacheService } from './verification-cache.service';
-import { SendOtpDto } from './dto/send-otp.dto';
+import { SendOtpDto, VerificationPurpose } from './dto/send-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 
 @Injectable()
@@ -37,6 +37,10 @@ export class VerificationService {
     this.emailProvider = this.isProduction
       ? zohoEmailProvider
       : consoleEmailProvider;
+    // this.emailProvider = this.isProduction
+    //   ? zohoEmailProvider
+    //   : zohoEmailProvider; 
+
     this.smsProvider = this.isProduction
       ? termiiSmsProvider
       : consoleSmsProvider;
@@ -46,7 +50,7 @@ export class VerificationService {
    * Send OTP based on identifier type (email or phone)
    */
   async sendOtp(dto: SendOtpDto): Promise<any> {
-    const { identifier, purpose = 'verification' } = dto;
+    const { identifier, purpose = VerificationPurpose.REGISTRATION } = dto;
 
     // Check if identifier is email or phone
     const isEmail = identifier.includes('@');
