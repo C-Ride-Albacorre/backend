@@ -82,13 +82,34 @@ export class ZohoEmailProvider implements IEmailProvider {
       this.logger.log(`Email sent to ${to}`);
       return response.data;
     } catch (error) {
+      const err = error as any;
+
       this.logger.error(
-        `Failed to send email to ${to}: ${error?.response?.data || error.message}`,
+        `Failed to send email to ${to}`,
+        JSON.stringify(
+          {
+            message: err.message,
+            code: err.code,
+            status: err.response?.status,
+            data: err.response?.data,
+            headers: err.response?.headers,
+          },
+          null,
+          2,
+        ),
       );
+
+        // this.logger.error(
+        //   `Failed to send email to ${to}`,
+        //   JSON.stringify(error?.response?.data || error, null, 2),
+        // );
       throw new Error(`Email sending failed`);
+
+    
+
     }
   }
-  
+
   async sendOtp(to: string, otp: string, templateId?: string): Promise<any> {
     const subject = 'Your Verification Code';
     const html = this.generateOtpEmail(otp);
