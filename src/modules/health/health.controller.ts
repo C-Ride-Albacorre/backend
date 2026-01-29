@@ -5,7 +5,7 @@ import {
   HealthIndicatorResult,
 } from '@nestjs/terminus';
 import { PrismaService } from '../../shared/services/prisma.service';
-import { CacheService, CacheHealth } from '../../shared/services/cache.service';
+// import { CacheService, CacheHealth } from '../../shared/services/cache.service';
 import { ApiTags } from '@nestjs/swagger';
 import Helper from 'src/shared/utils/helpers';
 
@@ -34,7 +34,7 @@ export class HealthController {
   constructor(
     private readonly health: HealthCheckService,
     private readonly prisma: PrismaService,
-    private readonly cacheService: CacheService,
+    //private readonly cacheService: CacheService,
   ) {
     this.startupTime = new Date();
   }
@@ -79,42 +79,42 @@ export class HealthController {
       },
 
       // Cache health check
-      async (): Promise<HealthIndicatorResult> => {
-        try {
-          const cacheHealth = await this.cacheService.checkHealth();
-          cacheLatency = cacheHealth.latency;
+      // async (): Promise<HealthIndicatorResult> => {
+      //   try {
+      //     const cacheHealth = await this.cacheService.checkHealth();
+      //     cacheLatency = cacheHealth.latency;
 
-          if (cacheHealth.status === 'healthy') {
-            return {
-              cache: {
-                status: 'up',
-                latency: `${cacheHealth.latency}ms`,
-                details: {
-                  connection: 'established',
-                  timestamp: new Date().toISOString(),
-                },
-              },
-            };
-          }
+      //     if (cacheHealth.status === 'healthy') {
+      //       return {
+      //         cache: {
+      //           status: 'up',
+      //           latency: `${cacheHealth.latency}ms`,
+      //           details: {
+      //             connection: 'established',
+      //             timestamp: new Date().toISOString(),
+      //           },
+      //         },
+      //       };
+      //     }
 
-          return {
-            cache: {
-              status: 'down',
-              message: cacheHealth.error || 'Cache health check failed',
-              timestamp: new Date().toISOString(),
-            },
-          };
-        } catch (error) {
-          return {
-            cache: {
-              status: 'down',
-              message: error.message,
-              error: error.name,
-              timestamp: new Date().toISOString(),
-            },
-          };
-        }
-      },
+      //     return {
+      //       cache: {
+      //         status: 'down',
+      //         message: cacheHealth.error || 'Cache health check failed',
+      //         timestamp: new Date().toISOString(),
+      //       },
+      //     };
+      //   } catch (error) {
+      //     return {
+      //       cache: {
+      //         status: 'down',
+      //         message: error.message,
+      //         error: error.name,
+      //         timestamp: new Date().toISOString(),
+      //       },
+      //     };
+      //   }
+      // },
 
       // Memory health check
       async (): Promise<HealthIndicatorResult> => {
@@ -219,11 +219,11 @@ export class HealthController {
     }
 
     // Cache readiness
-    const cacheHealth = await this.cacheService.checkHealth();
-    checks.push({
-      cache: cacheHealth.status === 'healthy' ? 'ready' : 'not_ready',
-      latency: cacheHealth.latency,
-    });
+    // const cacheHealth = await this.cacheService.checkHealth();
+    // checks.push({
+    //   cache: cacheHealth.status === 'healthy' ? 'ready' : 'not_ready',
+    //   latency: cacheHealth.latency,
+    // });
 
     const allReady = checks.every(
       (check) => Object.values(check)[0] === 'ready',
@@ -263,23 +263,23 @@ export class HealthController {
     return detailedHealth;
   }
 
-  @Get('cache')
-  async cacheHealth(): Promise<{
-    status: string;
-    health: CacheHealth;
-    connection: boolean;
-    stats: any;
-  }> {
-    const health = await this.cacheService.checkHealth();
-    const stats = await this.cacheService.getStats();
+  // @Get('cache')
+  // async cacheHealth(): Promise<{
+  //   status: string;
+  //   // health: CacheHealth;
+  //   connection: boolean;
+  //   stats: any;
+  // }> {
+  //   const health = await this.cacheService.checkHealth();
+  //   const stats = await this.cacheService.getStats();
 
-    return {
-      status: health.status,
-      health,
-      connection: this.cacheService.getConnectionStatus(),
-      stats,
-    };
-  }
+  //   return {
+  //     status: health.status,
+  //     health,
+  //     connection: this.cacheService.getConnectionStatus(),
+  //     stats,
+  //   };
+  // }
 
   @Get('database')
   async databaseHealth(): Promise<{

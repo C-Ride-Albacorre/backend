@@ -15,4 +15,8 @@ export class User {
   createdAt: Date;
   updatedAt: Date;
   isActive: boolean;
+  isVerified: boolean;
+  verifiedAt?: Date;
+  referralCode?: string;
+  referredBy?: string;
 }

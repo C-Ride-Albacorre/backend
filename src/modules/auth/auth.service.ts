@@ -11,8 +11,9 @@ import * as bcrypt from 'bcrypt';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
+// import { ForgotPasswordDto } from './dto/forgot-password.dto';
+// import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ForgotPasswordDto, ResetPasswordDto, VerifyResetTokenDto } from './dto/password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { OAuthProviderType } from '@prisma/client';
@@ -26,6 +27,9 @@ import { UserRole } from 'src/shared/enums';
 import { randomBytes } from 'crypto';
 import { StringValue } from 'ms';
 import { LoginCustomerDto } from './dto/login-customer.dto';
+import { VerifyOtpDto } from '../verification/dto/verify-otp.dto';
+import { VerificationService } from '../verification/verification.service';
+import { VerificationPurpose } from '../verification/dto/send-otp.dto';
 
 @Injectable()
 export class AuthService {
@@ -34,10 +38,14 @@ export class AuthService {
   private readonly accessTokenExpiresIn: string;
   private readonly refreshTokenExpiresIn: string;
   private readonly refreshTokenRotationEnabled: boolean;
+  private readonly passwordResetTokenExpiresIn: string;
+  private readonly frontendUrl: string;
+
   constructor(
     private userService: UserService,
     private jwtService: JwtService,
     private config: ConfigService,
+    private readonly verificationService: VerificationService,
   ) {
     this.refreshTokenSecret = this.config.get<string>('REFRESH_TOKEN_SECRET');
     this.accessTokenExpiresIn =
@@ -48,35 +56,124 @@ export class AuthService {
       this.config.get<boolean>('REFRESH_TOKEN_ROTATION_ENABLED') || false;
   }
 
+  /**
+   * Register customer with automatic OTP
+   */
   async registerCustomer(dto: CreateCustomerDto) {
-    const { email, phoneNumber, firstName, lastName, password } = dto;
+    const { email, phoneNumber } = dto;
     this.logger.log(`Registering customer: ${email || phoneNumber}`);
 
-    const user = await this.userService.createCustomer({
-      email: email,
-      phoneNumber: phoneNumber,
-      password: password,
-      firstName: firstName,
-      lastName: lastName,
-    });
+    const { user, requiresVerification } =
+      await this.userService.createCustomer({
+        email: email,
+        phoneNumber: phoneNumber,
+        password: dto.password,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+      });
+
+    // Return different response based on verification status
+    if (requiresVerification) {
+      return {
+        success: true,
+        requiresVerification: true,
+        message: 'Registration successful. Please verify your account.',
+        verificationIdentifier: user.email || user.phoneNumber,
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          isVerified: false,
+        },
+      };
+    }
+
+    // If no verification required, generate tokens immediately
+    return this.generateAuthResponse(user);
+  }
+
+  // async registerCustomer(dto: CreateCustomerDto) {
+  //   const { email, phoneNumber, firstName, lastName, password } = dto;
+  //   this.logger.log(`Registering customer: ${email || phoneNumber}`);
+
+  //   const user = await this.userService.createCustomer({
+  //     email: email,
+  //     phoneNumber: phoneNumber,
+  //     password: password,
+  //     firstName: firstName,
+  //     lastName: lastName,
+  //   });
+
+  //   return this.generateAuthResponse(user);
+  // }
+
+  /**
+   * Verify OTP during registration
+   */
+  async verifyRegistration(dto: VerifyOtpDto) {
+    const { identifier, otp } = dto;
+
+    const result = await this.userService.verifyUser(identifier, otp);
+
+    if (!result.success || !result.user) {
+      throw new UnauthorizedException('Invalid OTP');
+    }
+
+    // Generate tokens after successful verification
+    return this.generateAuthResponse(result.user);
+  }
+
+  /**
+   * Login - user with email/phone and password - only works for verified users
+   */
+  async loginCustomer(loginDto: LoginCustomerDto) {
+    const { email, phoneNumber } = loginDto;
+    const identifier = email || phoneNumber;
+
+    this.logger.log(`Login attempt: ${identifier}`);
+
+    // This will throw if user is not verified
+    const user = await this.userService.authenticateUser(loginDto);
+
+    // Check if user is verified (redundant but safe)
+    if (!user.isVerified) {
+      throw new UnauthorizedException(
+        'Account not verified. Please verify your account.',
+      );
+    }
 
     return this.generateAuthResponse(user);
   }
 
-
   /**
    * Login user with email/phone and password
    */
-  async loginCustomer(loginDto: LoginCustomerDto): Promise<AuthResponse> {
-     const { email, phoneNumber } = loginDto;
+  async loginCustomer2(loginDto: LoginCustomerDto): Promise<AuthResponse> {
+    const { email, phoneNumber } = loginDto;
     const identifier = email || phoneNumber;
-    
+
     this.logger.log(`Login attempt: ${identifier}`);
 
     // Delegate authentication to UserService
     const user = await this.userService.authenticateUser(loginDto);
 
     return this.generateAuthResponse(user);
+  }
+
+  /**
+   * Resend OTP for registration
+   */
+  async resendOtp(identifier: string) {
+    const result = await this.userService.resendVerificationOtp(identifier);
+
+    if (!result.success) {
+      throw new UnauthorizedException(result.message);
+    }
+
+    return {
+      success: true,
+      message: 'OTP sent successfully',
+    };
   }
 
   async refreshTokens(refreshTokenDto: RefreshTokenDto): Promise<AuthResponse> {
@@ -172,6 +269,40 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  /**
+   * Generate JWT reset token
+   */
+  private createPasswordResetTokenPayload(user: User) {
+    return {
+      userId: user.id,
+      type: 'password_reset',
+      jti: randomBytes(16).toString('hex'),
+    };
+  }
+
+  private async generateResetToken(user: User): Promise<string> {
+    const payload = this.createPasswordResetTokenPayload(user);
+
+    return this.jwtService.signAsync(payload, {
+      secret: this.config.get<string>('JWT_SECRET'),
+      expiresIn: this.passwordResetTokenExpiresIn as number | StringValue,
+    });
+  }
+
+  // private generateResetToken(userId: string): string {
+  //   return this.jwtService.sign(
+  //     {
+  //       userId,
+  //       type: 'password_reset',
+  //       jti: crypto.randomBytes(16).toString('hex'),
+  //     },
+  //     {
+  //       secret: this.config.get<string>('JWT_SECRET'),
+  //       expiresIn: this.passwordResetTokenExpiresIn,
+  //     },
+  //   );
+  // }
+
   private createAccessTokenPayload(user: User): TokenPayload {
     return {
       sub: user.id,
@@ -265,73 +396,549 @@ export class AuthService {
 
   /* ---------- Forgot Password flow ---------- */
 
-  async forgotPassword(dto: ForgotPasswordDto) {
-    const { email } = dto;
-    if (!email) throw new BadRequestException('Email is required');
+  /**
+   * Initiate password reset process
+   */
+  // async forgotPassword(dto: ForgotPasswordDto): Promise<{
+  //   success: boolean;
+  //   message: string;
+  //   identifier?: string;
+  //   method?: 'email' | 'sms';
+  // }> {
+  //   const { email, phoneNumber } = dto;
+  //   const identifier = email || phoneNumber;
 
-    const user = await this.userService.findByEmail(email);
-    if (!user) {
-      return { ok: true }; // do not reveal if user exists
+  //   this.logger.log(`Password reset requested for: ${identifier}`);
+
+  //   // Find user by identifier
+  //   // const user = await this.userService.findExistingUser(email, phoneNumber);
+  //   const user = await this.userService.findUserByIdentifier(identifier);
+  //   // Security: Always return success even if user not found
+  //   if (!user) {
+  //     this.logger.debug(`User not found for password reset: ${identifier}`);
+  //     return {
+  //       success: true,
+  //       message:
+  //         'If an account exists with this email/phone, you will receive reset instructions.',
+  //     };
+  //   }
+
+  //   // Check if user is active
+  //   if (!user.isActive) {
+  //     this.logger.warn(`Password reset attempt for inactive user: ${user.id}`);
+  //     return {
+  //       success: true,
+  //       message:
+  //         'If an account exists with this email/phone, you will receive reset instructions.',
+  //     };
+  //   }
+
+  //   // Check if user is verified
+  //   if (!user.isVerified) {
+  //     this.logger.warn(
+  //       `Password reset attempt for unverified user: ${user.id}`,
+  //     );
+  //     return {
+  //       success: false,
+  //       message: 'Please verify your account first before resetting password.',
+  //     };
+  //   }
+
+  //   // Generate reset token
+  //   const resetToken = this.generateResetToken(user.id);
+
+  //   // Determine reset method (email or SMS)
+  //   const method = email ? 'email' : 'sms';
+
+  //   try {
+  //     if (method === 'email' && user.email) {
+  //       await this.sendPasswordResetEmail(user, resetToken);
+  //     } else if (method === 'sms' && user.phoneNumber) {
+  //       await this.sendPasswordResetSms(user, resetToken);
+  //     } else {
+  //       throw new Error(`No ${method} available for user ${user.id}`);
+  //     }
+
+  //     this.logger.log(
+  //       `Password reset ${method} sent to ${identifier} for user ${user.id}`,
+  //     );
+
+  //     return {
+  //       success: true,
+  //       message: 'Password reset instructions sent successfully.',
+  //       identifier,
+  //       method,
+  //     };
+  //   } catch (error) {
+  //     this.logger.error(
+  //       `Failed to send password reset ${method}: ${error.message}`,
+  //     );
+  //     return {
+  //       success: false,
+  //       message: 'Failed to send reset instructions. Please try again later.',
+  //     };
+  //   }
+  // }
+  async forgotPassword(dto: ForgotPasswordDto): Promise<{
+    success: boolean;
+    message: string;
+    identifier?: string;
+    method?: 'email' | 'sms';
+  }> {
+    const { email, phoneNumber } = dto;
+    const identifier = email || phoneNumber;
+
+    this.logger.log(`Password reset requested for: ${identifier}`);
+
+    let user: User | null;
+
+    try {
+      user = await this.userService.findUserForPasswordReset(identifier);
+    } catch (err) {
+      if (err.message === 'USER_NOT_VERIFIED') {
+        return {
+          success: false,
+          message:
+            'Please verify your account first before resetting password.',
+        };
+      }
+      throw err;
     }
 
-    const secret = this.config.get<string>('JWT_SECRET');
-    if (!secret) throw new Error('JWT_SECRET not configured');
+    // Security: always return success if user not found/inactive
+    if (!user) {
+      this.logger.debug(`User not eligible for password reset: ${identifier}`);
+      return {
+        success: true,
+        message:
+          'If an account exists with this email/phone, you will receive reset instructions.',
+      };
+    }
 
-    const token = jwt.sign({ userId: user.id }, secret, { expiresIn: '1d' });
+    const resetToken = await this.generateResetToken(user);
+    const method = email ? 'email' : 'sms';
 
-    console.log('Generated reset token:', token);
+    try {
+      if (method === 'email' && user.email) {
+        await this.sendPasswordResetEmail(user, resetToken);
+      } else if (method === 'sms' && user.phoneNumber) {
+        await this.sendPasswordResetSms(user, resetToken);
+      } else {
+        throw new Error(`No ${method} available for user ${user.id}`);
+      }
 
-    const expiresAt = new Date(
-      Date.now() +
-        Number(this.config.get('PASSWORD_RESET_TOKEN_EXPIRES_MIN') || 60) *
-          60000,
+      this.logger.log(
+        `Password reset ${method} sent to ${identifier} for user ${user.id}`,
+      );
+
+      return {
+        success: true,
+        message: 'Password reset instructions sent successfully.',
+        identifier,
+        method,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to send password reset ${method}: ${error.message}`,
+      );
+      return {
+        success: false,
+        message: 'Failed to send reset instructions. Please try again later.',
+      };
+    }
+  }
+
+  /**
+   * Send password reset email with OTP
+   */
+  private async sendPasswordResetEmail(
+    user: User,
+    resetToken: string,
+  ): Promise<void> {
+    const resetLink = `${this.frontendUrl}/auth/reset-password?token=${resetToken}`;
+    const expiresInHours = this.parseExpiresInToHours(
+      this.passwordResetTokenExpiresIn,
     );
 
-    const frontendUrl = this.config.get('FRONTEND_URL');
-    if (!frontendUrl) throw new Error('FRONTEND_URL not configured');
-
-    const resetLink = `${frontendUrl}/auth/reset-password?token=${token}`;
-    const timeframe = expiresAt;
-    const subject = 'Password reset';
-    const context = {
-      user: user?.firstName + ' ' + user?.lastName || 'there',
+    const subject = 'Reset Your Password';
+    const html = this.generateResetEmailHtml(
+      user.firstName,
       resetLink,
-      timeframe,
-    };
-    const templateName = 'forgotPassword';
+      expiresInHours,
+    );
 
-    // try {
-    //   await this.mailGunService.sendEmailWithTemplate({
-    //     to: email,
-    //     subject,
-    //     templateName,
-    //     context,
-    //   });
-    // } catch (error) {
-    //   console.error('Mail sending failed:', error);
-    //   throw new InternalServerErrorException(
-    //     'Failed to send password reset email',
-    //   );
-    // }
+    // Use verification service email provider
+    await this.verificationService.emailProvider.sendEmail(
+      user.email!,
+      subject,
+      `Click here to reset your password: ${resetLink}`,
+      html,
+    );
 
-    return { ok: true, message: 'Password reset email sent' };
+    // Also send OTP via email for additional security
+    await this.verificationService.sendOtp({
+      identifier: user.email!,
+      purpose: VerificationPurpose.PASSWORD_RESET,
+    });
   }
 
-  async resetPassword(dto: ResetPasswordDto) {
+  /**
+   * Send password reset SMS with OTP
+   */
+  private async sendPasswordResetSms(
+    user: User,
+    resetToken: string,
+  ): Promise<void> {
+    // For SMS, we'll send an OTP instead of a link
+    await this.verificationService.sendOtp({
+      identifier: user.phoneNumber!,
+      purpose: VerificationPurpose.PASSWORD_RESET,
+    });
+
+    // Optional: Send SMS with short instructions
+    const message = `You requested a password reset. Use the OTP sent to complete the process.`;
+    await this.verificationService.smsProvider.sendSms(
+      user.phoneNumber!,
+      message,
+    );
+  }
+
+  /**
+   * Verify reset token (for both link tokens and OTP)
+   */
+  async verifyResetToken(dto: VerifyResetTokenDto): Promise<{
+    valid: boolean;
+    userId?: string;
+    requiresOtp?: boolean;
+    identifier?: string;
+  }> {
+    const { token } = dto;
+
+    try {
+      // Try to verify as JWT token first (from email link)
+      try {
+        const decoded = this.jwtService.verify(token);
+        if (decoded?.userId && decoded?.type === 'password_reset') {
+          return {
+            valid: true,
+            userId: decoded.userId,
+          };
+        }
+      } catch (jwtError) {
+        // Not a valid JWT, might be an OTP
+        this.logger.debug(`Token is not a JWT, checking as OTP`);
+      }
+
+      // Check if token is an OTP
+      // We need to find which identifier this OTP belongs to
+      // This requires storing OTP-to-identifier mapping
+      const isValidOtp = await this.verifyPasswordResetOtp(token);
+
+      if (isValidOtp) {
+        return {
+          valid: true,
+          requiresOtp: false, // OTP already verified
+        };
+      }
+
+      return { valid: false };
+    } catch (error) {
+      this.logger.error(`Reset token verification failed: ${error.message}`);
+      return { valid: false };
+    }
+  }
+
+  /**
+   * Reset password with token/OTP
+   */
+  async resetPassword(dto: ResetPasswordDto): Promise<{
+    success: boolean;
+    message: string;
+  }> {
     const { token, newPassword } = dto;
-    if (!token || !newPassword) {
-      throw new BadRequestException('Token and new password are required');
-    }
-    const decoded = this.jwtService.verify(token);
-    if (!decoded || !decoded.userId) {
-      throw new UnauthorizedException('Invalid token');
+
+    this.logger.log('Processing password reset request');
+
+    let userId: string | undefined;
+    let requiresOtp = false;
+    let identifier: string | undefined;
+
+    // Try to decode as JWT token first
+    try {
+      const decoded = this.jwtService.verify(token);
+      if (decoded?.userId && decoded?.type === 'password_reset') {
+        userId = decoded.userId;
+      }
+    } catch (jwtError) {
+      // Not a JWT, check if it's an OTP
+      requiresOtp = true;
     }
 
-    const hashed = await bcrypt.hash(newPassword, 12);
-    await this.userService.updatePassword(decoded.userId, hashed);
+    // If it's an OTP, we need to verify it and get the user identifier
+    if (requiresOtp) {
+      const otpResult = await this.handleOtpPasswordReset(token, newPassword);
+      return otpResult;
+    }
 
-    return 'Password successfully reset';
+    // Handle JWT token password reset
+    if (!userId) {
+      throw new UnauthorizedException('Invalid or expired reset token');
+    }
+
+    // Verify user exists and is active
+    const user = await this.userService.findById(userId);
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    // Update password
+    await this.userService.updatePassword(userId, hashedPassword);
+
+    // Invalidate all user sessions (optional)
+    await this.userService.updateRefreshToken(userId, null);
+
+    // Send confirmation notification
+    await this.sendPasswordResetConfirmation(user);
+
+    this.logger.log(`Password reset successful for user: ${userId}`);
+
+    return {
+      success: true,
+      message: 'Password has been reset successfully.',
+    };
   }
+
+  /**
+   * Handle password reset with OTP
+   */
+  private async handleOtpPasswordReset(
+    otp: string,
+    newPassword: string,
+  ): Promise<{ success: boolean; message: string }> {
+    // This requires additional implementation to map OTP to user
+    // For now, we'll require the user to also provide their identifier
+
+    throw new BadRequestException(
+      'OTP-based reset requires additional verification. Please use the reset link from your email.',
+    );
+  }
+
+  /**
+   * Alternative: Reset password with OTP and identifier
+   */
+  async resetPasswordWithOtp(dto: {
+    identifier: string;
+    otp: string;
+    newPassword: string;
+  }): Promise<{ success: boolean; message: string }> {
+    const { identifier, otp, newPassword } = dto;
+
+    this.logger.log(`Processing OTP password reset for: ${identifier}`);
+
+    // Verify OTP
+    const isValid = await this.verificationService.verifyOtp({
+      identifier,
+      otp,
+    });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired OTP');
+    }
+
+    // Find user
+    const user = await this.userService.findUserForPasswordReset(identifier);
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    // Update password
+    await this.userService.updatePassword(user.id, hashedPassword);
+
+    // Clear OTP after use
+    await this.verificationService.clearOtp(identifier);
+
+    // Send confirmation
+    await this.sendPasswordResetConfirmation(user);
+
+    this.logger.log(`Password reset via OTP successful for user: ${user.id}`);
+
+    return {
+      success: true,
+      message: 'Password has been reset successfully.',
+    };
+  }
+
+  /**
+   * Send password reset confirmation
+   */
+  private async sendPasswordResetConfirmation(user: User): Promise<void> {
+    try {
+      const subject = 'Password Reset Successful';
+      const message = `Your password was successfully reset at ${new Date().toLocaleString()}.`;
+
+      if (user.email) {
+        await this.verificationService.emailProvider.sendEmail(
+          user.email,
+          subject,
+          message,
+          `<p>${message}</p><p>If you didn't make this change, please contact support immediately.</p>`,
+        );
+      }
+
+      if (user.phoneNumber) {
+        await this.verificationService.smsProvider.sendSms(
+          user.phoneNumber,
+          `Password reset successful. If you didn't make this change, contact support.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(`Failed to send reset confirmation: ${error.message}`);
+      // Non-critical error
+    }
+  }
+
+  /**
+   * Generate reset email HTML
+   */
+  private generateResetEmailHtml(
+    name: string,
+    resetLink: string,
+    expiresInHours: number,
+  ): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; }
+          .header { background-color: #4F46E5; color: white; padding: 20px; text-align: center; }
+          .content { padding: 30px; background-color: #f9f9f9; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #4F46E5; 
+                   color: white; text-decoration: none; border-radius: 4px; margin: 20px 0; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+          .warning { color: #dc2626; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Password Reset</h1>
+          </div>
+          <div class="content">
+            <p>Hello ${name},</p>
+            <p>You requested to reset your password. Click the button below to proceed:</p>
+            <p style="text-align: center;">
+              <a href="${resetLink}" class="button">Reset Password</a>
+            </p>
+            <p>Or copy and paste this link in your browser:</p>
+            <p><code>${resetLink}</code></p>
+            <p class="warning">This link will expire in ${expiresInHours} hour(s).</p>
+            <p>If you didn't request this reset, please ignore this email.</p>
+          </div>
+          <div class="footer">
+            <p>&copy; ${new Date().getFullYear()} Your Company. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Parse expiresIn string to hours
+   */
+  private parseExpiresInToHours(expiresIn: string): number {
+    const match = expiresIn.match(/^(\d+)([hmd])$/);
+    if (!match) return 1;
+
+    const [, value, unit] = match;
+    const numValue = parseInt(value);
+
+    switch (unit) {
+      case 'h':
+        return numValue;
+      case 'm':
+        return numValue / 60;
+      case 'd':
+        return numValue * 24;
+      default:
+        return 1;
+    }
+  }
+
+  // async forgotPassword(dto: ForgotPasswordDto) {
+  //   const { email } = dto;
+  //   if (!email) throw new BadRequestException('Email is required');
+
+  //   const user = await this.userService.findByEmail(email);
+  //   if (!user) {
+  //     return { ok: true }; // do not reveal if user exists
+  //   }
+
+  //   const secret = this.config.get<string>('JWT_SECRET');
+  //   if (!secret) throw new Error('JWT_SECRET not configured');
+
+  //   const token = jwt.sign({ userId: user.id }, secret, { expiresIn: '1d' });
+
+  //   console.log('Generated reset token:', token);
+
+  //   const expiresAt = new Date(
+  //     Date.now() +
+  //       Number(this.config.get('PASSWORD_RESET_TOKEN_EXPIRES_MIN') || 60) *
+  //         60000,
+  //   );
+
+  //   const frontendUrl = this.config.get('FRONTEND_URL');
+  //   if (!frontendUrl) throw new Error('FRONTEND_URL not configured');
+
+  //   const resetLink = `${frontendUrl}/auth/reset-password?token=${token}`;
+  //   const timeframe = expiresAt;
+  //   const subject = 'Password reset';
+  //   const context = {
+  //     user: user?.firstName + ' ' + user?.lastName || 'there',
+  //     resetLink,
+  //     timeframe,
+  //   };
+  //   const templateName = 'forgotPassword';
+
+  //   // try {
+  //   //   await this.mailGunService.sendEmailWithTemplate({
+  //   //     to: email,
+  //   //     subject,
+  //   //     templateName,
+  //   //     context,
+  //   //   });
+  //   // } catch (error) {
+  //   //   console.error('Mail sending failed:', error);
+  //   //   throw new InternalServerErrorException(
+  //   //     'Failed to send password reset email',
+  //   //   );
+  //   // }
+
+  //   return { ok: true, message: 'Password reset email sent' };
+  // }
+
+  // async resetPassword(dto: ResetPasswordDto) {
+  //   const { token, newPassword } = dto;
+  //   if (!token || !newPassword) {
+  //     throw new BadRequestException('Token and new password are required');
+  //   }
+  //   const decoded = this.jwtService.verify(token);
+  //   if (!decoded || !decoded.userId) {
+  //     throw new UnauthorizedException('Invalid token');
+  //   }
+
+  //   const hashed = await bcrypt.hash(newPassword, 12);
+  //   await this.userService.updatePassword(decoded.userId, hashed);
+
+  //   return 'Password successfully reset';
+  // }
 
   /* ---------- OAuth (Google) ---------- */
   async validateOAuthLogin({ provider, providerId, email, name }: any) {

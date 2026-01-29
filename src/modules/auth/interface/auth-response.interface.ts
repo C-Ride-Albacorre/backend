@@ -9,7 +9,7 @@ export interface AuthResponse {
   user: {
     id: string;
     email?: string;
-    phone?: string;
+    phoneNumber?: string;
     role: Role;
   };
 }

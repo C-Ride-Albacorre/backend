@@ -23,6 +23,7 @@ import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 import { ConfigService } from '@nestjs/config';
 import { OAuthProviderType } from '@prisma/client';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { VerifyOtpDto } from '../verification/dto/verify-otp.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -58,29 +59,19 @@ export class AuthController {
     return this.authService.registerCustomer(dto);
   }
 
-
-  @Post('refresh')
-  @ApiOperation({ summary: 'Refresh access token' })
-  @ApiResponse({ status: 200, description: 'Token refreshed', type: AuthResponseDto })
-  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
-  async refreshTokens(@Body() refreshTokenDto: RefreshTokenDto) {
-    return this.authService.refreshTokens(refreshTokenDto);
+  @Post('verify')
+  @ApiOperation({ summary: 'Verify registration OTP' })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification successful',
+    type: AuthResponseDto,
+  })
+  @ApiResponse({ status: 401, description: 'Invalid OTP' })
+  async verifyRegistration(@Body() verifyOtpDto: VerifyOtpDto) {
+    return this.authService.verifyRegistration(verifyOtpDto);
   }
 
-  @Post('logout')
-//  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Logout user' })
-  @ApiResponse({ status: 200, description: 'Logged out successfully' })
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  async logout(@Req() request): Promise<{ message: string }> {
-    const userId = request.user.id;
-    await this.authService.logout(userId);
-    return { message: 'Logged out successfully' };
-  }
-
-
-  @Post('login')
+  @Post('/customer/login')
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiResponse({
     status: 200,
@@ -92,10 +83,43 @@ export class AuthController {
     description: 'Invalid credentials',
     type: ApiErrorResponseDto,
   })
-    @ApiResponse({ status: 403, description: 'Account deactivated' })
-//  @UsePipes(new ValidationPipe({ transform: true }))
+  @ApiResponse({ status: 403, description: 'Account deactivated' })
+  //  @UsePipes(new ValidationPipe({ transform: true }))
   async login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+    return this.authService.loginCustomer(dto);
+  }
+
+
+  @Post('resend-otp')
+  @ApiOperation({ summary: 'Resend verification OTP' })
+  @ApiResponse({ status: 200, description: 'OTP sent successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid request' })
+  async resendOtp(@Body() body: { identifier: string }) {
+    return this.authService.resendOtp(body.identifier);
+  }
+
+  @Post('refresh')
+  @ApiOperation({ summary: 'Refresh access token' })
+  @ApiResponse({
+    status: 200,
+    description: 'Token refreshed',
+    type: AuthResponseDto,
+  })
+  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  async refreshTokens(@Body() refreshTokenDto: RefreshTokenDto) {
+    return this.authService.refreshTokens(refreshTokenDto);
+  }
+
+  @Post('logout')
+  //  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Logout user' })
+  @ApiResponse({ status: 200, description: 'Logged out successfully' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  async logout(@Req() request): Promise<{ message: string }> {
+    const userId = request.user.id;
+    await this.authService.logout(userId);
+    return { message: 'Logged out successfully' };
   }
 
   @Post('forgot-password')

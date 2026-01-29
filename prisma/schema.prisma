@@ -40,7 +40,11 @@ model User {
   role             Role             @default(CUSTOMER)
   isActive         Boolean          @default(true)
   refreshTokenHash String?
+  referralCode     String?          @unique
+  referredBy       String?
   lastLoginAt      DateTime?
+  isVerified       Boolean          @default(false)
+  verifiedAt       DateTime?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
   oauthProviders   OAuthProvider[]
