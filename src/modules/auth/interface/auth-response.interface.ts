@@ -14,14 +14,14 @@ export interface AuthResponse {
   };
 }
 
-export interface TokenPayload {
+// export interface TokenPayload {
+  export interface TokenPayload {
   sub: string;
   email?: string;
   role: Role;
   type: 'access' | 'refresh';
   jti?: string; // JWT ID for refresh tokens
-  iat?: number; // Issued at (timestamp)
-  exp?: number; // Expiration (timestamp)
+
 }
 
 export interface Tokens {

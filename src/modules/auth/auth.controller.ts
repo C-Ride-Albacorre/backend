@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Put, Req, Res } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Put, Req, Res, HttpCode, HttpStatus } from '@nestjs/common';
 import { Request, Response } from 'express';
 import {
   ApiBearerAuth,
@@ -24,6 +24,7 @@ import { ConfigService } from '@nestjs/config';
 import { OAuthProviderType } from '@prisma/client';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { VerifyOtpDto } from '../verification/dto/verify-otp.dto';
+import { CompleteOnboardingDto, CreateVendorDto, VerifyEmailDto, VerifyPhoneDto } from './dto/create-vendor.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -59,7 +60,7 @@ export class AuthController {
     return this.authService.registerCustomer(dto);
   }
 
-  @Post('verify')
+  @Post('/customer/verify')
   @ApiOperation({ summary: 'Verify registration OTP' })
   @ApiResponse({
     status: 200,
@@ -85,18 +86,84 @@ export class AuthController {
   })
   @ApiResponse({ status: 403, description: 'Account deactivated' })
   //  @UsePipes(new ValidationPipe({ transform: true }))
-  async login(@Body() dto: LoginDto) {
+  async loginCustomer(@Body() dto: LoginDto) {
     return this.authService.loginCustomer(dto);
   }
 
-
-  @Post('resend-otp')
+  @Post('/customer/resend-otp')
   @ApiOperation({ summary: 'Resend verification OTP' })
   @ApiResponse({ status: 200, description: 'OTP sent successfully' })
   @ApiResponse({ status: 400, description: 'Invalid request' })
-  async resendOtp(@Body() body: { identifier: string }) {
-    return this.authService.resendOtp(body.identifier);
+  async resendCustomerOtp(@Body() body: { identifier: string }) {
+    return this.authService.resendCustomerOtp(body.identifier);
   }
+
+  // VENDOR
+  @Post('/vendor/register')
+  @ApiOperation({ summary: 'Register a new vendor' })
+  @ApiResponse({ status: 201, description: 'Vendor registered successfully' })
+  @ApiResponse({ status: 409, description: 'Vendor already exists' })
+  async registerVendor(@Body() dto: CreateVendorDto) {
+    return this.authService.registerVendor(dto);
+  }
+
+  @Post('/vendor/verify/email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify vendor email' })
+  @ApiResponse({ status: 200, description: 'Email verified successfully' })
+  @ApiResponse({ status: 401, description: 'Invalid verification code' })
+  async verifyVendorEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyVendorEmail(dto);
+  }
+
+  @Post('verify/phone')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify vendor phone' })
+  @ApiResponse({ status: 200, description: 'Phone verified successfully' })
+  @ApiResponse({ status: 401, description: 'Invalid verification code' })
+  async verifyVendorPhone(@Body() dto: VerifyPhoneDto) {
+    return this.authService.verifyVendorPhone(dto);
+  }
+
+  @Post('/vendor/login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Vendor login' })
+  @ApiResponse({ status: 200, description: 'Login successful' })
+  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  async loginVendor(
+    // @Body('email') email: string,
+    // @Body('password') password: string,
+    @Body() loginDto: LoginDto,
+  ) {
+    return this.authService.loginVendor(loginDto);
+  }
+
+  @Post('/vendor/onboarding')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Complete business onboarding' })
+  @ApiResponse({
+    status: 200,
+    description: 'Onboarding completed successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Email or phone not verified' })
+  async completeOnboarding(@Req() req, @Body() dto: CompleteOnboardingDto) {
+    return this.userService.completeOnboarding(req.user.id, dto);
+  }
+
+  @Post('resend-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Resend verification OTP' })
+  @ApiResponse({ status: 200, description: 'OTP sent successfully' })
+  async resendOtp(
+    @Body('identifier') identifier: string,
+    @Body('purpose') purpose: string,
+  ) {
+    return this.userService.resendVerificationOtp(identifier, purpose);
+  }
+
+  ///
 
   @Post('refresh')
   @ApiOperation({ summary: 'Refresh access token' })

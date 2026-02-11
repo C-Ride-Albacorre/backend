@@ -1,4 +1,3 @@
-// src/verification/services/verification.service.ts
 import {
   Injectable,
   Logger,
@@ -12,15 +11,16 @@ import {
   ConsoleSmsProvider,
 } from './providers/console.provider';
 import { VerificationCacheService } from './verification-cache.service';
-import { SendOtpDto, VerificationPurpose } from './dto/send-otp.dto';
+import { SendOtpDto } from './dto/send-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { VerificationPurpose } from '../../shared/enums';
 
 @Injectable()
 export class VerificationService {
   private readonly logger = new Logger(VerificationService.name);
-  private readonly emailProvider: any;
-  private readonly smsProvider: any;
-  private readonly isProduction: boolean;
+  public readonly emailProvider: any;
+  public readonly smsProvider: any;
+  public readonly isProduction: boolean;
 
   constructor(
     private configService: ConfigService,
@@ -39,7 +39,7 @@ export class VerificationService {
       : consoleEmailProvider;
     // this.emailProvider = this.isProduction
     //   ? zohoEmailProvider
-    //   : zohoEmailProvider; 
+    //   : zohoEmailProvider;
 
     this.smsProvider = this.isProduction
       ? termiiSmsProvider
@@ -142,5 +142,15 @@ export class VerificationService {
     const message = `Welcome ${name}! Your account has been verified. Thank you for joining us!`;
 
     await this.smsProvider.sendSms(phoneNumber, message);
+  }
+
+  /**
+   * Clear OTP after use (for password reset)
+   */
+  /**
+   * Clear OTP after successful use
+   */
+  async clearOtp(identifier: string): Promise<boolean> {
+    return this.verificationCache.revokeOtp(identifier);
   }
 }

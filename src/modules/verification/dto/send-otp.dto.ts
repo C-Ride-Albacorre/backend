@@ -1,13 +1,9 @@
 // src/verification/dto/send-otp.dto.ts
 import { IsString, IsEmail, IsOptional, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { VerificationPurpose } from '../../../shared/enums';
 
-export enum VerificationPurpose {
-  REGISTRATION = 'registration',
-  LOGIN = 'login',
-  PASSWORD_RESET = 'password_reset',
-  TWO_FACTOR = 'two_factor',
-}
+
 
 export class SendOtpDto {
   @ApiProperty({
