@@ -4,6 +4,8 @@ import {
   BadRequestException,
   InternalServerErrorException,
   Logger,
+  NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { UserService } from '../user/user.service';
 import { JwtService } from '@nestjs/jwt';
@@ -23,20 +25,23 @@ import {
   TokenPayload,
 } from './interface/auth-response.interface';
 import { User } from '../user/entities/user.entity';
-import { UserRole } from 'src/shared/enums';
+import { UserRole, VendorStatus, VerificationPurpose } from '../../shared/enums';
 import { randomBytes } from 'crypto';
 import { StringValue } from 'ms';
 import { LoginCustomerDto } from './dto/login-customer.dto';
 import { VerifyOtpDto } from '../verification/dto/verify-otp.dto';
 import { VerificationService } from '../verification/verification.service';
-import { VerificationPurpose } from '../verification/dto/send-otp.dto';
+import { VerificationCacheService } from '../verification/verification-cache.service';
+import { CreateVendorDto, VerifyEmailDto, VerifyPhoneDto } from './dto/create-vendor.dto';
+import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
+import { CloudinaryService } from '../../shared/services/cloudinary.service';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly refreshTokenSecret: string;
-  private readonly accessTokenExpiresIn: string;
-  private readonly refreshTokenExpiresIn: string;
+  private readonly accessTokenExpiresIn: string | number;
+  private readonly refreshTokenExpiresIn: string | number;
   private readonly refreshTokenRotationEnabled: boolean;
   private readonly passwordResetTokenExpiresIn: string;
   private readonly frontendUrl: string;
@@ -46,14 +51,28 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private readonly verificationService: VerificationService,
+    private readonly verificationCacheService: VerificationCacheService,
+    private readonly cloudinary: CloudinaryService,
+    private readonly userRepository: AbstractUserRepository,
   ) {
     this.refreshTokenSecret = this.config.get<string>('REFRESH_TOKEN_SECRET');
-    this.accessTokenExpiresIn =
-      this.config.get<string>('JWT_EXPIRES_IN') || '3600s';
-    this.refreshTokenExpiresIn =
-      this.config.get<string>('REFRESH_TOKEN_EXPIRES_IN') || '7d';
+    this.accessTokenExpiresIn = this.config.get<string | number>(
+      'JWT_EXPIRES_IN',
+    );
+    this.refreshTokenExpiresIn = this.config.get<string | number>(
+      'REFRESH_TOKEN_EXPIRES_IN',
+    );
     this.refreshTokenRotationEnabled =
       this.config.get<boolean>('REFRESH_TOKEN_ROTATION_ENABLED') || false;
+    this.passwordResetTokenExpiresIn = this.config.get<string>(
+      'PASSWORD_RESET_TOKEN_EXPIRES_IN',
+      '15m',
+    );
+
+    this.frontendUrl = this.config.get<string>(
+      'FRONTEND_URL',
+      'http://localhost:3000',
+    );
   }
 
   /**
@@ -163,7 +182,7 @@ export class AuthService {
   /**
    * Resend OTP for registration
    */
-  async resendOtp(identifier: string) {
+  async resendCustomerOtp(identifier: string) {
     const result = await this.userService.resendVerificationOtp(identifier);
 
     if (!result.success) {
@@ -252,19 +271,35 @@ export class AuthService {
   }
 
   private async generateTokens(user: User) {
+    // const accessTokenPayload = this.createAccessTokenPayload(user);
+    // const refreshTokenPayload = this.createRefreshTokenPayload(user);
+
+    // const [accessToken, refreshToken] = await Promise.all([
+    //   this.jwtService.signAsync(accessTokenPayload,  {
+    //     secret: this.config.get<string>('JWT_SECRET'),
+    //     expiresIn: this.accessTokenExpiresIn,
+    //   }),
+    //   this.jwtService.signAsync(refreshTokenPayload, {
+    //     secret: this.refreshTokenSecret,
+    //     expiresIn: this.refreshTokenExpiresIn,
+    //   }),
+    // ]);
+
     const accessTokenPayload = this.createAccessTokenPayload(user);
     const refreshTokenPayload = this.createRefreshTokenPayload(user);
 
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(accessTokenPayload, {
+      this.jwtService.signAsync(accessTokenPayload as any, {
         secret: this.config.get<string>('JWT_SECRET'),
-        expiresIn: this.accessTokenExpiresIn as number | StringValue,
+        expiresIn: this.accessTokenExpiresIn as any,
       }),
-      this.jwtService.signAsync(refreshTokenPayload, {
+      this.jwtService.signAsync(refreshTokenPayload as any, {
         secret: this.refreshTokenSecret,
-        expiresIn: this.refreshTokenExpiresIn as number | StringValue,
+        expiresIn: this.refreshTokenExpiresIn as any, // e.g., '7d'
       }),
     ]);
+
+    return { accessToken, refreshToken };
 
     return { accessToken, refreshToken };
   }
@@ -359,13 +394,13 @@ export class AuthService {
     return rest;
   }
 
-  async login(dto: LoginDto) {
-    const { email, password } = dto;
-    const user = await this.validateUser(email, password);
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+  // async login(dto: LoginDto) {
+  //   const { email, password } = dto;
+  //   const user = await this.validateUser(email, password);
+  //   if (!user) throw new UnauthorizedException('Invalid credentials');
 
-    return this.signJwt(user);
-  }
+  //   return this.signJwt(user);
+  // }
 
   private signJwt(user: any) {
     const secret = this.config.get<string>('JWT_SECRET');
@@ -379,12 +414,12 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(payload, {
       secret,
-      expiresIn: this.config.get('JWT_EXPIRES_IN') || '3600s',
+      expiresIn: this.config.get('JWT_EXPIRES_IN'),
     });
 
     const refreshToken = this.jwtService.sign(payload, {
       secret,
-      expiresIn: '7d',
+      expiresIn: this.config.get('REFRESH_TOKEN_EXPIRES_IN'),
     });
 
     return {
@@ -479,6 +514,72 @@ export class AuthService {
   //     };
   //   }
   // }
+
+  /**
+   * Verify password reset OTP using Redis cache
+   */
+  async verifyPasswordResetOtp(otp: string): Promise<{
+    valid: boolean;
+    identifier?: string;
+    userId?: string;
+    requiresNewPassword?: boolean;
+  }> {
+    this.logger.log(`Verifying password reset OTP: ${otp}`);
+
+    try {
+      // Get identifier from OTP using Redis lookup
+      const identifier =
+        await this.verificationCacheService.getIdentifierByOtp(otp);
+
+      if (!identifier) {
+        this.logger.debug(`No identifier found for OTP: ${otp}`);
+        return { valid: false };
+      }
+
+      // Get OTP status from cache
+      const otpStatus =
+        await this.verificationCacheService.getOtpStatus(identifier);
+
+      if (!otpStatus.exists || otpStatus.expired || otpStatus.verified) {
+        this.logger.debug(`OTP invalid for identifier: ${identifier}`);
+        return { valid: false };
+      }
+
+      // Find user by identifier
+      // const user = await this.userService.findUserByIdentifier(identifier);
+      const user = await this.userService.findUserForPasswordReset(identifier);
+      if (!user || !user.isActive) {
+        this.logger.warn(
+          `User not found or inactive for identifier: ${identifier}`,
+        );
+        return { valid: false };
+      }
+
+      // Check if user is verified (they should be for password reset)
+      if (!user.isVerified) {
+        this.logger.warn(
+          `Unverified user attempting password reset: ${user.id}`,
+        );
+        return {
+          valid: true,
+          identifier: identifier,
+          userId: user.id,
+          requiresNewPassword: true,
+        };
+      }
+
+      return {
+        valid: true,
+        identifier: identifier,
+        userId: user.id,
+        requiresNewPassword: true,
+      };
+    } catch (error) {
+      this.logger.error(`Error verifying password reset OTP: ${error.message}`);
+      return { valid: false };
+    }
+  }
+
   async forgotPassword(dto: ForgotPasswordDto): Promise<{
     success: boolean;
     message: string;
@@ -973,4 +1074,327 @@ export class AuthService {
     // Sign JWT (same as manual signup)
     return this.signJwt(user);
   }
+
+  //////VENDOR//////
+  /**
+   * Vendor Registration - Step 1
+   */
+  async registerVendor(dto: CreateVendorDto): Promise<{
+    success: boolean;
+    message: string;
+    vendor: Partial<User>;
+    nextSteps: string[];
+  }> {
+    this.logger.log(`Registering vendor: ${dto.email}`);
+
+    // Check if vendor already exists
+    await this.checkExistingVendor(dto.email, dto.phoneNumber);
+
+    // Hash password
+    const hashedPassword = await Helper.hashText(dto.password);
+
+    // Create vendor with pending verification status
+    const vendor = await this.userRepository.create({
+      email: dto.email,
+      phoneNumber: dto.phoneNumber,
+      password: hashedPassword,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      role: UserRole.VENDOR,
+      isEmailVerified: false,
+      isPhoneVerified: false,
+      emailVerifiedAt: null,
+      phoneVerifiedAt: null,
+      status: VendorStatus.PENDING_EMAIL_VERIFICATION,
+    });
+
+    // Send verification OTPs to both email and phone
+    await this.sendInitialVerificationOtps(vendor);
+
+    return {
+      success: true,
+      message:
+        'Vendor registration successful. Please verify your email and phone.',
+      vendor: {
+        id: vendor.id,
+        email: vendor.email,
+        phoneNumber: vendor.phoneNumber,
+        status: vendor.status,
+      },
+      nextSteps: [
+        'Check your email for verification code',
+        'Check your phone for verification code',
+        'Verify email first, then phone',
+        'Complete business onboarding after both verifications',
+      ],
+    };
+  }
+
+  /**
+   * Verify Vendor Email - Step 2
+   */
+  async verifyVendorEmail(dto: VerifyEmailDto): Promise<{
+    success: boolean;
+    message: string;
+    nextAction: string;
+    vendor: Partial<User>;
+  }> {
+    this.logger.log(`Verifying email for: ${dto.email}`);
+
+    // Verify OTP
+    const isValid = await this.verificationService.verifyOtp(
+      dto.email,
+      dto.otp,
+      VerificationPurpose.VENDOR_EMAIL_VERIFICATION,
+    );
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    // Get vendor by email
+    const vendor = await this.userRepository.findByEmail(dto.email);
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    // Update email verification status
+    vendor.isEmailVerified = true;
+    vendor.emailVerifiedAt = new Date();
+
+    // Update overall status
+    if (!vendor.isPhoneVerified) {
+      vendor.status = VendorStatus.PENDING_PHONE_VERIFICATION;
+    } else {
+      vendor.status = VendorStatus.PENDING_ONBOARDING;
+    }
+
+    const updatedVendor = await this.userRepository.update(vendor.id, vendor);
+
+    return {
+      success: true,
+      message: 'Email verified successfully',
+      nextAction: vendor.isPhoneVerified
+        ? 'Complete business onboarding'
+        : 'Verify your phone number',
+      vendor: {
+        id: updatedVendor.id,
+        email: updatedVendor.email,
+        phoneNumber: updatedVendor.phoneNumber,
+        isEmailVerified: updatedVendor.isEmailVerified,
+        isPhoneVerified: updatedVendor.isPhoneVerified,
+        status: updatedVendor.status,
+      },
+    };
+  }
+
+  /**
+   * Verify Vendor Phone - Step 3
+   */
+  async verifyVendorPhone(dto: VerifyPhoneDto): Promise<{
+    success: boolean;
+    message: string;
+    nextAction: string;
+    vendor: Partial<User>;
+  }> {
+    this.logger.log(`Verifying phone for: ${dto.phoneNumber}`);
+
+    // Verify OTP
+    const isValid = await this.verificationService.verifyOtp(
+      dto.phoneNumber,
+      dto.otp,
+      VerificationPurpose.VENDOR_PHONE_VERIFICATION,
+    );
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    // Get vendor by phone
+    const vendor = await this.userRepository.findByPhone(dto.phoneNumber);
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    // Check if email is already verified
+    if (!vendor.isEmailVerified) {
+      throw new BadRequestException('Please verify your email first');
+    }
+
+    // Update phone verification status
+    vendor.isPhoneVerified = true;
+    vendor.phoneVerifiedAt = new Date();
+    vendor.status = VendorStatus.PENDING_ONBOARDING;
+
+    const updatedVendor = await this.userRepository.update(vendor.id, vendor);
+
+    return {
+      success: true,
+      message: 'Phone verified successfully',
+      nextAction: 'Complete business onboarding',
+      vendor: {
+        id: updatedVendor.id,
+        email: updatedVendor.email,
+        phoneNumber: updatedVendor.phoneNumber,
+        isEmailVerified: updatedVendor.isEmailVerified,
+        isPhoneVerified: updatedVendor.isPhoneVerified,
+        status: updatedVendor.status,
+      },
+    };
+  }
+
+  /**
+   * Vendor Login
+   */
+  async loginVendor(loginDto: LoginDto): Promise<AuthResponse> {
+    const { email, password } = loginDto;
+    this.logger.log(`Vendor login attempt: ${email}`);
+
+    const vendor = await this.userRepository.findByEmail(email);
+    if (!vendor) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, vendor.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Check verification status
+    if (!vendor.isEmailVerified || !vendor.isPhoneVerified) {
+      throw new UnauthorizedException(
+        'Please verify your email and phone before logging in',
+      );
+    }
+
+    // Check if onboarding is completed
+    if (!vendor.onboardingCompletedAt) {
+      throw new UnauthorizedException(
+        'Please complete business onboarding before logging in',
+      );
+    }
+
+    // Check account status
+    if (vendor.status !== VendorStatus.ACTIVE) {
+      throw new UnauthorizedException(
+        `Account is ${vendor.status.toLowerCase()}. Please contact support.`,
+      );
+    }
+
+    // Update last login
+    vendor.lastLoginAt = new Date();
+    await this.userRepository.update(vendor.id, {
+      lastLoginAt: vendor.lastLoginAt,
+    });
+
+    // Generate auth tokens
+    return this.generateAuthResponse(vendor);
+  }
+
+  /**
+   * Resend verification OTP
+   */
+  async resendVerificationOtp(
+    identifier: string,
+    purpose: VerificationPurpose,
+  ): Promise<{ success: boolean; message: string }> {
+    const isEmail = identifier.includes('@');
+    const purposeMap = {
+      email: VerificationPurpose.VENDOR_EMAIL_VERIFICATION,
+      phone: VerificationPurpose.VENDOR_PHONE_VERIFICATION,
+    };
+
+    await this.verificationService.sendOtp({
+      identifier,
+      purpose: isEmail ? purposeMap.email : purposeMap.phone,
+    });
+
+    return {
+      success: true,
+      message: `Verification code sent to ${identifier}`,
+    };
+  }
+
+  // Private helper methods
+  private async checkExistingVendor(
+    email: string,
+    phoneNumber: string,
+  ): Promise<void> {
+    const existingVendor = await this.userRepository.findExistingUser(
+      email,
+      phoneNumber,
+    );
+    if (existingVendor) {
+      this.logger.warn(
+        `Vendor already exists with email: ${email} or phone: ${phoneNumber}`,
+      );
+      throw new ConflictException(
+        'Vendor with this email or phone already exists',
+      );
+    }
+  }
+
+  private async sendInitialVerificationOtps(vendor: User): Promise<void> {
+    try {
+      // Send email verification OTP
+      await this.verificationService.sendOtp({
+        identifier: vendor.email,
+        purpose: VerificationPurpose.VENDOR_EMAIL_VERIFICATION,
+      });
+
+      // Send phone verification OTP
+      await this.verificationService.sendOtp({
+        identifier: vendor.phoneNumber,
+        purpose: VerificationPurpose.VENDOR_PHONE_VERIFICATION,
+      });
+
+      this.logger.log(
+        `Verification OTPs sent to ${vendor.email} and ${vendor.phoneNumber}`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to send verification OTPs: ${error.message}`);
+      // Don't fail registration, vendor can request resend later
+    }
+  }
+
+  // private async generateAuthResponse(vendor: Vendor): Promise<AuthResponse> {
+  //   const payload = {
+  //     sub: vendor.id,
+  //     email: vendor.email,
+  //     role: vendor.role,
+  //     type: 'vendor_access',
+  //   };
+
+  //   const accessToken = await this.jwtService.signAsync(payload as any, {
+  //     secret:
+  //       this.configService.get<string>('JWT_VENDOR_SECRET') ||
+  //       this.configService.get<string>('JWT_SECRET'),
+  //     expiresIn:
+  //       this.configService.get<string>('JWT_VENDOR_EXPIRES_IN') || '24h',
+  //   });
+
+  //   const refreshToken = await this.jwtService.signAsync(
+  //     { ...payload, type: 'vendor_refresh' } as any,
+  //     {
+  //       secret:
+  //         this.configService.get<string>('JWT_VENDOR_REFRESH_SECRET') ||
+  //         this.configService.get<string>('JWT_REFRESH_SECRET'),
+  //       expiresIn: '30d',
+  //     },
+  //   );
+
+  //   return {
+  //     accessToken,
+  //     refreshToken,
+  //     user: {
+  //       id: vendor.id,
+  //       email: vendor.email,
+  //       phoneNumber: vendor.phoneNumber,
+  //       role: vendor.role,
+  //       status: vendor.status,
+  //       businessInfo: vendor.businessInfo,
+  //     },
+  //   };
+  // }
 }

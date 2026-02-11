@@ -21,7 +21,6 @@ enum Role {
   SUPER_ADMIN
 }
 
-
 enum OAuthProviderType {
   GOOGLE
   GITHUB
@@ -29,6 +28,17 @@ enum OAuthProviderType {
   APPLE
 }
 
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DocumentTpe {
+  CAC
+  BUSINESS_PERMIT
+  ID_PROOF
+}
 
 model User {
   id               String           @id @default(uuid())
@@ -48,11 +58,33 @@ model User {
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
   oauthProviders   OAuthProvider[]
-  businessProfile  BusinessProfile?
+  businessInfo     BusinessInfo?
+  documents        VendorDocument[]
   menus            Menu[]
 
   @@index([email])
   @@index([phoneNumber])
+}
+
+// Update VerificationAttempt model
+model VerificationAttempt {
+  id            String    @id @default(uuid())
+  identifier    String    @unique
+  otp           String? // The OTP code
+  otpIdentifier String?   @unique // Add this for OTP lookup
+  attemptCount  Int       @default(0)
+  lastAttemptAt DateTime  @default(now())
+  isLocked      Boolean   @default(false)
+  lockedUntil   DateTime?
+  expiresAt     DateTime
+  verified      Boolean   @default(false)
+  purpose       String? // registration, password_reset, login, etc.
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([otp])
+  @@index([purpose])
+  @@index([expiresAt])
 }
 
 model OAuthProvider {
@@ -67,20 +99,38 @@ model OAuthProvider {
   @@unique([provider, providerId])
 }
 
-model BusinessProfile {
-  id           String   @id @default(uuid())
-  businessName String
-  type         String
-  phoneNumber  String?
-  email        String
-  logoUrl      String?
-  address      String
-  openingHours String
-  shortDesc    String?
-  userId       String   @unique
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+model BusinessInfo {
+  id            String   @id @default(uuid())
+  businessName  String
+  businessType  String
+  description   String?
+  businessPhone String?
+  businessEmail String
+  logoUrl       String?
+  address       String
+  city          String
+  state         String
+  openingHours  String?
+  shortDesc     String?
+  website       String?
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model VendorDocument {
+  id           String         @id @default(uuid())
+  userId       String
+  documentType DocumentTpe // Using string for enum, you can define as enum in schema
+  documentUrl  String
+  status       DocumentStatus @default(PENDING) // PENDING, APPROVED, REJECTED
+  metadata     Json?
+  uploadedAt   DateTime       @default(now())
+  reviewedAt   DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  user         User           @relation(fields: [userId], references: [id])
 }
 
 model Menu {
