@@ -50,14 +50,13 @@ export class UserController {
     description: 'Unauthorized',
     type: ApiErrorResponseDto,
   })
-  async createOrUpdateProfile(
-    @GetUser() user: any,
-    @Body() dto: CreateBusinessProfileDto,
-    @UploadedFile() file?: Express.Multer.File,
-  ) {
-    return this.userService.createOrUpdateProfile(user.id, dto, file);
-  }
-
+  // async createOrUpdateProfile(
+  //   @GetUser() user: any,
+  //   @Body() dto: CreateBusinessProfileDto,
+  //   @UploadedFile() file?: Express.Multer.File,
+  // ) {
+  //   return this.userService.createOrUpdateProfile(user.id, dto, file);
+  // }
   @Patch('change-password')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

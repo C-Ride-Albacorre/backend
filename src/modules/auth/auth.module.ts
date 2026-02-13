@@ -1,6 +1,6 @@
+// eslint-disable-next-line prettier/prettier
 import { Module } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { UserService } from '../../modules/user/user.service';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
