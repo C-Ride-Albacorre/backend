@@ -1,6 +1,7 @@
 // src/verification/dto/verify-otp.dto.ts
-import { IsString, Length } from 'class-validator';
+import { IsString, Length, IsOptional, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { VerificationPurpose } from '../../../shared/enums';
 
 export class VerifyOtpDto {
   @ApiProperty({
@@ -17,4 +18,13 @@ export class VerifyOtpDto {
   @IsString()
   @Length(6, 6)
   otp: string;
+
+  
+  @IsOptional()
+  @IsEnum(VerificationPurpose)
+  purpose?: VerificationPurpose;
+
+  @IsOptional()
+  @IsString()
+  metadata?: Record<string, any>; // For additional context
 }

@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ZohoEmailProvider } from './providers/zoho-email.provider';
 import { TermiiSmsProvider } from './providers/termii-sms.provider';
@@ -69,10 +65,26 @@ export class VerificationService {
     }
   }
 
+  // 2. Update your verification.service.ts
+  async verifyOtp(dto: VerifyOtpDto): Promise<boolean> {
+    const { identifier, otp } = dto;
+
+    const isValid = await this.verificationCache.validateOtp(identifier, otp);
+
+    if (isValid) {
+      this.logger.log(`OTP verified successfully for ${identifier}`);
+      await this.verificationCache.markAsVerified(identifier);
+    } else {
+      this.logger.warn(`Invalid OTP attempt for ${identifier}`);
+    }
+
+    return isValid;
+  }
+
   /**
    * Verify OTP
    */
-  async verifyOtp(dto: VerifyOtpDto): Promise<boolean> {
+  async verifyOtpBK(dto: VerifyOtpDto): Promise<boolean> {
     const { identifier, otp } = dto;
 
     const isValid = await this.verificationCache.validateOtp(identifier, otp);
@@ -152,5 +164,29 @@ export class VerificationService {
    */
   async clearOtp(identifier: string): Promise<boolean> {
     return this.verificationCache.revokeOtp(identifier);
+  }
+
+  async verifyVendorOtp(
+    identifier: string,
+    otp: string,
+    purpose: VerificationPurpose,
+  ): Promise<{
+    isValid: boolean;
+    identifier: string;
+    purpose: VerificationPurpose;
+  }> {
+    const isValid = await this.verificationCache.validateOtp(identifier, otp);
+
+    if (isValid) {
+      this.logger.log(
+        `Vendor OTP verified successfully for ${identifier} (${purpose})`,
+      );
+      await this.verificationCache.markAsVerified(identifier);
+
+      // You could emit an event here for vendor verification
+      // this.eventEmitter.emit('vendor.verified', { identifier, purpose });
+    }
+
+    return { isValid, identifier, purpose };
   }
 }

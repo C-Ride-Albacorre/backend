@@ -1,10 +1,9 @@
-
 export enum UserRole {
-  CUSTOMER= 'CUSTOMER',
-  VENDOR= 'VENDOR',
-  DISPATCHER= 'DISPATCHER',
-  ADMIN= 'ADMIN',
-  SUPER_ADMIN= 'SUPER_ADMIN'
+  CUSTOMER = 'CUSTOMER',
+  VENDOR = 'VENDOR',
+  DISPATCHER = 'DISPATCHER',
+  ADMIN = 'ADMIN',
+  SUPER_ADMIN = 'SUPER_ADMIN',
 }
 
 export enum VerificationPurpose {
@@ -22,7 +21,8 @@ export enum DocumentType {
   ID_PROOF = 'ID_PROOF',
 }
 
-export enum VendorStatus {
+export enum UserStatus {
+  PENDING_VERIFICATION = 'PENDING_VERIFICATION',
   PENDING_EMAIL_VERIFICATION = 'PENDING_EMAIL_VERIFICATION',
   PENDING_PHONE_VERIFICATION = 'PENDING_PHONE_VERIFICATION',
   PENDING_ONBOARDING = 'PENDING_ONBOARDING',
@@ -44,4 +44,3 @@ export enum DashboardFilterTypes {
   THIS_YEAR = 'this_year',
   CUSTOM = 'custom',
 }
-

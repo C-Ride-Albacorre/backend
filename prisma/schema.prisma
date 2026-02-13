@@ -34,33 +34,52 @@ enum DocumentStatus {
   REJECTED
 }
 
-enum DocumentTpe {
+enum UserStatus {
+  PENDING_VERIFICATION
+  PENDING_EMAIL_VERIFICATION
+  PENDING_PHONE_VERIFICATION
+  PENDING_ONBOARDING
+  PENDING_DOCUMENTS
+  READY_FOR_REVIEW
+  UNDER_REVIEW
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+enum DocumentType {
   CAC
   BUSINESS_PERMIT
   ID_PROOF
 }
 
 model User {
-  id               String           @id @default(uuid())
-  email            String?          @unique
-  phoneNumber      String?          @unique
-  password         String?
-  firstName        String
-  lastName         String
-  role             Role             @default(CUSTOMER)
-  isActive         Boolean          @default(true)
-  refreshTokenHash String?
-  referralCode     String?          @unique
-  referredBy       String?
-  lastLoginAt      DateTime?
-  isVerified       Boolean          @default(false)
-  verifiedAt       DateTime?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  oauthProviders   OAuthProvider[]
-  businessInfo     BusinessInfo?
-  documents        VendorDocument[]
-  menus            Menu[]
+  id                    String           @id @default(uuid())
+  email                 String?          @unique
+  phoneNumber           String?          @unique
+  password              String?
+  firstName             String
+  lastName              String
+  role                  Role             @default(CUSTOMER)
+  isActive              Boolean          @default(true)
+  refreshTokenHash      String?
+  referralCode          String?          @unique
+  referredBy            String?
+  lastLoginAt           DateTime?
+  isVerified            Boolean          @default(false)
+  verifiedAt            DateTime?
+  isEmailVerified       Boolean          @default(false)
+  emailVerifiedAt       DateTime?
+  isPhoneVerified       Boolean          @default(false)
+  phoneVerifiedAt       DateTime?
+  onboardingCompletedAt DateTime?
+  status                UserStatus       @default(ACTIVE)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  oauthProviders        OAuthProvider[]
+  businessInfo          BusinessInfo?
+  documents             VendorDocument[]
+  menus                 Menu[]
 
   @@index([email])
   @@index([phoneNumber])
@@ -110,6 +129,9 @@ model BusinessInfo {
   address       String
   city          String
   state         String
+  bankName      String
+  accountNumber String
+  accountName   String
   openingHours  String?
   shortDesc     String?
   website       String?
@@ -122,7 +144,7 @@ model BusinessInfo {
 model VendorDocument {
   id           String         @id @default(uuid())
   userId       String
-  documentType DocumentTpe // Using string for enum, you can define as enum in schema
+  documentType DocumentType    @default(CAC) // Using string for enum, you can define as enum in schema
   documentUrl  String
   status       DocumentStatus @default(PENDING) // PENDING, APPROVED, REJECTED
   metadata     Json?

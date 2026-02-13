@@ -1,7 +1,6 @@
-
-import { Injectable, BadRequestException } from "@nestjs/common";
-import { UploadApiErrorResponse, UploadApiResponse, v2 } from "cloudinary";
-import toStream = require("buffer-to-stream");
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { UploadApiErrorResponse, UploadApiResponse, v2 } from 'cloudinary';
+import toStream = require('buffer-to-stream');
 
 @Injectable()
 export class CloudinaryService {
@@ -25,19 +24,37 @@ export class CloudinaryService {
     });
   }
 
-  // async uploadFile(filePath: string): Promise<string> {
-  //   return new Promise((resolve, reject) => {
-  //     v2.uploader.upload(filePath, (error, result) => {
-  //       if (error) {
-  //         reject(error);
-  //       } else {
-  //         resolve(result.secure_url);
-  //       }
-  //     });
-  //   });
-  // }
-
   async uploadFile(
+    file: Express.Multer.File,
+    folder: string,
+  ): Promise<{
+    secure_url: string;
+    public_id: string;
+  }> {
+    if (!file) throw new BadRequestException('No file uploaded');
+
+    return new Promise((resolve, reject) => {
+      const uploadStream = v2.uploader.upload_stream(
+        {
+          folder,
+          resource_type: 'auto',
+        },
+        (error, result) => {
+          if (error) return reject(error);
+          if (!result) return reject(new Error('Upload failed'));
+
+          resolve({
+            secure_url: result.secure_url,
+            public_id: result.public_id,
+          });
+        },
+      );
+
+      toStream(file.buffer).pipe(uploadStream);
+    });
+  }
+
+  async uploadFilebk(
     file: Express.Multer.File,
   ): Promise<{ rawUrl: string; viewableUrl: string }> {
     if (!file) throw new BadRequestException('No file uploaded');
@@ -79,5 +96,160 @@ export class CloudinaryService {
 
       toStream(file.buffer).pipe(uploadStream);
     });
+  }
+
+  // --- New Method for Multiple File Uploads ---
+  async uploadMultipleFiles(
+    files: Express.Multer.File[],
+    folder: string,
+  ): Promise<{ secure_url: string; public_id: string }[]> {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No files uploaded');
+    }
+
+    // Use Promise.all to upload all files concurrently
+    const uploadPromises = files.map((file) => this.uploadFile(file, folder));
+    return Promise.all(uploadPromises);
+  }
+
+  /**
+   * Upload a single document
+   */
+  // async uploadDocument(
+  //   file: Express.Multer.File,
+  //   folder = 'documents',
+  // ): Promise<{
+  //   secure_url: string;
+  //   public_id: string;
+  //   format: string;
+  //   resource_type: string;
+  //   bytes: number;
+  //   created_at: string;
+  // }> {
+  //   if (!file) {
+  //     throw new BadRequestException('No file uploaded');
+  //   }
+
+  //   return new Promise((resolve, reject) => {
+  //     const uploadStream = v2.uploader.upload_stream(
+  //       {
+  //         folder,
+  //         resource_type: 'auto',
+  //         use_filename: true,
+  //         unique_filename: true,
+  //       },
+  //       (error: UploadApiErrorResponse, result: UploadApiResponse) => {
+  //         if (error) return reject(error);
+  //         if (!result) return reject(new Error('Upload failed'));
+
+  //         resolve({
+  //           secure_url: result.secure_url,
+  //           public_id: result.public_id,
+  //           format: result.format,
+  //           resource_type: result.resource_type,
+  //           bytes: result.bytes,
+  //           created_at: result.created_at,
+  //         });
+  //       },
+  //     );
+
+  //     toStream(file.buffer).pipe(uploadStream);
+  //   });
+  // }
+  async uploadDocument(
+    file: Express.Multer.File,
+    options?: {
+      folder?: string;
+      resource_type?: 'auto' | 'image' | 'video' | 'raw';
+      tags?: string[];
+    },
+  ): Promise<{
+    secure_url: string;
+    public_id: string;
+    format: string;
+    resource_type: string;
+    bytes: number;
+    created_at: string;
+  }> {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    return new Promise((resolve, reject) => {
+      const uploadStream = v2.uploader.upload_stream(
+        {
+          folder: options?.folder ?? 'documents',
+          resource_type: options?.resource_type ?? 'auto',
+          tags: options?.tags,
+          use_filename: true,
+          unique_filename: true,
+        },
+        (error, result) => {
+          if (error) return reject(error);
+          if (!result) return reject(new Error('Upload failed'));
+
+          resolve({
+            secure_url: result.secure_url,
+            public_id: result.public_id,
+            format: result.format,
+            resource_type: result.resource_type,
+            bytes: result.bytes,
+            created_at: result.created_at,
+          });
+        },
+      );
+
+      toStream(file.buffer).pipe(uploadStream);
+    });
+  }
+
+  /**
+   * Upload multiple documents
+   */
+  async uploadMultipleDocuments(
+    files: Express.Multer.File[],
+    folder = 'documents',
+  ): Promise<
+    {
+      secure_url: string;
+      public_id: string;
+      format: string;
+      resource_type: string;
+      bytes: number;
+      created_at: string;
+    }[]
+  > {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No files uploaded');
+    }
+
+    const uploadPromises = files.map((file) =>
+      this.uploadDocument(file, folder as any),
+    );
+
+    return Promise.all(uploadPromises);
+  }
+
+  /**
+   * Delete document
+   */
+  async deleteDocument(publicId: string): Promise<boolean> {
+    if (!publicId) {
+      throw new BadRequestException('Public ID is required');
+    }
+
+    const result = await v2.uploader.destroy(publicId);
+    return result.result === 'ok';
+  }
+
+  /**
+   * Get document details
+   */
+  async getDocumentInfo(publicId: string) {
+    if (!publicId) {
+      throw new BadRequestException('Public ID is required');
+    }
+
+    return v2.api.resource(publicId);
   }
 }

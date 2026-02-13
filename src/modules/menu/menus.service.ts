@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { CreateMenuDto } from './dto/create-menu.dto';
@@ -46,8 +46,7 @@ export class MenusService {
     let fileUrl: string | null = null;
 
     if (file) {
-
-      const { rawUrl, viewableUrl } = await this.cloudinary.uploadFile(file);
+      const { rawUrl } = await this.cloudinary.uploadFilebk(file);
       fileUrl = rawUrl;
     }
 
