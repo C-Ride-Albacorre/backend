@@ -16,7 +16,7 @@ export class CreateBusinessProfileDto {
   @ApiProperty({ example: 'Restaurant' })
   @IsString()
   @IsNotEmpty()
-  type: string;
+  businessType: string;
 
   @ApiPropertyOptional({ example: '+234 700 000 0000' })
   @IsString()
@@ -25,16 +25,28 @@ export class CreateBusinessProfileDto {
 
   @ApiProperty({ example: 'support@crestosomething.com' })
   @IsEmail()
-  email: string;
+  businessEmail: string;
 
   @ApiProperty({ example: 'Abuja' })
   @IsString()
   @IsNotEmpty()
   address: string;
 
-  @ApiProperty({ example: '(WAT) UTC+08:00 - 5:00 PM' })
+
+  @ApiProperty({ example: 'Lekki' })
   @IsString()
   @IsNotEmpty()
+  city: string;
+
+  
+  @ApiProperty({ example: 'Lagos' })
+  @IsString()
+  @IsNotEmpty()
+  state: string;
+
+  @ApiProperty({ example: '(WAT) UTC+08:00 - 5:00 PM' })
+  @IsString()
+  @IsOptional()
   openingHours: string;
 
   @ApiPropertyOptional({

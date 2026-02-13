@@ -2,41 +2,62 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
-  InternalServerErrorException,
   Logger,
+  NotFoundException,
+  ConflictException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { UserService } from '../user/user.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { ConfigService } from '@nestjs/config';
-import * as jwt from 'jsonwebtoken';
 // import { ForgotPasswordDto } from './dto/forgot-password.dto';
 // import { ResetPasswordDto } from './dto/reset-password.dto';
-import { ForgotPasswordDto, ResetPasswordDto, VerifyResetTokenDto } from './dto/password.dto';
+import {
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  VerifyResetTokenDto,
+} from './dto/password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { OAuthProviderType } from '@prisma/client';
+import { OAuthProviderType, UserStatus } from '@prisma/client';
 import Helper from '../../shared/utils/helpers';
 import {
   AuthResponse,
   TokenPayload,
 } from './interface/auth-response.interface';
-import { User } from '../user/entities/user.entity';
-import { UserRole } from 'src/shared/enums';
+import { BusinessInfo, User } from '../user/entities/user.entity';
+import {
+  DocumentType,
+  UserRole,
+  VerificationPurpose,
+} from '../../shared/enums';
 import { randomBytes } from 'crypto';
 import { StringValue } from 'ms';
 import { LoginCustomerDto } from './dto/login-customer.dto';
 import { VerifyOtpDto } from '../verification/dto/verify-otp.dto';
 import { VerificationService } from '../verification/verification.service';
-import { VerificationPurpose } from '../verification/dto/send-otp.dto';
+import { VerificationCacheService } from '../verification/verification-cache.service';
+import {
+  CompleteOnboardingDto,
+  CreateVendorDto,
+  VendorDocumentDto,
+  VendorDocumentMetadataDto,
+  VerifyEmailDto,
+  VerifyPhoneDto,
+} from './dto/create-vendor.dto';
+import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
+import { CloudinaryService } from '../../shared/services/cloudinary.service';
+import { PrismaService } from '../../shared/services/prisma.service';
+import { UploadDocumentDto } from '../user/dto/upload-document.dto';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly refreshTokenSecret: string;
-  private readonly accessTokenExpiresIn: string;
-  private readonly refreshTokenExpiresIn: string;
+  private readonly accessTokenExpiresIn: string | number;
+  private readonly refreshTokenExpiresIn: string | number;
   private readonly refreshTokenRotationEnabled: boolean;
   private readonly passwordResetTokenExpiresIn: string;
   private readonly frontendUrl: string;
@@ -46,14 +67,29 @@ export class AuthService {
     private jwtService: JwtService,
     private config: ConfigService,
     private readonly verificationService: VerificationService,
+    private readonly verificationCacheService: VerificationCacheService,
+    private readonly cloudinary: CloudinaryService,
+    private readonly userRepository: AbstractUserRepository,
+    private readonly prisma: PrismaService,
   ) {
     this.refreshTokenSecret = this.config.get<string>('REFRESH_TOKEN_SECRET');
-    this.accessTokenExpiresIn =
-      this.config.get<string>('JWT_EXPIRES_IN') || '3600s';
-    this.refreshTokenExpiresIn =
-      this.config.get<string>('REFRESH_TOKEN_EXPIRES_IN') || '7d';
+    this.accessTokenExpiresIn = this.config.get<string | number>(
+      'JWT_EXPIRES_IN',
+    );
+    this.refreshTokenExpiresIn = this.config.get<string | number>(
+      'REFRESH_TOKEN_EXPIRES_IN',
+    );
     this.refreshTokenRotationEnabled =
       this.config.get<boolean>('REFRESH_TOKEN_ROTATION_ENABLED') || false;
+    this.passwordResetTokenExpiresIn = this.config.get<string>(
+      'PASSWORD_RESET_TOKEN_EXPIRES_IN',
+      '15m',
+    );
+
+    this.frontendUrl = this.config.get<string>(
+      'FRONTEND_URL',
+      'http://localhost:3000',
+    );
   }
 
   /**
@@ -163,7 +199,7 @@ export class AuthService {
   /**
    * Resend OTP for registration
    */
-  async resendOtp(identifier: string) {
+  async resendCustomerOtp(identifier: string) {
     const result = await this.userService.resendVerificationOtp(identifier);
 
     if (!result.success) {
@@ -246,7 +282,7 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
-        role: UserRole.CUSTOMER,
+        role: user.role, // ✅ dynamic role
       },
     };
   }
@@ -256,13 +292,13 @@ export class AuthService {
     const refreshTokenPayload = this.createRefreshTokenPayload(user);
 
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(accessTokenPayload, {
+      this.jwtService.signAsync(accessTokenPayload as any, {
         secret: this.config.get<string>('JWT_SECRET'),
-        expiresIn: this.accessTokenExpiresIn as number | StringValue,
+        expiresIn: this.accessTokenExpiresIn as any,
       }),
-      this.jwtService.signAsync(refreshTokenPayload, {
+      this.jwtService.signAsync(refreshTokenPayload as any, {
         secret: this.refreshTokenSecret,
-        expiresIn: this.refreshTokenExpiresIn as number | StringValue,
+        expiresIn: this.refreshTokenExpiresIn as any, // e.g., '7d'
       }),
     ]);
 
@@ -359,13 +395,13 @@ export class AuthService {
     return rest;
   }
 
-  async login(dto: LoginDto) {
-    const { email, password } = dto;
-    const user = await this.validateUser(email, password);
-    if (!user) throw new UnauthorizedException('Invalid credentials');
+  // async login(dto: LoginDto) {
+  //   const { email, password } = dto;
+  //   const user = await this.validateUser(email, password);
+  //   if (!user) throw new UnauthorizedException('Invalid credentials');
 
-    return this.signJwt(user);
-  }
+  //   return this.signJwt(user);
+  // }
 
   private signJwt(user: any) {
     const secret = this.config.get<string>('JWT_SECRET');
@@ -379,12 +415,12 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(payload, {
       secret,
-      expiresIn: this.config.get('JWT_EXPIRES_IN') || '3600s',
+      expiresIn: this.config.get('JWT_EXPIRES_IN'),
     });
 
     const refreshToken = this.jwtService.sign(payload, {
       secret,
-      expiresIn: '7d',
+      expiresIn: this.config.get('REFRESH_TOKEN_EXPIRES_IN'),
     });
 
     return {
@@ -479,6 +515,72 @@ export class AuthService {
   //     };
   //   }
   // }
+
+  /**
+   * Verify password reset OTP using Redis cache
+   */
+  async verifyPasswordResetOtp(otp: string): Promise<{
+    valid: boolean;
+    identifier?: string;
+    userId?: string;
+    requiresNewPassword?: boolean;
+  }> {
+    this.logger.log(`Verifying password reset OTP: ${otp}`);
+
+    try {
+      // Get identifier from OTP using Redis lookup
+      const identifier =
+        await this.verificationCacheService.getIdentifierByOtp(otp);
+
+      if (!identifier) {
+        this.logger.debug(`No identifier found for OTP: ${otp}`);
+        return { valid: false };
+      }
+
+      // Get OTP status from cache
+      const otpStatus =
+        await this.verificationCacheService.getOtpStatus(identifier);
+
+      if (!otpStatus.exists || otpStatus.expired || otpStatus.verified) {
+        this.logger.debug(`OTP invalid for identifier: ${identifier}`);
+        return { valid: false };
+      }
+
+      // Find user by identifier
+      // const user = await this.userService.findUserByIdentifier(identifier);
+      const user = await this.userService.findUserForPasswordReset(identifier);
+      if (!user || !user.isActive) {
+        this.logger.warn(
+          `User not found or inactive for identifier: ${identifier}`,
+        );
+        return { valid: false };
+      }
+
+      // Check if user is verified (they should be for password reset)
+      if (!user.isVerified) {
+        this.logger.warn(
+          `Unverified user attempting password reset: ${user.id}`,
+        );
+        return {
+          valid: true,
+          identifier: identifier,
+          userId: user.id,
+          requiresNewPassword: true,
+        };
+      }
+
+      return {
+        valid: true,
+        identifier: identifier,
+        userId: user.id,
+        requiresNewPassword: true,
+      };
+    } catch (error) {
+      this.logger.error(`Error verifying password reset OTP: ${error.message}`);
+      return { valid: false };
+    }
+  }
+
   async forgotPassword(dto: ForgotPasswordDto): Promise<{
     success: boolean;
     message: string;
@@ -973,4 +1075,1180 @@ export class AuthService {
     // Sign JWT (same as manual signup)
     return this.signJwt(user);
   }
+
+  //////VENDOR//////
+  /**
+   * Vendor Registration - Step 1
+   */
+  async registerVendor(dto: CreateVendorDto): Promise<{
+    success: boolean;
+    message: string;
+    vendor: Partial<User>;
+    nextSteps: string[];
+  }> {
+    this.logger.log(`Registering vendor: ${dto.email}`);
+
+    // Check if vendor already exists
+    await this.checkExistingVendor(dto.email, dto.phoneNumber);
+
+    // Hash password
+    const hashedPassword = await Helper.hashText(dto.password);
+
+    // Create vendor with pending verification status
+    const vendor = await this.userRepository.create({
+      email: dto.email,
+      phoneNumber: dto.phoneNumber,
+      password: hashedPassword,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      role: UserRole.VENDOR,
+      status: UserStatus.PENDING_EMAIL_VERIFICATION,
+    });
+
+    // Send verification OTPs to both email and phone
+    await this.sendInitialVerificationOtps(vendor);
+
+    return {
+      success: true,
+      message:
+        'Vendor registration successful. Please verify your email and phone.',
+      vendor: {
+        id: vendor.id,
+        email: vendor.email,
+        phoneNumber: vendor.phoneNumber,
+        status: vendor.status,
+      },
+      nextSteps: [
+        'Check your email for verification code',
+        'Check your phone for verification code',
+        'Verify email first, then phone',
+        'Complete business onboarding after both verifications',
+      ],
+    };
+  }
+
+  /**
+   * Verify Vendor Email - Step 2
+   */
+  // 3. Update your vendor-auth.service.ts
+  async verifyVendorEmail(dto: VerifyEmailDto): Promise<{
+    success: boolean;
+    message: string;
+    nextAction: string;
+    vendor: Partial<User>;
+  }> {
+    this.logger.log(`Verifying email for: ${dto.email}`);
+
+    const isValid = await this.verificationService.verifyOtp({
+      identifier: dto.email,
+      otp: dto.otp,
+      purpose: VerificationPurpose.VENDOR_EMAIL_VERIFICATION,
+      // metadata: {
+      //   vendorId: dto.vendorId, // If you have it
+      //   verificationType: 'email',
+      // },
+    });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    // Get vendor by email
+    const vendor = await this.userRepository.findByEmail(dto.email);
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    // Update email verification status
+    vendor.isEmailVerified = true;
+    vendor.emailVerifiedAt = new Date();
+
+    // Update overall status
+    if (!vendor.isPhoneVerified) {
+      vendor.status = UserStatus.PENDING_PHONE_VERIFICATION;
+    } else {
+      vendor.status = UserStatus.PENDING_ONBOARDING;
+    }
+
+    const updatedVendor = await this.userRepository.update(vendor.id, vendor);
+
+    return {
+      success: true,
+      message: 'Email verified successfully',
+      nextAction: vendor.isPhoneVerified
+        ? 'Complete business onboarding'
+        : 'Verify your phone number',
+      vendor: {
+        id: updatedVendor.id,
+        email: updatedVendor.email,
+        phoneNumber: updatedVendor.phoneNumber,
+        isEmailVerified: updatedVendor.isEmailVerified,
+        isPhoneVerified: updatedVendor.isPhoneVerified,
+        status: updatedVendor.status,
+      },
+    };
+  }
+
+  /**
+   * Verify Vendor Phone - Step 3
+   */
+  async verifyVendorPhone(dto: VerifyPhoneDto): Promise<{
+    success: boolean;
+    message: string;
+    nextAction: string;
+    vendor: Partial<User>;
+  }> {
+    this.logger.log(`Verifying phone for: ${dto.phoneNumber}`);
+
+    // Verify OTP
+    const isValid = await this.verificationService.verifyOtp({
+      identifier: dto.phoneNumber,
+      otp: dto.otp,
+      purpose: VerificationPurpose.VENDOR_PHONE_VERIFICATION,
+    });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    // Get vendor by phone
+    const vendor = await this.userRepository.findByPhone(dto.phoneNumber);
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    // Check if email is already verified
+    if (!vendor.isEmailVerified) {
+      throw new BadRequestException('Please verify your email first');
+    }
+
+    // Update phone verification status
+    vendor.isPhoneVerified = true;
+    vendor.phoneVerifiedAt = new Date();
+    vendor.status = UserStatus.PENDING_ONBOARDING;
+
+    const updatedVendor = await this.userRepository.update(vendor.id, vendor);
+
+    return {
+      success: true,
+      message: 'Phone verified successfully',
+      nextAction: 'Complete business onboarding',
+      vendor: {
+        id: updatedVendor.id,
+        email: updatedVendor.email,
+        phoneNumber: updatedVendor.phoneNumber,
+        isEmailVerified: updatedVendor.isEmailVerified,
+        isPhoneVerified: updatedVendor.isPhoneVerified,
+        status: updatedVendor.status,
+      },
+    };
+  }
+
+  /**
+   * Vendor Login
+   */
+  async loginVendor(loginDto: LoginDto): Promise<AuthResponse> {
+    const { email, password } = loginDto;
+    this.logger.log(`Vendor login attempt: ${email}`);
+
+    const vendor = await this.userRepository.findByEmail(email);
+    if (!vendor) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, vendor.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Check verification status
+    if (!vendor.isEmailVerified || !vendor.isPhoneVerified) {
+      throw new UnauthorizedException(
+        'Please verify your email and phone before logging in',
+      );
+    }
+
+    // Check if onboarding is completed
+    if (!vendor.onboardingCompletedAt) {
+      throw new UnauthorizedException(
+        'Please complete business onboarding before logging in',
+      );
+    }
+
+    // Check account status
+    if (vendor.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException(
+        `Account is ${vendor.status.toLowerCase()}. Please contact support.`,
+      );
+    }
+
+    // Update last login
+    vendor.lastLoginAt = new Date();
+    await this.userRepository.update(vendor.id, {
+      lastLoginAt: vendor.lastLoginAt,
+    });
+
+    // Generate auth tokens
+    return this.generateAuthResponse(vendor);
+  }
+
+  /**
+   * Resend verification OTP
+   */
+  async resendVerificationOtp(
+    identifier: string,
+    // purpose: VerificationPurpose,
+  ): Promise<{ success: boolean; message: string }> {
+    const isEmail = identifier.includes('@');
+    const purposeMap = {
+      email: VerificationPurpose.VENDOR_EMAIL_VERIFICATION,
+      phone: VerificationPurpose.VENDOR_PHONE_VERIFICATION,
+    };
+
+    await this.verificationService.sendOtp({
+      identifier,
+      purpose: isEmail ? purposeMap.email : purposeMap.phone,
+    });
+
+    return {
+      success: true,
+      message: `Verification code sent to ${identifier}`,
+    };
+  }
+
+  // Private helper methods
+  private async checkExistingVendor(
+    email: string,
+    phoneNumber: string,
+  ): Promise<void> {
+    const existingVendor = await this.userRepository.findExistingUser(
+      email,
+      phoneNumber,
+    );
+    if (existingVendor) {
+      this.logger.warn(
+        `Vendor already exists with email: ${email} or phone: ${phoneNumber}`,
+      );
+      throw new ConflictException(
+        'Vendor with this email or phone already exists',
+      );
+    }
+  }
+
+  private async sendInitialVerificationOtps(vendor: User): Promise<void> {
+    try {
+      // Send email verification OTP
+      await this.verificationService.sendOtp({
+        identifier: vendor.email,
+        purpose: VerificationPurpose.VENDOR_EMAIL_VERIFICATION,
+      });
+
+      // Send phone verification OTP
+      await this.verificationService.sendOtp({
+        identifier: vendor.phoneNumber,
+        purpose: VerificationPurpose.VENDOR_PHONE_VERIFICATION,
+      });
+
+      this.logger.log(
+        `Verification OTPs sent to ${vendor.email} and ${vendor.phoneNumber}`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to send verification OTPs: ${error.message}`);
+      // Don't fail registration, vendor can request resend later
+    }
+  }
+
+  /**
+ Complete vendor onboarding with business details
+   **/
+  async completeVendorOnboarding0(
+    vendorId: string,
+    businessDetails: Partial<BusinessInfo>,
+  ): Promise<User> {
+    try {
+      this.logger.log(`Completing vendor onboarding for: ${vendorId}`);
+
+      const vendor = await this.userRepository.findById(vendorId);
+
+      if (!vendor) {
+        throw new NotFoundException('Vendor not found');
+      }
+
+      if (vendor.status !== UserStatus.PENDING_ONBOARDING) {
+        throw new ConflictException(
+          'Vendor is not in the correct status for onboarding',
+        );
+      }
+
+      const now = new Date();
+
+      // Use transaction to ensure atomic operation
+      await this.prisma.$transaction(async (tx) => {
+        // 1️⃣ Update user status
+        await tx.user.update({
+          where: { id: vendorId },
+          data: {
+            status: UserStatus.ACTIVE,
+            onboardingCompletedAt: now,
+            updatedAt: now,
+          },
+        });
+
+        // 2️⃣ Upsert business info
+        await tx.businessInfo.upsert({
+          where: { userId: vendorId },
+          update: {
+            ...businessDetails,
+            updatedAt: now,
+          },
+          create: {
+            user: {
+              connect: { id: vendorId },
+            },
+            businessName: businessDetails.businessName ?? '',
+            businessType: businessDetails.businessType ?? '',
+            description: businessDetails.description ?? '',
+            businessEmail: businessDetails.businessEmail ?? '',
+            businessPhone: businessDetails.businessPhone ?? '',
+            address: businessDetails.address ?? '',
+            city: businessDetails.city ?? '',
+            state: businessDetails.state ?? '',
+            bankName: businessDetails.bankName ?? '',
+            accountNumber: businessDetails.accountNumber ?? '',
+            accountName: businessDetails.accountName ?? '',
+          },
+        });
+      });
+
+      // Return updated user with relations
+      return await this.userRepository.findById(vendorId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to complete vendor onboarding ${vendorId}: ${error.message}`,
+      );
+      throw error;
+    }
+  }
+
+  // src/users/services/vendor.service.ts
+
+  // Add these methods to your existing VendorService
+
+  /**
+   * Complete vendor onboarding with business details and documents
+   */
+  /**
+   * Complete vendor onboarding with document uploads
+   */
+
+  /**
+   * Complete vendor onboarding with document files
+   * Users select files from their computer and we upload to Cloudinary
+   */
+  async completeVendorOnboarding(
+    vendorId: string,
+    dto: CompleteOnboardingDto,
+    files: Express.Multer.File[], // Files selected by user
+    documentsMetadata: VendorDocumentMetadataDto[], // Metadata for each file
+  ): Promise<{
+    success: boolean;
+    message: string;
+    vendor: Partial<User>;
+    uploadedDocuments: any[];
+  }> {
+    this.logger.log(
+      `Completing vendor onboarding: ${vendorId} with ${files.length} files`,
+    );
+
+    // Validate vendor
+    await this.validateVendorForOnboarding(vendorId);
+
+    // Upload all selected files to Cloudinary
+    const uploadedDocuments = await this.uploadVendorDocuments(
+      vendorId,
+      files,
+      documentsMetadata,
+    );
+
+    // Prepare business info data
+    const businessInfoData = this.prepareBusinessInfoData(dto);
+
+    // Complete onboarding in repository
+    const updatedVendor = await this.userRepository.completeVendorOnboarding(
+      vendorId,
+      businessInfoData,
+      uploadedDocuments,
+    );
+
+    return {
+      success: true,
+      message:
+        'Vendor onboarding completed successfully. Your account is now under review.',
+      vendor: {
+        id: updatedVendor.id,
+        email: updatedVendor.email,
+        status: updatedVendor.status,
+      },
+      uploadedDocuments: uploadedDocuments.map((doc) => ({
+        documentType: doc.documentType,
+        documentUrl: doc.documentUrl,
+        publicId: doc.publicId,
+        originalName: doc.originalName,
+        size: doc.size,
+      })),
+    };
+  }
+
+  /**
+   * Upload a single document file
+   */
+  async uploadSingleDocument(
+    vendorId: string,
+    dto: UploadDocumentDto,
+    file: Express.Multer.File, // File selected by user
+  ): Promise<{
+    success: boolean;
+    message: string;
+    document: any;
+  }> {
+    this.logger.log(`Uploading ${dto.documentType} for vendor: ${vendorId}`);
+
+    // Validate vendor
+    const vendor = await this.userRepository.findById(vendorId);
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    // Validate vendor status
+    if (
+      vendor.status !== UserStatus.PENDING_ONBOARDING &&
+      vendor.status !== UserStatus.PENDING_DOCUMENTS
+    ) {
+      throw new ConflictException(
+        `Cannot upload documents in current status: ${vendor.status}`,
+      );
+    }
+
+    // Upload file to Cloudinary
+    const uploadResult = await this.cloudinary.uploadDocument(file, {
+      folder: `vendors/${vendorId}/documents`,
+      resource_type: 'auto',
+      tags: [dto.documentType, vendorId, file.originalname],
+    });
+
+    // Create document record in database
+    const document = await this.userRepository.createVendorDocument({
+      vendorId,
+      documentType: dto.documentType,
+      documentUrl: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+      description: dto.description,
+      isVerified: false,
+    });
+
+    return {
+      success: true,
+      message: `${dto.documentType} uploaded successfully`,
+      document: {
+        id: document.id,
+        documentType: document.documentType,
+        documentUrl: document.documentUrl,
+        publicId: document.publicId,
+        originalName: document.originalName,
+        size: document.size,
+      },
+    };
+  }
+
+  /**
+   * Upload multiple vendor documents to Cloudinary
+   */
+  private async uploadVendorDocuments(
+    vendorId: string,
+    files: Express.Multer.File[],
+    documentsMetadata: VendorDocumentMetadataDto[],
+  ): Promise<any[]> {
+    this.logger.log(`Preparing to upload vendor ${vendorId} documents`);
+    const uploadedDocuments = [];
+    const uploadPromises = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const metadata = documentsMetadata[i];
+
+      // Create upload promise for each file
+      const uploadPromise = this.cloudinary
+        .uploadDocument(file, {
+          folder: `vendors/${vendorId}/documents`,
+          resource_type: 'auto',
+          tags: [metadata.documentType, vendorId, file.originalname],
+        })
+        .then(async (uploadResult) => {
+          // Create document record in database
+          const document = await this.userRepository.createVendorDocument({
+            vendorId,
+            documentType: metadata.documentType,
+            documentUrl: uploadResult.secure_url,
+            publicId: uploadResult.public_id,
+            originalName: file.originalname,
+            mimeType: file.mimetype,
+            size: file.size,
+            description: metadata.description,
+            isVerified: false,
+          });
+
+          this.logger.log(
+            `Uploaded ${metadata.documentType} for vendor ${vendorId}: ${uploadResult.secure_url}`,
+          );
+          return document;
+        })
+        .catch((error) => {
+          this.logger.error(
+            `Failed to upload document ${file.originalname}: ${error.message}`,
+          );
+          throw new InternalServerErrorException(
+            `Failed to upload ${metadata.documentType}: ${error.message}`,
+          );
+        });
+
+      uploadPromises.push(uploadPromise);
+    }
+
+    // Wait for all uploads to complete
+    const results = await Promise.all(uploadPromises);
+    uploadedDocuments.push(...results);
+
+    this.logger.log(
+      `Successfully uploaded ${uploadedDocuments.length} documents for vendor ${vendorId}`,
+    );
+    return uploadedDocuments;
+  }
+
+  /**
+   * Validate vendor is eligible for onboarding
+   */
+  private async validateVendorForOnboarding(vendorId: string): Promise<User> {
+    this.logger.log(`Validating vendor ${vendorId} before onboarding `);
+
+    const vendor = await this.userRepository.findById(vendorId);
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    if (vendor.status !== UserStatus.PENDING_ONBOARDING) {
+      throw new ConflictException(
+        `Vendor is not ready for onboarding. Current status: ${vendor.status}`,
+      );
+    }
+
+    if (!vendor.isEmailVerified || !vendor.isPhoneVerified) {
+      throw new ConflictException(
+        'Both email and phone must be verified before onboarding',
+      );
+    }
+
+    return vendor;
+  }
+
+  /**
+   * Prepare business info data for repository
+   */
+  private prepareBusinessInfoData(dto: CompleteOnboardingDto): any {
+    return {
+      businessName: dto.businessName,
+      businessType: dto.businessType,
+      description: dto.description,
+      businessPhone: dto.businessPhone,
+      businessEmail: dto.businessEmail,
+      address: dto.address,
+      city: dto.city,
+      state: dto.state,
+      bankName: dto.bankName,
+      accountName: dto.accountName,
+      accountNumber: dto.accountNumber,
+    };
+  }
+
+  // async completeVendorOnboardingbk(
+  //   vendorId: string,
+  //   dto: CompleteOnboardingDto,
+  //   files: Express.Multer.File[], // Files from the request
+  // ): Promise<{
+  //   success: boolean;
+  //   message: string;
+  //   vendor: Partial<User>;
+  //   uploadedDocuments: any[];
+  // }> {
+  //   this.logger.log(`Completing vendor onboarding: ${vendorId}`);
+
+  //   // Validate vendor
+  //   await this.validateVendorForOnboarding(vendorId);
+
+  //   // Validate files match document descriptions
+  //   if (files.length !== dto.documents.length) {
+  //     throw new BadRequestException(
+  //       `Number of files (${files.length}) does not match number of document descriptions (${dto.documents.length})`,
+  //     );
+  //   }
+
+  //   // Upload all documents to Cloudinary
+  //   const uploadedDocuments = await this.uploadVendorDocuments(
+  //     vendorId,
+  //     files,
+  //     dto.documents,
+  //   );
+
+  //   // Prepare business info data
+  //   const businessInfoData = this.prepareBusinessInfoData(dto);
+
+  //   // Complete onboarding in repository
+  //   const updatedVendor = await this.userRepository.completeVendorOnboarding(
+  //     vendorId,
+  //     businessInfoData,
+  //     uploadedDocuments,
+  //   );
+
+  //   return {
+  //     success: true,
+  //     message:
+  //       'Vendor onboarding completed successfully. Your account is now under review.',
+  //     vendor: {
+  //       id: updatedVendor.id,
+  //       email: updatedVendor.email,
+  //       status: updatedVendor.status,
+  //     },
+  //     uploadedDocuments: uploadedDocuments.map((doc) => ({
+  //       documentType: doc.documentType,
+  //       documentUrl: doc.documentUrl,
+  //       publicId: doc.publicId,
+  //     })),
+  //   };
+  // }
+
+  /**
+   * Upload a single document during onboarding
+   */
+  async uploadSingleDocumentbk(
+    vendorId: string,
+    dto: UploadDocumentDto,
+    file: Express.Multer.File,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    document: any;
+  }> {
+    this.logger.log(`Uploading ${dto.documentType} for vendor: ${vendorId}`);
+
+    // Validate vendor
+    const vendor = await this.userRepository.findById(vendorId);
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    // Validate vendor status
+    if (
+      vendor.status !== UserStatus.PENDING_ONBOARDING &&
+      vendor.status !== UserStatus.PENDING_DOCUMENTS
+    ) {
+      throw new ConflictException(
+        `Cannot upload documents in current status: ${vendor.status}`,
+      );
+    }
+
+    // Upload to Cloudinary
+    const uploadResult = await this.cloudinary.uploadDocument(file, {
+      folder: `vendors/${vendorId}/documents`,
+      resource_type: 'auto',
+      tags: [dto.documentType, vendorId],
+    });
+
+    // Create document record in database
+    const document = await this.userRepository.createVendorDocument({
+      vendorId,
+      documentType: dto.documentType,
+      documentUrl: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+      description: dto.description,
+      isVerified: false,
+    });
+
+    return {
+      success: true,
+      message: `${dto.documentType} uploaded successfully`,
+      document: {
+        id: document.id,
+        documentType: document.documentType,
+        documentUrl: document.documentUrl,
+        publicId: document.publicId,
+        originalName: document.originalName,
+        size: document.size,
+      },
+    };
+  }
+
+  /**
+   * Upload multiple documents at once
+   */
+  private async uploadVendorDocumentsbk(
+    vendorId: string,
+    files: Express.Multer.File[],
+    documentMetadata: VendorDocumentDto[],
+  ): Promise<any[]> {
+    const uploadedDocuments = [];
+    const uploadPromises = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const metadata = documentMetadata[i];
+
+      // Create upload promise
+      const uploadPromise = this.cloudinary
+        .uploadDocument(file, {
+          folder: `vendors/${vendorId}/documents`,
+          resource_type: 'auto',
+          tags: [metadata.documentType, vendorId],
+        })
+        .then(async (uploadResult) => {
+          // Create document record in database
+          const document = await this.userRepository.createVendorDocument({
+            vendorId,
+            documentType: metadata.documentType,
+            documentUrl: uploadResult.secure_url,
+            publicId: uploadResult.public_id,
+            originalName: file.originalname,
+            mimeType: file.mimetype,
+            size: file.size,
+            description: metadata.description,
+            isVerified: false,
+          });
+
+          return document;
+        })
+        .catch((error) => {
+          this.logger.error(
+            `Failed to upload document ${file.originalname}: ${error.message}`,
+          );
+          throw new InternalServerErrorException(
+            `Failed to upload ${metadata.documentType}: ${error.message}`,
+          );
+        });
+
+      uploadPromises.push(uploadPromise);
+    }
+
+    // Wait for all uploads to complete
+    const results = await Promise.all(uploadPromises);
+    uploadedDocuments.push(...results);
+
+    this.logger.log(
+      `Successfully uploaded ${uploadedDocuments.length} documents for vendor ${vendorId}`,
+    );
+    return uploadedDocuments;
+  }
+
+  /**
+   * Upload a single document during onboarding
+   */
+  // async uploadSingleDocument(
+  //   vendorId: string,
+  //   dto: UploadDocumentDto,
+  //   file: Express.Multer.File,
+  // ): Promise<{
+  //   success: boolean;
+  //   message: string;
+  //   document: any;
+  // }> {
+  //   this.logger.log(`Uploading ${dto.documentType} for vendor: ${vendorId}`);
+
+  //   // Validate vendor
+  //   const vendor = await this.userRepository.findById(vendorId);
+  //   if (!vendor) {
+  //     throw new NotFoundException('Vendor not found');
+  //   }
+
+  //   // Validate vendor status
+  //   if (vendor.status !== UserStatus.PENDING_ONBOARDING &&
+  //       vendor.status !== UserStatus.PENDING_DOCUMENTS) {
+  //     throw new ConflictException(
+  //       `Cannot upload documents in current status: ${vendor.status}`,
+  //     );
+  //   }
+
+  //   // Upload to Cloudinary
+  //   const uploadResult = await this.cloudinaryService.uploadDocument(file, {
+  //     folder: `vendors/${vendorId}/documents`,
+  //     resource_type: 'auto',
+  //     tags: [dto.documentType, vendorId],
+  //   });
+
+  //   // Create document record in database
+  //   const document = await this.userRepository.createVendorDocument({
+  //     vendorId,
+  //     documentType: dto.documentType,
+  //     documentUrl: uploadResult.secure_url,
+  //     publicId: uploadResult.public_id,
+  //     originalName: file.originalname,
+  //     mimeType: file.mimetype,
+  //     size: file.size,
+  //     description: dto.description,
+  //     isVerified: false,
+  //   });
+
+  //   return {
+  //     success: true,
+  //     message: `${dto.documentType} uploaded successfully`,
+  //     document: {
+  //       id: document.id,
+  //       documentType: document.documentType,
+  //       documentUrl: document.documentUrl,
+  //       publicId: document.publicId,
+  //       originalName: document.originalName,
+  //       size: document.size,
+  //     },
+  //   };
+  // }
+
+  /**
+   * Upload multiple documents at once
+   */
+  // private async uploadVendorDocuments(
+  //   vendorId: string,
+  //   files: Express.Multer.File[],
+  //   documentMetadata: VendorDocumentDto[],
+  // ): Promise<any[]> {
+  //   const uploadedDocuments = [];
+  //   const uploadPromises = [];
+
+  //   for (let i = 0; i < files.length; i++) {
+  //     const file = files[i];
+  //     const metadata = documentMetadata[i];
+
+  //     // Create upload promise
+  //     const uploadPromise = this.cloudinary
+  //       .uploadDocument(file, {
+  //         folder: `vendors/${vendorId}/documents`,
+  //         resource_type: 'auto',
+  //         tags: [metadata.documentType, vendorId],
+  //       })
+  //       .then(async (uploadResult) => {
+  //         // Create document record in database
+  //         const document = await this.userRepository.createVendorDocument({
+  //           vendorId,
+  //           documentType: metadata.documentType,
+  //           documentUrl: uploadResult.secure_url,
+  //           publicId: uploadResult.public_id,
+  //           originalName: file.originalname,
+  //           mimeType: file.mimetype,
+  //           size: file.size,
+  //           isVerified: false,
+  //         });
+
+  //         return document;
+  //       })
+  //       .catch((error) => {
+  //         this.logger.error(
+  //           `Failed to upload document ${file.originalname}: ${error.message}`,
+  //         );
+  //         throw new InternalServerErrorException(
+  //           `Failed to upload ${metadata.documentType}: ${error.message}`,
+  //         );
+  //       });
+
+  //     uploadPromises.push(uploadPromise);
+  //   }
+
+  //   // Wait for all uploads to complete
+  //   const results = await Promise.all(uploadPromises);
+  //   uploadedDocuments.push(...results);
+
+  //   this.logger.log(
+  //     `Successfully uploaded ${uploadedDocuments.length} documents for vendor ${vendorId}`,
+  //   );
+  //   return uploadedDocuments;
+  // }
+
+  /**
+   * Validate vendor is eligible for onboarding
+   */
+  // private async validateVendorForOnboarding(vendorId: string): Promise<User> {
+  //   const vendor = await this.userRepository.findById(vendorId);
+
+  //   if (!vendor) {
+  //     throw new NotFoundException('Vendor not found');
+  //   }
+
+  //   if (vendor.status !== UserStatus.PENDING_ONBOARDING) {
+  //     throw new ConflictException(
+  //       `Vendor is not ready for onboarding. Current status: ${vendor.status}`,
+  //     );
+  //   }
+
+  //   if (!vendor.isEmailVerified || !vendor.isPhoneVerified) {
+  //     throw new ConflictException(
+  //       'Both email and phone must be verified before onboarding',
+  //     );
+  //   }
+
+  //   return vendor;
+  // }
+
+  /**
+   * Prepare business info data for repository
+   */
+  // private prepareBusinessInfoData(dto: CompleteOnboardingDto): any {
+  //   return {
+  //     businessName: dto.businessName,
+  //     businessType: dto.businessType,
+  //     description: dto.description,
+  //     businessPhone: dto.businessPhone,
+  //     businessEmail: dto.businessEmail,
+  //     address: dto.address,
+  //     city: dto.city,
+  //     state: dto.state,
+  //     bankName: dto.bankName,
+  //     accountName: dto.accountName,
+  //     accountNumber: dto.accountNumber,
+  //   };
+  // }
+  // async completeVendorOnboarding(
+  //   vendorId: string,
+  //   dto: CompleteOnboardingDto,
+  // ): Promise<{
+  //   success: boolean;
+  //   message: string;
+  //   vendor: Partial<User>;
+  // }> {
+  //   this.logger.log(`Completing vendor onboarding: ${vendorId}`);
+
+  //   const vendor = await this.userRepository.findById(vendorId);
+
+  //   if (!vendor) {
+  //     throw new NotFoundException('Vendor not found');
+  //   }
+
+  //   // Check if vendor is in correct state for onboarding
+  //   if (vendor.status !== UserStatus.PENDING_ONBOARDING) {
+  //     throw new ConflictException(
+  //       `Vendor is not ready for onboarding. Current status: ${vendor.status}`,
+  //     );
+  //   }
+
+  //   // Check if email and phone are verified
+  //   if (!vendor.isEmailVerified || !vendor.isPhoneVerified) {
+  //     throw new ConflictException(
+  //       'Both email and phone must be verified before onboarding',
+  //     );
+  //   }
+
+  //   // Ensure at least one document is provided
+  //   if (!dto.documents || dto.documents.length === 0) {
+  //     throw new BadRequestException(
+  //       'At least one business document is required for onboarding',
+  //     );
+  //   }
+
+  //   // Complete onboarding using repository method
+  //   const updatedVendor = await this.userRepository.completeVendorOnboarding(
+  //     vendorId,
+  //     {
+  //       businessName: dto.businessName,
+  //       businessType: dto.businessType,
+  //       description: dto.description,
+  //       businessPhone: dto.businessPhone,
+  //       businessEmail: dto.businessEmail,
+  //       address: dto.address,
+  //       city: dto.city,
+  //       state: dto.state,
+  //       bankName: dto.bankName,
+  //       accountName: dto.accountName,
+  //       accountNumber: dto.accountNumber,
+  //     },
+  //     dto.documents,
+  //   );
+
+  //   return {
+  //     success: true,
+  //     message:
+  //       'Vendor onboarding completed successfully. Your account is now active.',
+  //     vendor: {
+  //       id: updatedVendor.id,
+  //       email: updatedVendor.email,
+  //       //businessName: updatedVendor.businessInfo.businessName,
+  //       status: updatedVendor.status,
+  //       // documentsCount: updatedVendor.documents?.length || 0,
+  //     },
+  //   };
+  // }
+
+  /**
+   * Get vendor onboarding status
+   */
+  // async getVendorOnboardingStatus(vendorId: string): Promise<{
+  //   status: UserStatus;
+  //   isEmailVerified: boolean;
+  //   isPhoneVerified: boolean;
+  //   hasBusinessInfo: boolean;
+  //   documentsRequired: string[];
+  //   uploadedDocuments: any[];
+  //   nextSteps: string[];
+  // }> {
+  //   const vendor = await this.userRepository.getVendorWithRelations(vendorId);
+
+  //   if (!vendor) {
+  //     throw new NotFoundException('Vendor not found');
+  //   }
+
+  //   const requiredDocuments = [DocumentType.CAC];
+  //   const uploadedDocTypes = vendor.documents?.map((d) => d.documentType) || [];
+
+  //   const missingDocuments = requiredDocuments.filter(
+  //     (docType) => !uploadedDocTypes.includes(docType),
+  //   );
+
+  //   const nextSteps = [];
+  //   if (!vendor.isEmailVerified) nextSteps.push('Verify your email address');
+  //   if (!vendor.isPhoneVerified) nextSteps.push('Verify your phone number');
+  //   if (!vendor.businessInfo) nextSteps.push('Complete business information');
+  //   if (missingDocuments.length > 0) {
+  //     nextSteps.push(
+  //       `Upload required documents: ${missingDocuments.join(', ')}`,
+  //     );
+  //   }
+  //   if (
+  //     vendor.status === UserStatus.PENDING_ONBOARDING &&
+  //     nextSteps.length === 0
+  //   ) {
+  //     nextSteps.push('Submit for admin review');
+  //   }
+
+  //   return {
+  //     status: vendor.status as UserStatus,
+  //     isEmailVerified: vendor.isEmailVerified,
+  //     isPhoneVerified: vendor.isPhoneVerified,
+  //     hasBusinessInfo: !!vendor.businessInfo,
+  //     documentsRequired: missingDocuments,
+  //     uploadedDocuments: vendor.documents || [],
+  //     nextSteps,
+  //   };
+  // }
+
+  /**
+   * Add additional vendor documents
+   */
+  async addVendorDocuments(
+    vendorId: string,
+    documents: Array<{
+      documentType: DocumentType;
+      documentUrl: string;
+      publicId?: string;
+      metadata?: any;
+    }>,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    documents: any[];
+  }> {
+    const vendor = await this.userRepository.findById(vendorId);
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    const createdDocuments = await this.userRepository.createVendorDocuments(
+      vendorId,
+      documents,
+    );
+
+    return {
+      success: true,
+      message: `${createdDocuments.length} document(s) uploaded successfully`,
+      documents: createdDocuments,
+    };
+  }
 }
+// async completeVendorOnboarding(
+//   vendorId: string,
+//   businessDetails: any
+// ): Promise<{
+//   success: boolean;
+//   message: string;
+//   vendor: Partial<User>;
+// }> {
+//   this.logger.log(`Completing vendor onboarding: ${vendorId}`);
+
+//   const vendor = await this.userRepository.findById(vendorId);
+
+//   if (!vendor) {
+//     throw new ConflictException('Vendor not found');
+//   }
+
+//   if (vendor.status !== UserStatus.PENDING_ONBOARDING) {
+//     throw new ConflictException('Vendor is not in the correct status for onboarding');
+//   }
+
+//   // Update vendor with business details
+//   const updatedVendor = await this.userRepository.update(vendorId, {
+//     ...businessDetails,
+//     status: UserStatus.ACTIVE,
+//     onboardingCompletedAt: new Date(),
+//   });
+
+//   return {
+//     success: true,
+//     message: 'Vendor onboarding completed successfully',
+//     vendor: {
+//       id: updatedVendor.id,
+//       email: updatedVendor.email,
+//       businessName: updatedVendor.businessName,
+//       status: updatedVendor.status,
+//     },
+//   };
+// }
+
+// private async generateAuthResponse(vendor: Vendor): Promise<AuthResponse> {
+//   const payload = {
+//     sub: vendor.id,
+//     email: vendor.email,
+//     role: vendor.role,
+//     type: 'vendor_access',
+//   };
+
+//   const accessToken = await this.jwtService.signAsync(payload as any, {
+//     secret:
+//       this.configService.get<string>('JWT_VENDOR_SECRET') ||
+//       this.configService.get<string>('JWT_SECRET'),
+//     expiresIn:
+//       this.configService.get<string>('JWT_VENDOR_EXPIRES_IN') || '24h',
+//   });
+
+//   const refreshToken = await this.jwtService.signAsync(
+//     { ...payload, type: 'vendor_refresh' } as any,
+//     {
+//       secret:
+//         this.configService.get<string>('JWT_VENDOR_REFRESH_SECRET') ||
+//         this.configService.get<string>('JWT_REFRESH_SECRET'),
+//       expiresIn: '30d',
+//     },
+//   );
+
+//   return {
+//     accessToken,
+//     refreshToken,
+//     user: {
+//       id: vendor.id,
+//       email: vendor.email,
+//       phoneNumber: vendor.phoneNumber,
+//       role: vendor.role,
+//       status: vendor.status,
+//       businessInfo: vendor.businessInfo,
+//     },
+//   };
+// }

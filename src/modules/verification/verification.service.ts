@@ -1,9 +1,4 @@
-// src/verification/services/verification.service.ts
-import {
-  Injectable,
-  Logger,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ZohoEmailProvider } from './providers/zoho-email.provider';
 import { TermiiSmsProvider } from './providers/termii-sms.provider';
@@ -12,15 +7,16 @@ import {
   ConsoleSmsProvider,
 } from './providers/console.provider';
 import { VerificationCacheService } from './verification-cache.service';
-import { SendOtpDto, VerificationPurpose } from './dto/send-otp.dto';
+import { SendOtpDto } from './dto/send-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { VerificationPurpose } from '../../shared/enums';
 
 @Injectable()
 export class VerificationService {
   private readonly logger = new Logger(VerificationService.name);
-  private readonly emailProvider: any;
-  private readonly smsProvider: any;
-  private readonly isProduction: boolean;
+  public readonly emailProvider: any;
+  public readonly smsProvider: any;
+  public readonly isProduction: boolean;
 
   constructor(
     private configService: ConfigService,
@@ -39,7 +35,7 @@ export class VerificationService {
       : consoleEmailProvider;
     // this.emailProvider = this.isProduction
     //   ? zohoEmailProvider
-    //   : zohoEmailProvider; 
+    //   : zohoEmailProvider;
 
     this.smsProvider = this.isProduction
       ? termiiSmsProvider
@@ -69,10 +65,26 @@ export class VerificationService {
     }
   }
 
+  // 2. Update your verification.service.ts
+  async verifyOtp(dto: VerifyOtpDto): Promise<boolean> {
+    const { identifier, otp } = dto;
+
+    const isValid = await this.verificationCache.validateOtp(identifier, otp);
+
+    if (isValid) {
+      this.logger.log(`OTP verified successfully for ${identifier}`);
+      await this.verificationCache.markAsVerified(identifier);
+    } else {
+      this.logger.warn(`Invalid OTP attempt for ${identifier}`);
+    }
+
+    return isValid;
+  }
+
   /**
    * Verify OTP
    */
-  async verifyOtp(dto: VerifyOtpDto): Promise<boolean> {
+  async verifyOtpBK(dto: VerifyOtpDto): Promise<boolean> {
     const { identifier, otp } = dto;
 
     const isValid = await this.verificationCache.validateOtp(identifier, otp);
@@ -142,5 +154,39 @@ export class VerificationService {
     const message = `Welcome ${name}! Your account has been verified. Thank you for joining us!`;
 
     await this.smsProvider.sendSms(phoneNumber, message);
+  }
+
+  /**
+   * Clear OTP after use (for password reset)
+   */
+  /**
+   * Clear OTP after successful use
+   */
+  async clearOtp(identifier: string): Promise<boolean> {
+    return this.verificationCache.revokeOtp(identifier);
+  }
+
+  async verifyVendorOtp(
+    identifier: string,
+    otp: string,
+    purpose: VerificationPurpose,
+  ): Promise<{
+    isValid: boolean;
+    identifier: string;
+    purpose: VerificationPurpose;
+  }> {
+    const isValid = await this.verificationCache.validateOtp(identifier, otp);
+
+    if (isValid) {
+      this.logger.log(
+        `Vendor OTP verified successfully for ${identifier} (${purpose})`,
+      );
+      await this.verificationCache.markAsVerified(identifier);
+
+      // You could emit an event here for vendor verification
+      // this.eventEmitter.emit('vendor.verified', { identifier, purpose });
+    }
+
+    return { isValid, identifier, purpose };
   }
 }

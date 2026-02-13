@@ -10,20 +10,27 @@ import { PrismaService } from '../../shared/services/prisma.service';
 import { CreateCustomerDto } from '../auth/dto/create-customer.dto';
 import { OAuthProviderType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { CreateBusinessProfileDto } from './dto/create-business-profile.dto';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
-import { UserRole } from 'src/shared/enums';
+import {
+  DocumentType,
+  UserRole,
+  VerificationPurpose,
+} from '../../shared/enums';
 import { AbstractUserRepository } from './repositories/abstract-user.repository';
 import { User } from './entities/user.entity';
 import Helper from 'src/shared/utils/helpers';
 import { LoginCustomerDto } from '../auth/dto/login-customer.dto';
 import { VerificationService } from '../verification/verification.service';
-import { VerificationPurpose } from '../verification/dto/send-otp.dto';
+import { OnboardingDocumentsDto } from './dto/onboarding-documents.dto';
 
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name);
-
+  private readonly REQUIRED_DOCUMENTS = [
+    DocumentType.CAC,
+    DocumentType.BUSINESS_PERMIT,
+    DocumentType.ID_PROOF,
+  ];
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinary: CloudinaryService,
@@ -248,10 +255,15 @@ export class UserService {
     }
 
     // Update last login
-    user.lastLoginAt = new Date();
-    await this.userRepository.create(user);
+    const updatedUser = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt: new Date(),
+        //loginCount: { increment: 1 },
+      },
+    });
 
-    return user;
+    return updatedUser;
   }
 
   /**
@@ -301,8 +313,7 @@ export class UserService {
     // const user = await this.userRepo.findOne({
     //   where: [{ email: identifier }, { phoneNumber: identifier }],
     // });
-          const user = await this.findUserByIdentifier(identifier);
-
+    const user = await this.findUserByIdentifier(identifier);
 
     if (!user) {
       return null;
@@ -631,7 +642,7 @@ export class UserService {
             providerId: true,
           },
         },
-        businessProfile: true,
+        businessInfo: true,
       },
     });
 
@@ -642,44 +653,53 @@ export class UserService {
     return user;
   }
 
-  async createOrUpdateProfile(
-    userId: string,
-    dto: CreateBusinessProfileDto,
-    file?: Express.Multer.File,
-  ) {
-    let logoUrl: string | undefined;
+  // async createOrUpdateProfile(
+  //   userId: string,
+  //   dto: CreateBusinessProfileDto,
+  //   file?: Express.Multer.File,
+  // ) {
+  //   let logoUrl: string | undefined;
 
-    if (file) {
-      const uploadResult = await this.cloudinary.uploadLogo(file);
-      logoUrl = uploadResult.secure_url;
-    }
+  //   if (file) {
+  //     const uploadResult = await this.cloudinary.uploadLogo(file);
+  //     logoUrl = uploadResult.secure_url;
+  //   }
 
-    const existingProfile = await this.prisma.businessProfile.findUnique({
-      where: { userId },
-    });
+  //   const existingProfile = await this.prisma.businessInfo.findUnique({
+  //     where: { userId },
+  //   });
 
-    const data = {
-      businessName: dto.businessName,
-      type: dto.type,
-      phoneNumber: dto.phoneNumber,
-      email: dto.email,
-      address: dto.address,
-      openingHours: dto.openingHours,
-      shortDesc: dto.shortDescription,
-      ...(logoUrl && { logoUrl }),
-    };
+  //   const data = {
+  //     businessName: dto.businessName,
+  //     businessType: dto.businessType,
+  //     phoneNumber: dto.phoneNumber,
+  //     businessEmail: dto.businessEmail,
+  //     address: dto.address,
+  //     city: dto.city,
+  //     state: dto.state,
+  //     openingHours: dto.openingHours,
+  //     shortDesc: dto.shortDescription,
+  //     ...(logoUrl && { logoUrl }),
+  //   };
 
-    if (existingProfile) {
-      return this.prisma.businessProfile.update({
-        where: { userId },
-        data,
-      });
-    }
+  //   if (existingProfile) {
+  //     return this.prisma.businessInfo.update({
+  //       where: { userId },
+  //       data,
+  //     });
+  //   }
 
-    return this.prisma.businessProfile.create({
-      data: { ...data, userId },
-    });
-  }
+  //   return this.prisma.businessInfo.upsert({
+  //     where: { userId },
+  //     update: data,
+  //     create: {
+  //       ...data,
+  //       user: {
+  //         connect: { id: userId },
+  //       },
+  //     },
+  //   });
+  // }
 
   async changePassword(
     userId: string,
@@ -759,4 +779,405 @@ export class UserService {
 
   //   return users[0];
   // }
+
+  /**
+   * Complete Business Onboarding - Step 4 (Basic Info)
+   */
+  // async completeOnboarding(
+  //   vendorId: string,
+  //   dto: CompleteOnboardingDto,
+  // ): Promise<{
+  //   success: boolean;
+  //   message: string;
+  //   vendor: Partial<User>;
+  //   businessInfo: BusinessInfo;
+  // }> {
+  //   this.logger.log(`Completing business info for vendor: ${vendorId}`);
+
+  //   // Get vendor
+  //   const vendor = await this.userRepository.findById(vendorId);
+  //   if (!vendor) {
+  //     throw new NotFoundException('Vendor not found');
+  //   }
+
+  //   // Check if both email and phone are verified
+  //   if (!vendor.isEmailVerified || !vendor.isPhoneVerified) {
+  //     throw new BadRequestException(
+  //       'Please verify both email and phone before onboarding',
+  //     );
+  //   }
+
+  // Create business info
+  //     const businessInfo = await this.userRepository.createBusinessInfo({
+  //       userId: vendor.id,
+  //       businessName: dto.businessName,
+  //       businessType: dto.businessType,
+  //       address: dto.address,
+  //       city: dto.city,
+  //       state: dto.state,
+  //       country: dto.country,
+  //       businessEmail: dto.businessEmail,
+  //       businessPhone: dto.businessPhone,
+  // //      description: dto.description,
+  //       //logoUrl: dto.logoUrl,
+  //       //bannerUrl: dto.bannerUrl,
+  //       //bankName: dto.bankName,
+  //       //accountNumber: dto.accountNumber,
+  //       //routingNumber: dto.routingNumber,
+  //       //isVerified: false, // Business info needs admin review
+  //     });
+
+  // Update vendor status to pending documents
+  // vendor.status = UserStatus.PENDING_DOCUMENTS;
+  // const updatedVendor = await this.userRepository.update(vendor.id, vendor);
+
+  // return {
+  //   success: true,
+  //   message: 'Business information saved. Please upload required documents.',
+  //   vendor: {
+  //     id: updatedVendor.id,
+  //     email: updatedVendor.email,
+  //     status: updatedVendor.status,
+  //   },
+  //   businessInfo,
+  // };
+  // }
+
+  /**
+   * Upload Single Document
+   */
+  //   async uploadDocument(
+  //     vendorId: string,
+  //     dto: UploadDocumentDto,
+  //     file: Express.Multer.File,
+  //   ): Promise<{
+  //     success: boolean;
+  //     message: string;
+  //     document: VendorDocument;
+  //   }> {
+  //     this.logger.log(
+  //       `Uploading document for vendor: ${vendorId}, type: ${dto.documentType}`,
+  //     );
+
+  //     // Validate vendor exists
+  //     const vendor = await this.userRepository.findById(vendorId);
+  //     if (!vendor) {
+  //       throw new NotFoundException('Vendor not found');
+  //     }
+
+  //     // Check if vendor has completed business info
+  //     if (
+  //       vendor.status !== UserStatus.PENDING_DOCUMENTS &&
+  //       vendor.status !== UserStatus.UNDER_REVIEW
+  //     ) {
+  //       throw new BadRequestException(
+  //         'Please complete business information first',
+  //       );
+  //     }
+
+  //     // Validate file
+  //     if (!file) {
+  //       throw new BadRequestException('File is required');
+  //     }
+
+  //     const uploadResult = await this.cloudinary.uploadFile(
+  //   file,
+  //   `vendors/${vendorId}/documents`,
+  // );
+
+  // const document = await this.userRepository.createDocument({
+  //   userId: vendorId,
+  //   documentType: dto.documentType,
+  //   documentUrl: uploadResult.secure_url,
+  //   publicId: uploadResult.public_id,
+  //   originalName: file.originalname,
+  //   mimeType: file.mimetype,
+  //   size: file.size,
+  //   isVerified: false,
+  // });
+
+  //     // // Upload to Cloudinary
+  //     // const uploadResult = await this.uploadDocuments(file, {
+  //     //   userId: vendorId,
+  //     //   folder: `vendors/${vendorId}/documents`,
+  //     //   resource_type: 'auto',
+
+  //     // });
+
+  //     // // Create document record
+  //     // const document = await this.userRepository.createDocument({
+  //     //   userId: vendorId,
+  //     //   documentType: dto.documentType,
+  //     //   documentUrl: uploadResult.secure_url,
+  //     //   publicId: uploadResult.public_id,
+  //     //   originalName: file.originalname,
+  //     //   mimeType: file.mimetype,
+  //     //   size: file.size,
+  //     //   isVerified: false,
+  //     // });
+
+  //     // Check if all required documents are uploaded
+  //     await this.checkAndUpdateOnboardingStatus(vendorId);
+
+  //     return {
+  //       success: true,
+  //       message: 'Document uploaded successfully',
+  //       document,
+  //     };
+  //   }
+
+  /**
+   * Upload Multiple Documents
+   */
+  //   async uploadDocuments(
+  //     vendorId: string,
+  //     dto: OnboardingDocumentsDto,
+  //     files: Express.Multer.File[],
+  //   ): Promise<{
+  //     success: boolean;
+  //     message: string;
+  //     uploadedCount: number;
+  //     documents: VendorDocument[];
+  //   }> {
+  //     this.logger.log(`Uploading multiple documents for vendor: ${vendorId}`);
+
+  //     if (!files || files.length === 0) {
+  //       throw new BadRequestException('No files provided');
+  //     }
+
+  //     // Validate vendor exists
+  //     const vendor = await this.userRepository.findById(vendorId);
+  //     if (!vendor) {
+  //       throw new NotFoundException('Vendor not found');
+  //     }
+
+  //     // Check if vendor has completed business info
+  //     if (
+  //       vendor.status !== UserStatus.PENDING_DOCUMENTS &&
+  //       vendor.status !== UserStatus.UNDER_REVIEW
+  //     ) {
+  //       throw new BadRequestException(
+  //         'Please complete business information first',
+  //       );
+  //     }
+
+  //     const uploadedDocuments: VendorDocument[] = [];
+
+  //     // Upload each file
+  //     for (const file of files) {
+  //       try {
+  //         // const uploadResult = await this.cloudinary.uploadDocument(file, {
+  //         //   folder: `vendors/${vendorId}/documents`,
+  //         //   resource_type: 'auto',
+  //         // });
+  //             const uploadResult = await this.cloudinary.uploadFile(
+  //   file,
+  //   `vendors/${vendorId}/documents`,
+  // );
+
+  //         // Determine document type from filename or dto
+  //         const documentType = this.determineDocumentType(file.originalname, dto);
+
+  //         const document = await this.userRepository.createDocument({
+  //           userId: vendorId,
+  //           documentType,
+  //           documentUrl: uploadResult.secure_url,
+  //           publicId: uploadResult.public_id,
+  //           originalName: file.originalname,
+  //           mimeType: file.mimetype,
+  //           size: file.size,
+  //           isVerified: false,
+  //         });
+
+  //         uploadedDocuments.push(document);
+  //       } catch (error) {
+  //         this.logger.error(
+  //           `Failed to upload document ${file.originalname}: ${error.message}`,
+  //         );
+  //         // Continue with other files
+  //       }
+  //     }
+
+  //     // Check if all required documents are uploaded
+  //     await this.checkAndUpdateOnboardingStatus(vendorId);
+
+  //     return {
+  //       success: true,
+  //       message: `${uploadedDocuments.length} document(s) uploaded successfully`,
+  //       uploadedCount: uploadedDocuments.length,
+  //       documents: uploadedDocuments,
+  //     };
+  //   }
+
+  /**
+   * Get Required Documents Status
+   */
+  // async getDocumentStatus(vendorId: string): Promise<{
+  //   requiredDocuments: Array<{
+  //     type: DocumentType;
+  //     name: string;
+  //     description: string;
+  //     isUploaded: boolean;
+  //     document?: VendorDocument;
+  //   }>;
+  //   status: string;
+  //   isComplete: boolean;
+  // }> {
+  //   const vendor = await this.userRepository.findById(vendorId);
+  //   if (!vendor) {
+  //     throw new NotFoundException('Vendor not found');
+  //   }
+
+  //   const uploadedDocuments =
+  //     await this.userRepository.getVendorDocuments(vendorId);
+
+  //   const documentStatus = this.REQUIRED_DOCUMENTS.map((requiredType) => {
+  //     const uploadedDoc = uploadedDocuments.find(
+  //       (doc) => doc.documentType === requiredType,
+  //     );
+
+  //     return {
+  //       type: requiredType,
+  //       name: this.getDocumentName(requiredType),
+  //       description: this.getDocumentDescription(requiredType),
+  //       isUploaded: !!uploadedDoc,
+  //       document: uploadedDoc || undefined,
+  //     };
+  //   });
+
+  //   const allUploaded = documentStatus.every((doc) => doc.isUploaded);
+
+  //   return {
+  //     requiredDocuments: documentStatus,
+  //     status: allUploaded ? 'All documents uploaded' : 'Documents pending',
+  //     isComplete: allUploaded,
+  //   };
+  // }
+
+  /**
+   * Submit Documents for Review
+   */
+  // async submitForReview(vendorId: string): Promise<{
+  //   success: boolean;
+  //   message: string;
+  //   vendor: Partial<User>;
+  // }> {
+  //   this.logger.log(`Submitting documents for review: ${vendorId}`);
+
+  //   // Check if all required documents are uploaded
+  //   const status = await this.getDocumentStatus(vendorId);
+  //   if (!status.isComplete) {
+  //     throw new BadRequestException(
+  //       'Please upload all required documents before submission',
+  //     );
+  //   }
+
+  //   // Update vendor status to under review
+  //   const vendor = await this.userRepository.findById(vendorId);
+  //   vendor.status = UserStatus.UNDER_REVIEW;
+  //   vendor.onboardingCompletedAt = new Date();
+
+  //   const updatedVendor = await this.userRepository.update(vendor.id, vendor);
+
+  //   // Notify admin for review
+  //   await this.notifyAdminForReview(updatedVendor);
+
+  //   return {
+  //     success: true,
+  //     message:
+  //       'Documents submitted for review. You will be notified once approved.',
+  //     vendor: {
+  //       id: updatedVendor.id,
+  //       email: updatedVendor.email,
+  //       status: updatedVendor.status,
+  //       onboardingCompletedAt: updatedVendor.onboardingCompletedAt,
+  //     },
+  //   };
+  // }
+
+  // // Private helper methods
+  // private async checkAndUpdateOnboardingStatus(
+  //   vendorId: string,
+  // ): Promise<void> {
+  //   const status = await this.getDocumentStatus(vendorId);
+
+  //   if (status.isComplete) {
+  //     const vendor = await this.userRepository.findById(vendorId);
+  //     if (vendor.status === UserStatus.PENDING_DOCUMENTS) {
+  //       vendor.status = UserStatus.READY_FOR_REVIEW;
+  //       await this.userRepository.update(vendor.id, vendor);
+
+  //       this.logger.log(
+  //         `All documents uploaded for vendor: ${vendorId}. Ready for review.`,
+  //       );
+  //     }
+  //   }
+  // }
+
+  private determineDocumentType(
+    filename: string,
+    dto: OnboardingDocumentsDto,
+  ): DocumentType {
+    // Simple detection based on filename patterns
+    const lowerFilename = filename.toLowerCase();
+
+    if (
+      lowerFilename.includes('registration') ||
+      lowerFilename.includes('business')
+    ) {
+      return DocumentType.CAC;
+    }
+    if (
+      lowerFilename.includes('permit') ||
+      lowerFilename.includes('business')
+    ) {
+      return DocumentType.BUSINESS_PERMIT;
+    }
+    if (
+      lowerFilename.includes('id') ||
+      lowerFilename.includes('passport') ||
+      lowerFilename.includes('license')
+    ) {
+      return DocumentType.ID_PROOF;
+    }
+    // if (lowerFilename.includes('bank') || lowerFilename.includes('statement')) {
+    //   return DocumentType.BANK_STATEMENT;
+    // }
+    // if (
+    //   lowerFilename.includes('utility') ||
+    //   lowerFilename.includes('address')
+    // ) {
+    //   return DocumentType.UTILITY_BILL;
+    // }
+
+    // Default to other if cannot determine
+    //return DocumentType.OTHER;
+  }
+
+  private getDocumentName(documentType: DocumentType): string {
+    const names = {
+      [DocumentType.CAC]: 'Business Registration Certificate',
+      [DocumentType.BUSINESS_PERMIT]: 'Tax Registration Certificate',
+      [DocumentType.ID_PROOF]: 'Owner Identification',
+    };
+    return names[documentType];
+  }
+
+  private getDocumentDescription(documentType: DocumentType): string {
+    const descriptions = {
+      [DocumentType.CAC]: 'Official business registration document',
+      [DocumentType.BUSINESS_PERMIT]: 'Tax registration or VAT certificate',
+      [DocumentType.ID_PROOF]:
+        "Government-issued ID (Passport, Driver's License)",
+    };
+    return descriptions[documentType];
+  }
+
+  private async notifyAdminForReview(vendor: User): Promise<void> {
+    // Implementation for notifying admin
+    this.logger.log(
+      `Vendor ${vendor.email} has completed onboarding and is ready for review`,
+    );
+    // Add your notification logic here (email, Slack, etc.)
+  }
 }
