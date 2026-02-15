@@ -42,7 +42,7 @@ async function bootstrap() {
 
   //   // ================= Global Configurations =================
   app.enableCors({
-    origin: process.env.CLIENT_URL,
+    origin: process.env.FRONTEND_URL,
     credentials: true,
   });
 
