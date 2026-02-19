@@ -6,6 +6,7 @@ import {
   NotFoundException,
   ConflictException,
   InternalServerErrorException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { UserService } from '../user/user.service';
 import { JwtService } from '@nestjs/jwt';
@@ -27,7 +28,7 @@ import {
   AuthResponse,
   TokenPayload,
 } from './interface/auth-response.interface';
-import { BusinessInfo, User } from '../user/entities/user.entity';
+import { User } from '../user/entities/user.entity';
 import {
   DocumentType,
   UserRole,
@@ -51,6 +52,7 @@ import { AbstractUserRepository } from '../user/repositories/abstract-user.repos
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { UploadDocumentDto } from '../user/dto/upload-document.dto';
+import { RegisterResponseDto } from './dto/registration-response.dto';
 
 @Injectable()
 export class AuthService {
@@ -95,38 +97,58 @@ export class AuthService {
   /**
    * Register customer with automatic OTP
    */
-  async registerCustomer(dto: CreateCustomerDto) {
+  async registerCustomer(dto: CreateCustomerDto): Promise<RegisterResponseDto> {
     const { email, phoneNumber } = dto;
+
     this.logger.log(`Registering customer: ${email || phoneNumber}`);
 
-    const { user, requiresVerification } =
-      await this.userService.createCustomer({
-        email: email,
-        phoneNumber: phoneNumber,
-        password: dto.password,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-      });
+    const registrationResponse = await this.userService.createCustomer({
+      email: dto.email,
+      phoneNumber: dto.phoneNumber,
+      password: dto.password,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+    });
 
-    // Return different response based on verification status
-    if (requiresVerification) {
-      return {
-        success: true,
-        requiresVerification: true,
-        message: 'Registration successful. Please verify your account.',
-        verificationIdentifier: user.email || user.phoneNumber,
-        user: {
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          isVerified: false,
-        },
-      };
-    }
-
-    // If no verification required, generate tokens immediately
-    return this.generateAuthResponse(user);
+    return {
+      status: registrationResponse.status,
+      requiresVerification: registrationResponse.requiresVerification,
+      registrationMethod: registrationResponse.registrationMethod,
+    };
   }
+
+  // async registerCustomerbk(dto: CreateCustomerDto) {
+  //   const { email, phoneNumber } = dto;
+  //   this.logger.log(`Registering customer: ${email || phoneNumber}`);
+
+  //   const { user, requiresVerification } =
+  //     await this.userService.createCustomer({
+  //       email: email,
+  //       phoneNumber: phoneNumber,
+  //       password: dto.password,
+  //       firstName: dto.firstName,
+  //       lastName: dto.lastName,
+  //     });
+
+  //   // Return different response based on verification status
+  //   if (requiresVerification) {
+  //     return {
+  //       success: true,
+  //       requiresVerification: true,
+  //       message: 'Registration successful. Please verify your account.',
+  //       verificationIdentifier: user.email || user.phoneNumber,
+  //       user: {
+  //         id: user.id,
+  //         email: user.email,
+  //         role: user.role,
+  //         isVerified: false,
+  //       },
+  //     };
+  //   }
+
+  //   // If no verification required, generate tokens immediately
+  //   return this.generateAuthResponse(user);
+  // }
 
   // async registerCustomer(dto: CreateCustomerDto) {
   //   const { email, phoneNumber, firstName, lastName, password } = dto;
@@ -1058,22 +1080,99 @@ export class AuthService {
   }
 
   /* ---------- OAuth (Google) ---------- */
-  async handleOAuthCallback(profile: any, provider: OAuthProviderType) {
+  // async handleOAuthCallback(profile: any, provider: OAuthProviderType) {
+
+  async handleOAuthCallback(
+    profile: any,
+    provider: OAuthProviderType,
+    requestedRole?: UserRole,
+  ) {
     if (!profile?.email) {
+      throw new BadRequestException('OAuth account has no email');
+    }
+
+    const allowedSelfAssignableRoles: UserRole[] = [
+      UserRole.CUSTOMER,
+      UserRole.VENDOR,
+    ];
+
+    // let finalRole: UserRole = UserRole.CUSTOMER;
+
+    if (requestedRole) {
+      if (!Object.values(UserRole).includes(requestedRole)) {
+        throw new BadRequestException('Invalid role selected');
+      }
+
+      if (!allowedSelfAssignableRoles.includes(requestedRole)) {
+        throw new ForbiddenException('You cannot assign this role');
+      }
+
+      //finalRole = requestedRole;
+    }
+
+    const user = await this.userService.createOrGetOAuthUser({
+      email: profile.email,
+      firstName: profile.firstName || profile.givenName,
+      lastName: profile.lastName || profile.familyName,
+      provider,
+      providerId: profile.providerId,
+      profilePicture: profile.picture,
+      role: requestedRole,
+    });
+
+    return this.generateAuthResponse(user);
+  }
+
+  /**
+   * Handle OAuth callback from Google/Facebook/etc
+   */
+  async handleOAuthCallbackWithoutParam(
+    profile: any,
+    provider: OAuthProviderType,
+  ) {
+    this.logger.log(`Processing OAuth callback for ${provider}`);
+
+    if (!profile?.email) {
+      this.logger.error(
+        `${provider} account has no email: ${JSON.stringify(profile)}`,
+      );
       throw new BadRequestException(`${provider} account has no email`);
     }
 
-    // Call existing helper in UserService
-    const user = await this.userService.createOrGetOAuthUser({
-      email: profile.email,
-      firstName: profile.firstName,
-      lastName: profile.lastName,
-      provider,
-      providerId: profile.id, // Google ID
-    });
+    this.logger.debug(
+      `OAuth profile received: ${JSON.stringify({
+        email: profile.email,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        provider,
+        providerId: profile.providerId,
+      })}`,
+    );
 
-    // Sign JWT (same as manual signup)
-    return this.signJwt(user);
+    try {
+      // Call existing helper in UserService
+      const user = await this.userService.createOrGetOAuthUser({
+        email: profile.email,
+        firstName: profile.firstName || profile.givenName,
+        lastName: profile.lastName || profile.familyName,
+        provider,
+        providerId: profile.providerId,
+        profilePicture: profile.picture,
+      });
+
+      this.logger.log(
+        `OAuth user processed successfully: ${user.id} (${user.email})`,
+      );
+
+      // Sign JWT (same as manual signup)
+      return this.generateAuthResponse(user);
+    } catch (error) {
+      this.logger.error(
+        `Failed to process OAuth callback: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   //////VENDOR//////
@@ -1360,89 +1459,6 @@ export class AuthService {
   }
 
   /**
- Complete vendor onboarding with business details
-   **/
-  async completeVendorOnboarding0(
-    vendorId: string,
-    businessDetails: Partial<BusinessInfo>,
-  ): Promise<User> {
-    try {
-      this.logger.log(`Completing vendor onboarding for: ${vendorId}`);
-
-      const vendor = await this.userRepository.findById(vendorId);
-
-      if (!vendor) {
-        throw new NotFoundException('Vendor not found');
-      }
-
-      if (vendor.status !== UserStatus.PENDING_ONBOARDING) {
-        throw new ConflictException(
-          'Vendor is not in the correct status for onboarding',
-        );
-      }
-
-      const now = new Date();
-
-      // Use transaction to ensure atomic operation
-      await this.prisma.$transaction(async (tx) => {
-        // 1️⃣ Update user status
-        await tx.user.update({
-          where: { id: vendorId },
-          data: {
-            status: UserStatus.ACTIVE,
-            onboardingCompletedAt: now,
-            updatedAt: now,
-          },
-        });
-
-        // 2️⃣ Upsert business info
-        await tx.businessInfo.upsert({
-          where: { userId: vendorId },
-          update: {
-            ...businessDetails,
-            updatedAt: now,
-          },
-          create: {
-            user: {
-              connect: { id: vendorId },
-            },
-            businessName: businessDetails.businessName ?? '',
-            businessType: businessDetails.businessType ?? '',
-            description: businessDetails.description ?? '',
-            businessEmail: businessDetails.businessEmail ?? '',
-            businessPhone: businessDetails.businessPhone ?? '',
-            address: businessDetails.address ?? '',
-            city: businessDetails.city ?? '',
-            state: businessDetails.state ?? '',
-            bankName: businessDetails.bankName ?? '',
-            accountNumber: businessDetails.accountNumber ?? '',
-            accountName: businessDetails.accountName ?? '',
-          },
-        });
-      });
-
-      // Return updated user with relations
-      return await this.userRepository.findById(vendorId);
-    } catch (error) {
-      this.logger.error(
-        `Failed to complete vendor onboarding ${vendorId}: ${error.message}`,
-      );
-      throw error;
-    }
-  }
-
-  // src/users/services/vendor.service.ts
-
-  // Add these methods to your existing VendorService
-
-  /**
-   * Complete vendor onboarding with business details and documents
-   */
-  /**
-   * Complete vendor onboarding with document uploads
-   */
-
-  /**
    * Complete vendor onboarding with document files
    * Users select files from their computer and we upload to Cloudinary
    */
@@ -1673,62 +1689,6 @@ export class AuthService {
       accountNumber: dto.accountNumber,
     };
   }
-
-  // async completeVendorOnboardingbk(
-  //   vendorId: string,
-  //   dto: CompleteOnboardingDto,
-  //   files: Express.Multer.File[], // Files from the request
-  // ): Promise<{
-  //   success: boolean;
-  //   message: string;
-  //   vendor: Partial<User>;
-  //   uploadedDocuments: any[];
-  // }> {
-  //   this.logger.log(`Completing vendor onboarding: ${vendorId}`);
-
-  //   // Validate vendor
-  //   await this.validateVendorForOnboarding(vendorId);
-
-  //   // Validate files match document descriptions
-  //   if (files.length !== dto.documents.length) {
-  //     throw new BadRequestException(
-  //       `Number of files (${files.length}) does not match number of document descriptions (${dto.documents.length})`,
-  //     );
-  //   }
-
-  //   // Upload all documents to Cloudinary
-  //   const uploadedDocuments = await this.uploadVendorDocuments(
-  //     vendorId,
-  //     files,
-  //     dto.documents,
-  //   );
-
-  //   // Prepare business info data
-  //   const businessInfoData = this.prepareBusinessInfoData(dto);
-
-  //   // Complete onboarding in repository
-  //   const updatedVendor = await this.userRepository.completeVendorOnboarding(
-  //     vendorId,
-  //     businessInfoData,
-  //     uploadedDocuments,
-  //   );
-
-  //   return {
-  //     success: true,
-  //     message:
-  //       'Vendor onboarding completed successfully. Your account is now under review.',
-  //     vendor: {
-  //       id: updatedVendor.id,
-  //       email: updatedVendor.email,
-  //       status: updatedVendor.status,
-  //     },
-  //     uploadedDocuments: uploadedDocuments.map((doc) => ({
-  //       documentType: doc.documentType,
-  //       documentUrl: doc.documentUrl,
-  //       publicId: doc.publicId,
-  //     })),
-  //   };
-  // }
 
   /**
    * Upload a single document during onboarding

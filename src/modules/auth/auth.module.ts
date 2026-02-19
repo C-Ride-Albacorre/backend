@@ -5,7 +5,7 @@ import { PrismaService } from '../../shared/services/prisma.service';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from '../../common/strategies/jwt.strategy';
-import { GoogleStrategy } from '../../common/strategies/google.strategy';
+import { GoogleStrategy } from '../../common/strategies/google.stategy';
 import { AuthController } from './auth.controller';
 import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 import { UserModule } from '../user/user.module';
