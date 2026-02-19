@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from "@nes
 import { PrismaService } from "./prisma.service";
 
 @Injectable()
-export class HelperService {
+export class ervice {
     constructor(private prisma: PrismaService,){}
 
 }

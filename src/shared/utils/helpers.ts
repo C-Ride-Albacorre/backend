@@ -9,8 +9,7 @@ import moment from 'moment';
 import { FileFilterCallback } from 'multer';
 import { User } from '@prisma/client';
 import { ParsedQuery } from '../../common/interfaces/interface';
-import { DashboardFilterTypes } from '../enums';
-
+import { DashboardFilterTypes, RegistrationMethod } from '../enums';
 
 const chance = new Chance();
 const logger = new Logger('Helper');
@@ -464,8 +463,6 @@ export default class Helper {
     return email.replace(/(^.).*(@.*$)/, '$1***$2');
   }
 
-
-
   // static generateAccessToken(user: User, jwt: JwtService, env: string) {
   //   const payload = {
   //     sub: user.id,
@@ -681,5 +678,15 @@ export default class Helper {
       throw new BadRequestException('Invalid environment');
     }
     return env;
+  }
+
+  static getRegistrationMethod(input: string): RegistrationMethod {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneRegex = /^\+?[0-9]{7,15}$/;
+
+    if (emailRegex.test(input)) return RegistrationMethod.EMAIL;
+    if (phoneRegex.test(input)) return RegistrationMethod.PHONE_NUMBER;
+
+    throw new Error('Invalid registration input');
   }
 }

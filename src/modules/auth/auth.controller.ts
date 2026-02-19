@@ -11,9 +11,10 @@ import {
   HttpStatus,
   UseInterceptors,
   UploadedFiles,
-  UploadedFile,
   BadRequestException,
   Param,
+  Logger,
+  Query,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import {
@@ -27,7 +28,7 @@ import {
 import { AuthService } from './auth.service';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { CreateCustomerDto } from './dto/create-customer.dto';
-import { LoginDto } from './dto/login.dto';
+import { CustomerLoginDto, LoginDto } from './dto/login.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
 import { ApiResponseDto } from '../../common/dto/api-response.dto';
@@ -50,19 +51,22 @@ import {
 } from './dto/create-vendor.dto';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { UploadDocumentDto } from '../user/dto/upload-document.dto';
-// import { CurrentUser } from '../../common/guards/current-user.decorator';
 import { Roles } from '../../common/decorators/role.decorator';
 import { RolesGuard } from '../../common/guards/role.guard';
-import { UserRole } from 'src/shared/enums';
+import { UserRole } from '../../shared/enums';
+import { AuthResponse } from './interface/auth-response.interface';
+import { ResendOtpDto } from './dto/resend-otp.dto';
+import { OAuthUser } from '../../common/decorators/oauth-user.decorator';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthService.name);
   constructor(
     private readonly authService: AuthService,
     private readonly userService: UserService,
     private config: ConfigService,
-  ) { }
+  ) {}
 
   //CUSTOMER
   @Post('/customer/signup')
@@ -102,7 +106,7 @@ export class AuthController {
   }
 
   @Post('/customer/login')
-  @ApiOperation({ summary: 'Login with email and password' })
+  @ApiOperation({ summary: 'Login with email and password | phone number' })
   @ApiResponse({
     status: 200,
     description: 'User logged in successfully',
@@ -114,8 +118,8 @@ export class AuthController {
     type: ApiErrorResponseDto,
   })
   @ApiResponse({ status: 403, description: 'Account deactivated' })
-  //  @UsePipes(new ValidationPipe({ transform: true }))
-  async loginCustomer(@Body() dto: LoginDto) {
+  //@UsePipes(new ValidationPipe({ transform: true }))
+  async loginCustomer(@Body() dto: CustomerLoginDto) {
     return this.authService.loginCustomer(dto);
   }
 
@@ -123,7 +127,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Resend verification OTP' })
   @ApiResponse({ status: 200, description: 'OTP sent successfully' })
   @ApiResponse({ status: 400, description: 'Invalid request' })
-  async resendCustomerOtp(@Body() body: { identifier: string }) {
+  async resendCustomerOtp(@Body() body: ResendOtpDto) {
     return this.authService.resendCustomerOtp(body.identifier);
   }
 
@@ -287,33 +291,6 @@ export class AuthController {
     );
   }
 
-  // @Post('/vendor/onboarding')
-  // @UseGuards(JwtAuthGuard)
-  // @HttpCode(HttpStatus.OK)
-  // @ApiBearerAuth()
-  // @ApiOperation({ summary: 'Complete business onboarding' })
-  // @ApiResponse({
-  //   status: 200,
-  //   description: 'Onboarding completed successfully',
-  // })
-  // @ApiResponse({ status: 400, description: 'Email or phone not verified' })
-  // async completeOnboarding(@Req() req, @Body() dto: CompleteOnboardingDto) {
-  //   return this.authService.completeVendorOnboarding(req.user.id, dto);
-  // }
-
-  // @Post('resend-otp')
-  // @HttpCode(HttpStatus.OK)
-  // @ApiOperation({ summary: 'Resend verification OTP' })
-  // @ApiResponse({ status: 200, description: 'OTP sent successfully' })
-  // async resendOtp(
-  //   @Body('identifier') identifier: string,
-  //   @Body('purpose') purpose: string,
-  // ) {
-  //   return this.authService.resendVerificationOtp(identifier, purpose as any);
-  // }
-
-  ///
-
   @Post('refresh')
   @ApiOperation({ summary: 'Refresh access token' })
   @ApiResponse({
@@ -394,28 +371,137 @@ export class AuthController {
   @Get('google')
   @ApiOperation({ summary: 'Login with Google OAuth' })
   @UseGuards(GoogleAuthGuard) /* passport google */ // register passport route in module
-  // The route setup for redirect will be handled by passport middleware; in Nest you can do redirect flow in separate controller wired to passport
   async googleLogin() {
-    return { msg: 'Redirect to Google' }; // passport will redirect
+    this.logger.log('Google OAuth login initiated');
+    return; // return { msg: 'Redirect to Google' }; // passport will redirect
+  }
+
+  @Get('google/callback')
+  @UseGuards(GoogleAuthGuard)
+  @ApiOperation({ summary: 'Google OAuth callback handler' })
+  async googleCallback(
+    @OAuthUser() googleUser: OAuthUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    this.logger.debug(`OAuth callback - Role: ${googleUser.requestedRole}`);
+
+    const authResponse = await this.authService.handleOAuthCallback(
+      googleUser,
+      OAuthProviderType.GOOGLE,
+      googleUser.requestedRole as UserRole, // Cast if needed
+    );
+
+    this.setAuthCookies(res, authResponse);
+
+    // Redirect to frontend
+    const frontendUrl = this.getFrontendUrl();
+    return res.redirect(`${frontendUrl}/auth/callback?success=true`);
   }
 
   /**
    * Handles Google OAuth callback
    */
-  @Get('google/callback')
+  @Get('google/callback/without/param')
   @UseGuards(GoogleAuthGuard)
-  @ApiOperation({ summary: 'Google OAuth callback (JWT returned or redirect)' })
-  async googleCallback(@Req() req: Request, @Res() res: Response) {
-    const googleUser = req.user as any;
-    const jwtPayload = await this.authService.handleOAuthCallback(
-      googleUser,
-      OAuthProviderType.GOOGLE,
-    );
+  // @ApiOperation({ summary: 'Google OAuth callback handler' })
+  async googleCallbackWithoutParam(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('role') role?: UserRole,
+  ) {
+    this.logger.log('Google OAuth callback received');
 
+    try {
+      const googleUser = req.user as any;
+
+      this.logger.debug(
+        `Google user data: ${JSON.stringify({
+          email: googleUser?.email,
+          id: googleUser?.id,
+          name: googleUser?.name,
+          role,
+        })}`,
+      );
+
+      if (!googleUser) {
+        this.logger.error('No user data from Google');
+        return res.redirect(
+          `${this.getFrontendUrl()}/login?error=no_user_data`,
+        );
+      }
+
+      if (role && !Object.values(UserRole).includes(role)) {
+        return res.redirect(
+          `${this.getFrontendUrl()}/login?error=invalid_role`,
+        );
+      }
+
+      // Process OAuth callback
+      const authResponse = await this.authService.handleOAuthCallback(
+        googleUser,
+        OAuthProviderType.GOOGLE,
+        role,
+      );
+
+      const frontendUrl = this.getFrontendUrl();
+
+      // Redirect with tokens (you might want to use a more secure method)
+      const redirectUrl = new URL('/oauth-redirect', frontendUrl);
+      redirectUrl.searchParams.append('accessToken', authResponse.accessToken);
+      redirectUrl.searchParams.append(
+        'refreshToken',
+        authResponse.refreshToken,
+      );
+
+      // Optionally encode user data (be careful with size)
+      const userData = Buffer.from(JSON.stringify(authResponse.user)).toString(
+        'base64',
+      );
+      redirectUrl.searchParams.append('user', userData);
+
+      this.logger.log(
+        `Redirecting user to: ${redirectUrl.origin}${redirectUrl.pathname}`,
+      );
+
+      return res.redirect(redirectUrl.toString());
+    } catch (error) {
+      this.logger.error(
+        `Google OAuth callback error: ${error.message}`,
+        error.stack,
+      );
+
+      const frontendUrl = this.getFrontendUrl();
+      return res.redirect(
+        `${frontendUrl}/login?error=oauth_failed&message=${encodeURIComponent(error.message)}`,
+      );
+    }
+  }
+
+  /**
+   * Get frontend URL with fallback
+   */
+  private getFrontendUrl(): string {
     const frontendUrl = this.config.get('FRONTEND_URL');
-    if (!frontendUrl) throw new Error('FRONTEND_URL not configured');
+    if (!frontendUrl) {
+      this.logger.error('FRONTEND_URL not configured');
+      throw new Error('FRONTEND_URL not configured');
+    }
+    return frontendUrl;
+  }
 
-    const redirectUrl = `${frontendUrl}/redirect?token=${jwtPayload.accessToken}`;
-    return res.redirect(redirectUrl);
+  private setAuthCookies(res: Response, authResponse: AuthResponse) {
+    res.cookie('accessToken', authResponse.accessToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: 15 * 60 * 1000, // 15 min
+    });
+
+    res.cookie('refreshToken', authResponse.refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
   }
 }

@@ -1,5 +1,5 @@
 import './otel';
-import { NestFactory } from '@nestjs/core';
+import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
@@ -16,6 +16,9 @@ import { ConfigService } from '@nestjs/config';
 import { requestIdMiddleware } from './common/middleware/request-id.middleware';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { setupHandlebars } from './views/bootstrap/views.bootstrap';
+import * as cookieParser from 'cookie-parser';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { SuccessResponseInterceptor } from './common/filters/success-response.interceptor';
 
 async function bootstrap() {
   const logger = WinstonModule.createLogger({
@@ -33,6 +36,9 @@ async function bootstrap() {
   if (config.get('ENABLE_VIEWS') === 'true') {
     setupHandlebars(app);
   }
+
+  // Parse cookies for OAuth role handling
+  app.use(cookieParser());
 
   app.use(requestIdMiddleware);
 
@@ -78,8 +84,16 @@ async function bootstrap() {
     }),
   );
 
-  app.useGlobalInterceptors(new LoggingInterceptor());
+  // ================= GlobalExceptionFilter =================
 
+  app.useGlobalInterceptors(
+    new LoggingInterceptor(),
+    new SuccessResponseInterceptor(),
+  );
+
+  app.useGlobalFilters(new GlobalExceptionFilter(app.get(HttpAdapterHost)));
+
+  // ================= Apply Swagger API documentation =================
   if (config.get('NODE_ENV') !== 'production') {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('C-RIDE API')
