@@ -46,7 +46,9 @@ export class UserService {
   async createCustomer(userData: Partial<User>): Promise<RegisterResponseDto> {
     const { email, password, phoneNumber } = userData;
 
-    this.logger.log(`Registration attempt for customer: ${email}`);
+    this.logger.log(
+      `Registration attempt for customer: ${email} || ${phoneNumber}`,
+    );
 
     // Determine which input the user provided
     const registrationInput = email || phoneNumber;

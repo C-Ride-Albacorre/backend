@@ -22,6 +22,7 @@ import {
   ApiBody,
   ApiConsumes,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -369,8 +370,15 @@ export class AuthController {
   // Google OAuth routes (frontend flow)
   // Initiates Google OAuth redirect
   @Get('google')
-  @ApiOperation({ summary: 'Login with Google OAuth' })
   @UseGuards(GoogleAuthGuard) /* passport google */ // register passport route in module
+  @ApiOperation({ summary: 'Login with Google OAuth' })
+  @ApiOperation({ summary: 'Login with Google OAuth' })
+  @ApiQuery({
+    name: 'role',
+    required: true,
+    description: 'Role of the user (e.g., VENDOR or CUSTOMER)',
+    example: 'VENDOR',
+  })
   async googleLogin() {
     this.logger.log('Google OAuth login initiated');
     return; // return { msg: 'Redirect to Google' }; // passport will redirect
@@ -401,7 +409,7 @@ export class AuthController {
   /**
    * Handles Google OAuth callback
    */
-  @Get('google/callback/without/param')
+  //@Get('google/callback/without/param')
   @UseGuards(GoogleAuthGuard)
   // @ApiOperation({ summary: 'Google OAuth callback handler' })
   async googleCallbackWithoutParam(
