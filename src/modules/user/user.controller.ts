@@ -28,7 +28,7 @@ import { ApiErrorResponseDto } from 'src/common/dto/api-error-response.dto';
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
-  @Patch('business-profile')
+  // @Patch('business-profile')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
