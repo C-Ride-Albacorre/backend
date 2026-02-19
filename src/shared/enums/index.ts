@@ -6,6 +6,17 @@ export enum UserRole {
   SUPER_ADMIN = 'SUPER_ADMIN',
 }
 
+export enum RegistrationStatus {
+  NEW = 'NEW',
+  PENDING_VERIFICATION = 'PENDING_VERIFICATION',
+  ALREADY_VERIFIED = 'ALREADY_VERIFIED',
+}
+
+export enum RegistrationMethod {
+  EMAIL = 'EMAIL',
+  PHONE_NUMBER = 'PHONE_NUMBER',
+}
+
 export enum VerificationPurpose {
   REGISTRATION = 'registration',
   LOGIN = 'login',

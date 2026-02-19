@@ -60,6 +60,7 @@ model User {
   password              String?
   firstName             String
   lastName              String
+  profilePicture        String?
   role                  Role             @default(CUSTOMER)
   isActive              Boolean          @default(true)
   refreshTokenHash      String?
@@ -107,15 +108,18 @@ model VerificationAttempt {
 }
 
 model OAuthProvider {
-  id         String            @id @default(uuid())
-  provider   OAuthProviderType //String
-  providerId String
-  userId     String
-  user       User              @relation(fields: [userId], references: [id])
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
+  id          String            @id @default(uuid())
+  provider    OAuthProviderType //String
+  providerId  String
+  profileData Json? // Store additional profile data
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 
   @@unique([provider, providerId])
+  @@unique([userId, provider]) // One provider per user
+  @@index([provider, providerId])
 }
 
 model BusinessInfo {
@@ -125,16 +129,12 @@ model BusinessInfo {
   description   String?
   businessPhone String?
   businessEmail String
-  logoUrl       String?
   address       String
   city          String
   state         String
   bankName      String
   accountNumber String
   accountName   String
-  openingHours  String?
-  shortDesc     String?
-  website       String?
   userId        String   @unique
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt     DateTime @default(now())
@@ -144,7 +144,7 @@ model BusinessInfo {
 model VendorDocument {
   id           String         @id @default(uuid())
   userId       String
-  documentType DocumentType    @default(CAC) // Using string for enum, you can define as enum in schema
+  documentType DocumentType   @default(CAC) // Using string for enum, you can define as enum in schema
   documentUrl  String
   status       DocumentStatus @default(PENDING) // PENDING, APPROVED, REJECTED
   metadata     Json?
