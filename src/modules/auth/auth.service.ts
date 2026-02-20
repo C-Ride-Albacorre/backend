@@ -114,6 +114,7 @@ export class AuthService {
       status: registrationResponse.status,
       requiresVerification: registrationResponse.requiresVerification,
       registrationMethod: registrationResponse.registrationMethod,
+      verificationIdentifier: email || phoneNumber,
     };
   }
 
