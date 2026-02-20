@@ -4,4 +4,5 @@ export class RegisterResponseDto {
   status: RegistrationStatus;
   requiresVerification: boolean;
   registrationMethod: RegistrationMethod;
+  verificationIdentifier: string;
 }
