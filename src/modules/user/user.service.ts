@@ -73,6 +73,7 @@ export class UserService {
           status: RegistrationStatus.ALREADY_VERIFIED,
           requiresVerification: false,
           registrationMethod,
+          verificationIdentifier: email || phoneNumber,
         };
       }
 
@@ -85,6 +86,7 @@ export class UserService {
         status: RegistrationStatus.PENDING_VERIFICATION,
         requiresVerification: true,
         registrationMethod,
+        verificationIdentifier: email || phoneNumber,
       };
     }
 
@@ -111,6 +113,7 @@ export class UserService {
       status: RegistrationStatus.NEW,
       requiresVerification: true,
       registrationMethod,
+      verificationIdentifier: user.email || user.phoneNumber,
     };
   }
 

@@ -78,7 +78,6 @@ export class ZohoEmailProvider implements IEmailProvider {
           Authorization: `Zoho-enczapikey ${this.apiKey}`,
         },
       });
-
       this.logger.log(`Email sent to ${to}`);
       return response.data;
     } catch (error) {
