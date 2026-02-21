@@ -1688,6 +1688,8 @@ export class AuthService {
       bankName: dto.bankName,
       accountName: dto.accountName,
       accountNumber: dto.accountNumber,
+      registrationNumber: dto.registrationNumber,
+      taxId: dto.taxId,
     };
   }
 

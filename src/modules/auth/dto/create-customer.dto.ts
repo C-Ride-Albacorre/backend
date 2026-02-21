@@ -1,5 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, Matches, MinLength, ValidateIf } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 import { IsEmailOrPhone } from '../../../common/decorators/is-email-or-phone.decorator';
 
 export class CreateCustomerDto {
@@ -41,5 +49,4 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsString()
   referralCode?: string;
-
 }

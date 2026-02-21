@@ -688,6 +688,16 @@ export class CompleteOnboardingDto {
   @MaxLength(200)
   accountName: string;
 
+  @ApiProperty({ example: 'RC1234567', required: false })
+  @IsNotEmpty()
+  @IsString()
+  registrationNumber: string;
+
+  @ApiProperty({ example: '12345678-0001', required: false })
+  @IsNotEmpty()
+  @IsString()
+  taxId: string;
+
   @ApiProperty({ description: 'Account number', example: '0123456789' })
   @IsString()
   @Matches(/^\d{10}$/, { message: 'Account number must be 10 digits' })
