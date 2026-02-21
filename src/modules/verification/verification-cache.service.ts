@@ -30,7 +30,7 @@ export class VerificationCacheService {
     private readonly redisService: RedisService,
     private readonly configService: ConfigService,
   ) {
-    this.OTP_EXPIRY = this.configService.get<number>('OTP_EXPIRY_SECONDS', 600); // 10 minutes
+    this.OTP_EXPIRY = this.configService.get<number>('OTP_EXPIRES_IN', 600); // 10 minutes
     this.MAX_ATTEMPTS = this.configService.get<number>('OTP_MAX_ATTEMPTS', 3);
     this.ATTEMPT_WINDOW = this.configService.get<number>(
       'OTP_ATTEMPT_WINDOW_SECONDS',
@@ -58,7 +58,10 @@ export class VerificationCacheService {
 
   /* ------------------ OTP Storage ------------------ */
 
-  async storeOtp(identifier: string, otp: string): Promise<boolean> {
+  async storeOtp(
+    identifier: string,
+    otp: string,
+  ): Promise<{ expiresIn: number; expiresAt: number }> {
     const now = Math.floor(Date.now() / 1000);
     const expiresAt = now + this.OTP_EXPIRY;
 
@@ -72,11 +75,7 @@ export class VerificationCacheService {
 
     // Store OTP data
     const otpKey = this.buildOtpKey(identifier);
-    await this.redisService.safeSet(
-      otpKey,
-      cacheData,
-      this.OTP_EXPIRY,
-    );
+    await this.redisService.safeSet(otpKey, cacheData, this.OTP_EXPIRY);
 
     // Store OTP lookup by value (optional, with shorter TTL for security)
     const valueKey = this.buildOtpValueKey(otp);
@@ -97,7 +96,11 @@ export class VerificationCacheService {
     this.logger.debug(
       `OTP stored for ${identifier} (expires: ${new Date(expiresAt * 1000).toISOString()})`,
     );
-    return true;
+    //return true;
+    return {
+      expiresIn: this.OTP_EXPIRY,
+      expiresAt,
+    };
   }
 
   /* ------------------ OTP Validation ------------------ */
@@ -294,7 +297,7 @@ export class VerificationCacheService {
       return 0;
     }
 
-    let cleaned = 0;
+    const cleaned = 0;
     const now = Math.floor(Date.now() / 1000);
 
     // Note: This is a simplified cleanup. In production, use Redis SCAN for larger datasets
@@ -375,7 +378,4 @@ export class VerificationCacheService {
       },
     };
   }
-
-
-  
 }
