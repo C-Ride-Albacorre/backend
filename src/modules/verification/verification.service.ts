@@ -33,19 +33,25 @@ export class VerificationService {
     // this.emailProvider = this.isProduction
     //   ? zohoEmailProvider
     //   : consoleEmailProvider;
-     this.emailProvider = this.isProduction
+    this.emailProvider = this.isProduction
       ? zohoEmailProvider
       : zohoEmailProvider;
 
     this.smsProvider = this.isProduction
       ? termiiSmsProvider
       : consoleSmsProvider;
+
+    this.configService.get<number>('OTP_EXPIRES_IN');
   }
 
   /**
    * Send OTP based on identifier type (email or phone)
    */
-  async sendOtp(dto: SendOtpDto): Promise<any> {
+  async sendOtp(dto: SendOtpDto): Promise<{
+    success: boolean;
+    expiresIn: number;
+    expiresAt: number;
+  }> {
     const { identifier, purpose = VerificationPurpose.REGISTRATION } = dto;
 
     // Check if identifier is email or phone
@@ -55,14 +61,25 @@ export class VerificationService {
     const otp = this.generateOtp();
 
     // Store in cache
-    await this.verificationCache.storeOtp(identifier, otp);
+    //await this.verificationCache.storeOtp(identifier, otp);
+
+    const { expiresIn, expiresAt } = await this.verificationCache.storeOtp(
+      identifier,
+      otp,
+    );
 
     // Send OTP via appropriate channel
     if (isEmail) {
-      return await this.emailProvider.sendOtp(identifier, otp);
+      await this.emailProvider.sendOtp(identifier, otp);
     } else {
-      return await this.smsProvider.sendOtp(identifier, otp);
+      await this.smsProvider.sendOtp(identifier, otp);
     }
+
+    return {
+      success: true,
+      expiresIn,
+      expiresAt,
+    };
   }
 
   // 2. Update your verification.service.ts
