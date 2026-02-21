@@ -123,22 +123,24 @@ model OAuthProvider {
 }
 
 model BusinessInfo {
-  id            String   @id @default(uuid())
-  businessName  String
-  businessType  String
-  description   String?
-  businessPhone String?
-  businessEmail String
-  address       String
-  city          String
-  state         String
-  bankName      String
-  accountNumber String
-  accountName   String
-  userId        String   @unique
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  businessName       String
+  businessType       String
+  description        String?
+  businessPhone      String?
+  businessEmail      String
+  address            String
+  city               String
+  state              String
+  bankName           String
+  accountNumber      String
+  accountName        String
+  registrationNumber String
+  taxId              String
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 }
 
 model VendorDocument {
