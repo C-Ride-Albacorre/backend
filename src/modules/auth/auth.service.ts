@@ -680,7 +680,7 @@ export class AuthService {
     user: User,
     resetToken: string,
   ): Promise<void> {
-    const resetLink = `${this.frontendUrl}/auth/reset-password?token=${resetToken}`;
+    const resetLink = `${this.frontendUrl}/reset/reset-password?token=${resetToken}`;
     const expiresInHours = this.parseExpiresInToHours(
       this.passwordResetTokenExpiresIn,
     );
