@@ -21,6 +21,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiOkResponse,
   ApiOperation,
   ApiQuery,
   ApiResponse,
@@ -36,8 +37,9 @@ import { ApiResponseDto } from '../../common/dto/api-response.dto';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { UserService } from '../user/user.service';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
+// import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/password.dto';
+// import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 import { ConfigService } from '@nestjs/config';
 import { OAuthProviderType } from '@prisma/client';
@@ -58,6 +60,7 @@ import { UserRole } from '../../shared/enums';
 import { AuthResponse } from './interface/auth-response.interface';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { OAuthUser } from '../../common/decorators/oauth-user.decorator';
+import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -316,17 +319,66 @@ export class AuthController {
     return { message: 'Logged out successfully' };
   }
 
+  // @Post('forgot-password')
+  // @ApiOperation({ summary: 'Request a password reset email' })
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'Password reset email sent if user exists',
+  //   type: ApiResponseDto<AuthResponseDto>,
+  // })
+  // @ApiResponse({
+  //   status: 400,
+  //   description: 'Validation or bad request error',
+  //   type: ApiErrorResponseDto,
+  // })
+  // async forgotPassword(@Body() dto: ForgotPasswordDto) {
+  //   return this.authService.forgotPassword(dto);
+  // }
+
   @Post('forgot-password')
-  @ApiOperation({ summary: 'Request a password reset email' })
-  @ApiResponse({
-    status: 200,
-    description: 'Password reset email sent if user exists',
-    type: ApiResponseDto<AuthResponseDto>,
+  @ApiOperation({
+    summary: 'Request password reset',
+    description:
+      'Sends password reset instructions via email or SMS if the account exists and is eligible.',
   })
-  @ApiResponse({
-    status: 400,
-    description: 'Validation or bad request error',
-    type: ApiErrorResponseDto,
+  @ApiBody({
+    type: ForgotPasswordDto,
+  })
+  @ApiOkResponse({
+    description: 'Password reset flow processed',
+    schema: {
+      oneOf: [
+        {
+          example: {
+            success: true,
+            message:
+              'If an account exists with this email/phone, you will receive reset instructions.',
+          },
+        },
+        {
+          example: {
+            success: true,
+            message: 'Password reset instructions sent successfully.',
+            identifier: 'user@example.com',
+            method: 'email',
+          },
+        },
+        {
+          example: {
+            success: false,
+            message:
+              'Please verify your account first before resetting password.',
+          },
+        },
+        {
+          example: {
+            success: false,
+            message:
+              'Failed to send reset instructions. Please try again later.',
+          },
+        },
+      ],
+    },
   })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
@@ -347,6 +399,42 @@ export class AuthController {
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
   }
+
+  @Post('reset-password/otp')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Reset password using OTP' })
+  @ApiBody({ type: ResetPasswordWithOtpDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Password has been reset successfully',
+    schema: {
+      example: {
+        success: true,
+        message: 'Password has been reset successfully.',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid or expired OTP, or user not found/inactive',
+  })
+  async resetPasswordWithOtp(@Body() dto: ResetPasswordWithOtpDto) {
+    return this.authService.resetPasswordWithOtp({
+      identifier: dto.phoneNumber, // Map to identifier expected by the service
+      otp: dto.otp,
+      newPassword: dto.newPassword,
+    });
+  }
+
+  // @Post('reset-password/otp')
+  // @HttpCode(200)
+  // async resetPasswordWithOtp(@Body() dto: ResetPasswordWithOtpDto) {
+  //   return this.authService.resetPasswordWithOtp(
+  //     dto.phoneNumber,
+  //     dto.otp,
+  //     dto.newPassword,
+  //   );
+  // }
 
   @Get('profile')
   @ApiOperation({ summary: 'Get logged-in user profile' })
