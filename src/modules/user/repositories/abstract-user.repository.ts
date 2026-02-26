@@ -1,7 +1,7 @@
 // src/users/repositories/abstract-user.repository.ts
 
 // import { UserStatus } from "../../../shared/enums";
-import { DocumentStatus, VendorDocument } from '@prisma/client';
+import { DocumentStatus, Prisma, VendorDocument } from '@prisma/client';
 import { BusinessInfo, User } from '../entities/user.entity';
 import { DocumentType } from '../../../shared/enums';
 
@@ -15,6 +15,10 @@ export abstract class AbstractUserRepository {
   ): Promise<User | null>;
   abstract create(userData: Partial<User>): Promise<User>;
   abstract update(id: string, userData: Partial<User>): Promise<User>;
+  abstract updateVendor(
+    id: string,
+    userData: Prisma.UserUpdateInput,
+  ): Promise<User>;
   abstract updateRefreshTokenHash(
     id: string,
     refreshTokenHash: string | null,
@@ -60,6 +64,31 @@ export abstract class AbstractUserRepository {
     description?: string;
     isVerified?: boolean;
   }): Promise<any>;
+
+  /**
+   * Find a single vendor document by vendorId and documentType
+   */
+  abstract findVendorDocument(params: {
+    vendorId: string;
+    documentType: DocumentType;
+  }): Promise<VendorDocument | null>;
+
+  /**
+   * Update an existing vendor document by ID
+   */
+  abstract updateVendorDocument(
+    documentId: string,
+    data: Partial<{
+      documentUrl: string;
+      publicId: string;
+      originalName: string;
+      mimeType: string;
+      size: number;
+      description?: string;
+      isVerified?: boolean;
+      updatedAt?: Date;
+    }>,
+  ): Promise<VendorDocument>;
 
   /**
    * Complete vendor onboarding with business info and documents

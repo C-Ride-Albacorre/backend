@@ -8,11 +8,11 @@ import {
 } from 'class-validator';
 
 export class LoginDto {
-  @ApiProperty({ example: 'samuel@example.com' })
+  @ApiProperty({ example: 'fotay44859@netoiu.com' })
   @IsEmail()
   email: string;
 
-  @ApiProperty({ example: 'StrongPassword123!' })
+  @ApiProperty({ example: 'StrongP@ssw0rd' })
   @IsNotEmpty()
   password: string;
 }

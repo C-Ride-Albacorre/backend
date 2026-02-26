@@ -43,8 +43,15 @@ enum UserStatus {
   READY_FOR_REVIEW
   UNDER_REVIEW
   ACTIVE
+  APPROVED
   SUSPENDED
   REJECTED
+}
+
+enum OnBoardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
 }
 
 enum DocumentType {
@@ -75,6 +82,8 @@ model User {
   phoneVerifiedAt       DateTime?
   onboardingCompletedAt DateTime?
   status                UserStatus       @default(ACTIVE)
+  onboardingStatus      OnBoardingStatus @default(NOT_STARTED)
+  onboardingStep        Int?
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   oauthProviders        OAuthProvider[]
@@ -124,19 +133,19 @@ model OAuthProvider {
 
 model BusinessInfo {
   id                 String   @id @default(uuid())
-  businessName       String
-  businessType       String
+  businessName       String?
+  businessType       String?
   description        String?
   businessPhone      String?
-  businessEmail      String
-  address            String
-  city               String
-  state              String
-  bankName           String
-  accountNumber      String
-  accountName        String
-  registrationNumber String
-  taxId              String
+  businessEmail      String?
+  address            String?
+  city               String?
+  state              String?
+  bankName           String?
+  accountNumber      String?
+  accountName        String?
+  registrationNumber String?
+  taxId              String?
   userId             String   @unique
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt          DateTime @default(now())
