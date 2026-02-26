@@ -81,6 +81,9 @@ async function bootstrap() {
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
+      skipMissingProperties: false,
+      // Important: disable auto-validation for unknown types
+      disableErrorMessages: false,
     }),
   );
 

@@ -10,7 +10,7 @@ import { DocumentType } from '../../../shared/enums';
 export class PrismaUserRepository implements AbstractUserRepository {
   private readonly logger = new Logger(PrismaUserRepository.name);
 
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findById(id: string): Promise<User | null> {
     try {
@@ -102,6 +102,43 @@ export class PrismaUserRepository implements AbstractUserRepository {
       return await this.prisma.user.update({
         where: { id },
         data: userData as Prisma.UserCreateInput,
+        include: {
+          businessInfo: true,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Failed to update user ${id}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  // async update(id: string, userData: Partial<User>): Promise<User> {
+  // async update(id: string, userData: Prisma.UserUpdateInput): Promise<User> {
+  //   try {
+  //     return await this.prisma.user.update({
+  //       where: { id },
+  //       data: userData as Prisma.UserUpdateInput,
+  //       include: {
+  //         businessInfo: true,
+  //       },
+  //     });
+  //   } catch (error) {
+  //     this.logger.error(`Failed to update user ${id}: ${error.message}`);
+  //     throw error;
+  //   }
+  // }
+
+  async updateVendor(
+    id: string,
+    userData: Prisma.UserUpdateInput,
+  ): Promise<User> {
+    try {
+      return await this.prisma.user.update({
+        where: { id },
+        data: userData,
+        include: {
+          businessInfo: true,
+        },
       });
     } catch (error) {
       this.logger.error(`Failed to update user ${id}: ${error.message}`);
@@ -161,6 +198,60 @@ export class PrismaUserRepository implements AbstractUserRepository {
       return createdDocuments;
     } catch (error) {
       this.logger.error(`Failed to create vendor documents: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Update an existing vendor document by its ID
+   */
+  async updateVendorDocument(
+    documentId: string,
+    data: Partial<{
+      documentUrl: string;
+      publicId: string;
+      originalName: string;
+      mimeType: string;
+      size: number;
+      description?: string;
+      isVerified?: boolean;
+      updatedAt?: Date;
+    }>,
+  ): Promise<VendorDocument> {
+    try {
+      return await this.prisma.vendorDocument.update({
+        where: { id: documentId },
+        data: {
+          ...data,
+          updatedAt: data.updatedAt || new Date(),
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to update vendor document ${documentId}: ${error.message}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Find a single vendor document by vendorId + documentType
+   */
+  async findVendorDocument(params: {
+    vendorId: string;
+    documentType: DocumentType;
+  }): Promise<VendorDocument | null> {
+    try {
+      return await this.prisma.vendorDocument.findFirst({
+        where: {
+          userId: params.vendorId,
+          documentType: params.documentType,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to find vendor document for ${params.vendorId} (${params.documentType}): ${error.message}`,
+      );
       throw error;
     }
   }
@@ -242,7 +333,6 @@ export class PrismaUserRepository implements AbstractUserRepository {
               }),
             ),
           );
-
         }
 
         // Return updated user with all relations

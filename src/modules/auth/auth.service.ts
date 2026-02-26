@@ -22,7 +22,13 @@ import {
 } from './dto/password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { OAuthProviderType, UserStatus } from '@prisma/client';
+import {
+  OAuthProviderType,
+  OnBoardingStatus,
+  Prisma,
+  UserStatus,
+  VendorDocument,
+} from '@prisma/client';
 import Helper from '../../shared/utils/helpers';
 import {
   AuthResponse,
@@ -1230,11 +1236,11 @@ export class AuthService {
   /**
    * Verify Vendor Email - Step 2
    */
-  // 3. Update your vendor-auth.service.ts
   async verifyVendorEmail(dto: VerifyEmailDto): Promise<{
     success: boolean;
     message: string;
     nextAction: string;
+    accessToken?: string;
     vendor: Partial<User>;
   }> {
     this.logger.log(`Verifying email for: ${dto.email}`);
@@ -1243,41 +1249,118 @@ export class AuthService {
       identifier: dto.email,
       otp: dto.otp,
       purpose: VerificationPurpose.VENDOR_EMAIL_VERIFICATION,
-      // metadata: {
-      //   vendorId: dto.vendorId, // If you have it
-      //   verificationType: 'email',
-      // },
     });
 
     if (!isValid) {
       throw new UnauthorizedException('Invalid or expired verification code');
     }
 
-    // Get vendor by email
     const vendor = await this.userRepository.findByEmail(dto.email);
     if (!vendor) {
       throw new NotFoundException('Vendor not found');
     }
 
-    // Update email verification status
+    if (!vendor.isPhoneVerified) {
+      throw new BadRequestException('Please verify your phone number first');
+    }
+
+    if (vendor.isEmailVerified) {
+      throw new ConflictException('Email already verified');
+    }
+
     vendor.isEmailVerified = true;
     vendor.emailVerifiedAt = new Date();
 
-    // Update overall status
-    if (!vendor.isPhoneVerified) {
-      vendor.status = UserStatus.PENDING_PHONE_VERIFICATION;
-    } else {
-      vendor.status = UserStatus.PENDING_ONBOARDING;
+    vendor.status = UserStatus.PENDING_ONBOARDING;
+
+    // Initialize onboarding
+    if (!vendor.onboardingStatus) {
+      vendor.onboardingStatus = 'NOT_STARTED';
+      vendor.onboardingStep = 0;
     }
 
     const updatedVendor = await this.userRepository.update(vendor.id, vendor);
 
+    // Now fully verified → issue JWT
+    const auth = await this.generateAuthResponse(updatedVendor);
+
     return {
       success: true,
       message: 'Email verified successfully',
-      nextAction: vendor.isPhoneVerified
+      nextAction: 'Complete business onboarding',
+      accessToken: auth.accessToken,
+      vendor: {
+        id: updatedVendor.id,
+        email: updatedVendor.email,
+        phoneNumber: updatedVendor.phoneNumber,
+        status: updatedVendor.status,
+        onboardingStatus: updatedVendor.onboardingStatus,
+        onboardingStep: updatedVendor.onboardingStep,
+      },
+    };
+  }
+  async verifyVendorEmail2(dto: VerifyEmailDto): Promise<{
+    success: boolean;
+    message: string;
+    nextAction: string;
+    accessToken?: string;
+    vendor: Partial<User>;
+  }> {
+    this.logger.log(`Verifying email for: ${dto.email}`);
+
+    const isValid = await this.verificationService.verifyOtp({
+      identifier: dto.email,
+      otp: dto.otp,
+      purpose: VerificationPurpose.VENDOR_EMAIL_VERIFICATION,
+    });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    const vendor = await this.userRepository.findByEmail(dto.email);
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    if (vendor.isEmailVerified) {
+      throw new ConflictException('Email already verified');
+    }
+
+    vendor.isEmailVerified = true;
+    vendor.emailVerifiedAt = new Date();
+
+    // If phone not verified yet
+    if (!vendor.isPhoneVerified) {
+      vendor.status = UserStatus.PENDING_PHONE_VERIFICATION;
+    } else {
+      // Fully verified → ready for onboarding
+      vendor.status = UserStatus.PENDING_ONBOARDING;
+
+      // Initialize onboarding if not already started
+      if (!vendor.onboardingStatus) {
+        vendor.onboardingStatus = 'NOT_STARTED';
+        vendor.onboardingStep = 0;
+      }
+    }
+
+    const updatedVendor = await this.userRepository.update(vendor.id, vendor);
+
+    // If both verified → issue JWT immediately
+    let accessToken: string | undefined;
+
+    if (updatedVendor.isEmailVerified && updatedVendor.isPhoneVerified) {
+      const auth = await this.generateAuthResponse(updatedVendor);
+      accessToken = auth.accessToken;
+    }
+
+    return {
+      success: true,
+      message: 'Email verified successfully',
+      nextAction: updatedVendor.isPhoneVerified
         ? 'Complete business onboarding'
         : 'Verify your phone number',
+      accessToken,
       vendor: {
         id: updatedVendor.id,
         email: updatedVendor.email,
@@ -1285,6 +1368,8 @@ export class AuthService {
         isEmailVerified: updatedVendor.isEmailVerified,
         isPhoneVerified: updatedVendor.isPhoneVerified,
         status: updatedVendor.status,
+        onboardingStatus: updatedVendor.onboardingStatus,
+        onboardingStep: updatedVendor.onboardingStep,
       },
     };
   }
@@ -1292,6 +1377,7 @@ export class AuthService {
   /**
    * Verify Vendor Phone - Step 3
    */
+
   async verifyVendorPhone(dto: VerifyPhoneDto): Promise<{
     success: boolean;
     message: string;
@@ -1300,7 +1386,6 @@ export class AuthService {
   }> {
     this.logger.log(`Verifying phone for: ${dto.phoneNumber}`);
 
-    // Verify OTP
     const isValid = await this.verificationService.verifyOtp({
       identifier: dto.phoneNumber,
       otp: dto.otp,
@@ -1311,28 +1396,103 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired verification code');
     }
 
-    // Get vendor by phone
     const vendor = await this.userRepository.findByPhone(dto.phoneNumber);
     if (!vendor) {
       throw new NotFoundException('Vendor not found');
     }
 
-    // Check if email is already verified
-    if (!vendor.isEmailVerified) {
-      throw new BadRequestException('Please verify your email first');
+    if (vendor.isPhoneVerified) {
+      throw new ConflictException('Phone already verified');
     }
 
-    // Update phone verification status
     vendor.isPhoneVerified = true;
     vendor.phoneVerifiedAt = new Date();
-    vendor.status = UserStatus.PENDING_ONBOARDING;
+
+    // If email not verified yet → next step is email
+    if (!vendor.isEmailVerified) {
+      vendor.status = UserStatus.PENDING_EMAIL_VERIFICATION;
+    } else {
+      vendor.status = UserStatus.PENDING_ONBOARDING;
+
+      if (!vendor.onboardingStatus) {
+        vendor.onboardingStatus = 'NOT_STARTED';
+        vendor.onboardingStep = 0;
+      }
+    }
 
     const updatedVendor = await this.userRepository.update(vendor.id, vendor);
 
     return {
       success: true,
       message: 'Phone verified successfully',
+      nextAction: updatedVendor.isEmailVerified
+        ? 'Complete business onboarding'
+        : 'Verify your email address',
+      vendor: {
+        id: updatedVendor.id,
+        email: updatedVendor.email,
+        phoneNumber: updatedVendor.phoneNumber,
+        status: updatedVendor.status,
+        isPhoneVerified: updatedVendor.isPhoneVerified,
+        isEmailVerified: updatedVendor.isEmailVerified,
+      },
+    };
+  }
+
+  async verifyVendorPhone2(dto: VerifyPhoneDto): Promise<{
+    success: boolean;
+    message: string;
+    nextAction: string;
+    accessToken: string;
+    vendor: Partial<User>;
+  }> {
+    this.logger.log(`Verifying phone for: ${dto.phoneNumber}`);
+
+    const isValid = await this.verificationService.verifyOtp({
+      identifier: dto.phoneNumber,
+      otp: dto.otp,
+      purpose: VerificationPurpose.VENDOR_PHONE_VERIFICATION,
+    });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    const vendor = await this.userRepository.findByPhone(dto.phoneNumber);
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    if (!vendor.isEmailVerified) {
+      throw new BadRequestException('Please verify your email first');
+    }
+
+    if (vendor.isPhoneVerified) {
+      throw new ConflictException('Phone already verified');
+    }
+
+    vendor.isPhoneVerified = true;
+    vendor.phoneVerifiedAt = new Date();
+
+    // Now fully verified → move to onboarding stage
+    vendor.status = UserStatus.PENDING_ONBOARDING;
+
+    // Initialize onboarding only if not already started
+    if (!vendor.onboardingStatus) {
+      vendor.onboardingStatus = 'NOT_STARTED';
+      vendor.onboardingStep = 0;
+    }
+
+    const updatedVendor = await this.userRepository.update(vendor.id, vendor);
+
+    // Issue JWT immediately
+    const auth = await this.generateAuthResponse(updatedVendor);
+
+    return {
+      success: true,
+      message: 'Phone verified successfully',
       nextAction: 'Complete business onboarding',
+      accessToken: auth.accessToken,
       vendor: {
         id: updatedVendor.id,
         email: updatedVendor.email,
@@ -1340,14 +1500,194 @@ export class AuthService {
         isEmailVerified: updatedVendor.isEmailVerified,
         isPhoneVerified: updatedVendor.isPhoneVerified,
         status: updatedVendor.status,
+        onboardingStatus: updatedVendor.onboardingStatus,
+        onboardingStep: updatedVendor.onboardingStep,
       },
     };
   }
 
+  // /**
+  //  * Verify Vendor Email - Step 2
+  //  */
+  // // 3. Update your vendor-auth.service.ts
+  // async verifyVendorEmail(dto: VerifyEmailDto): Promise<{
+  //   success: boolean;
+  //   message: string;
+  //   nextAction: string;
+  //   vendor: Partial<User>;
+  // }> {
+  //   this.logger.log(`Verifying email for: ${dto.email}`);
+
+  //   const isValid = await this.verificationService.verifyOtp({
+  //     identifier: dto.email,
+  //     otp: dto.otp,
+  //     purpose: VerificationPurpose.VENDOR_EMAIL_VERIFICATION,
+  //     // metadata: {
+  //     //   vendorId: dto.vendorId, // If you have it
+  //     //   verificationType: 'email',
+  //     // },
+  //   });
+
+  //   if (!isValid) {
+  //     throw new UnauthorizedException('Invalid or expired verification code');
+  //   }
+
+  //   // Get vendor by email
+  //   const vendor = await this.userRepository.findByEmail(dto.email);
+  //   if (!vendor) {
+  //     throw new NotFoundException('Vendor not found');
+  //   }
+
+  //   // Update email verification status
+  //   vendor.isEmailVerified = true;
+  //   vendor.emailVerifiedAt = new Date();
+
+  //   // Update overall status
+  //   if (!vendor.isPhoneVerified) {
+  //     vendor.status = UserStatus.PENDING_PHONE_VERIFICATION;
+  //   } else {
+  //     vendor.status = UserStatus.PENDING_ONBOARDING;
+  //   }
+
+  //   const updatedVendor = await this.userRepository.update(vendor.id, vendor);
+
+  //   return {
+  //     success: true,
+  //     message: 'Email verified successfully',
+  //     nextAction: vendor.isPhoneVerified
+  //       ? 'Complete business onboarding'
+  //       : 'Verify your phone number',
+  //     vendor: {
+  //       id: updatedVendor.id,
+  //       email: updatedVendor.email,
+  //       phoneNumber: updatedVendor.phoneNumber,
+  //       isEmailVerified: updatedVendor.isEmailVerified,
+  //       isPhoneVerified: updatedVendor.isPhoneVerified,
+  //       status: updatedVendor.status,
+  //     },
+  //   };
+  // }
+
+  // /**
+  //  * Verify Vendor Phone - Step 3
+  //  */
+  // async verifyVendorPhone(dto: VerifyPhoneDto): Promise<{
+  //   success: boolean;
+  //   message: string;
+  //   nextAction: string;
+  //   vendor: Partial<User>;
+  // }> {
+  //   this.logger.log(`Verifying phone for: ${dto.phoneNumber}`);
+
+  //   // Verify OTP
+  //   const isValid = await this.verificationService.verifyOtp({
+  //     identifier: dto.phoneNumber,
+  //     otp: dto.otp,
+  //     purpose: VerificationPurpose.VENDOR_PHONE_VERIFICATION,
+  //   });
+
+  //   if (!isValid) {
+  //     throw new UnauthorizedException('Invalid or expired verification code');
+  //   }
+
+  //   // Get vendor by phone
+  //   const vendor = await this.userRepository.findByPhone(dto.phoneNumber);
+  //   if (!vendor) {
+  //     throw new NotFoundException('Vendor not found');
+  //   }
+
+  //   // Check if email is already verified
+  //   if (!vendor.isEmailVerified) {
+  //     throw new BadRequestException('Please verify your email first');
+  //   }
+
+  //   // Update phone verification status
+  //   vendor.isPhoneVerified = true;
+  //   vendor.phoneVerifiedAt = new Date();
+  //   vendor.status = UserStatus.PENDING_ONBOARDING;
+
+  //   const updatedVendor = await this.userRepository.update(vendor.id, vendor);
+
+  //   return {
+  //     success: true,
+  //     message: 'Phone verified successfully',
+  //     nextAction: 'Complete business onboarding',
+  //     vendor: {
+  //       id: updatedVendor.id,
+  //       email: updatedVendor.email,
+  //       phoneNumber: updatedVendor.phoneNumber,
+  //       isEmailVerified: updatedVendor.isEmailVerified,
+  //       isPhoneVerified: updatedVendor.isPhoneVerified,
+  //       status: updatedVendor.status,
+  //     },
+  //   };
+  // }
+
   /**
    * Vendor Login
    */
-  async loginVendor(loginDto: LoginDto): Promise<AuthResponse> {
+  async loginVendor(loginDto: LoginDto) {
+    const { email, password } = loginDto;
+    this.logger.log(`Vendor login attempt: ${email}`);
+
+    const vendor = await this.userRepository.findByEmail(email);
+
+    if (!vendor) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, vendor.password);
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    /**
+     * Enforce verification order
+     * Phone → Email → Onboarding
+     */
+
+    if (!vendor.isPhoneVerified) {
+      throw new UnauthorizedException(
+        'Please verify your phone number before logging in',
+      );
+    }
+
+    if (!vendor.isEmailVerified) {
+      throw new UnauthorizedException(
+        'Please verify your email address before logging in',
+      );
+    }
+
+    // ✅ DO NOT block login for:
+    // - PENDING_ONBOARDING
+    // - IN_PROGRESS
+    // - COMPLETED
+    // - PENDING (admin review)
+    // - REJECTED
+    // - APPROVED
+
+    // Update last login
+    const lastLoginAt = new Date();
+
+    await this.userRepository.update(vendor.id, {
+      lastLoginAt,
+    });
+
+    // Generate auth tokens
+    const auth = await this.generateAuthResponse(vendor);
+
+    return {
+      ...auth,
+      // Return onboarding + account state
+      onboardingStatus: vendor.onboardingStatus,
+      onboardingStep: vendor.onboardingStep,
+      status: vendor.status,
+    };
+  }
+
+  async loginVendor2(loginDto: LoginDto): Promise<AuthResponse> {
     const { email, password } = loginDto;
     this.logger.log(`Vendor login attempt: ${email}`);
 
@@ -1370,18 +1710,18 @@ export class AuthService {
     }
 
     // Check if onboarding is completed
-    if (!vendor.onboardingCompletedAt) {
-      throw new UnauthorizedException(
-        'Please complete business onboarding before logging in',
-      );
-    }
+    // if (!vendor.onboardingCompletedAt) {
+    //   throw new UnauthorizedException(
+    //     'Please complete business onboarding before logging in',
+    //   );
+    // }
 
     // Check account status
-    if (vendor.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException(
-        `Account is ${vendor.status.toLowerCase()}. Please contact support.`,
-      );
-    }
+    // if (vendor.status !== UserStatus.APPROVED) {
+    //   throw new UnauthorizedException(
+    //     `Account is ${vendor.status.toLowerCase()}. Please contact support.`,
+    //   );
+    // }
 
     // Update last login
     vendor.lastLoginAt = new Date();
@@ -1457,6 +1797,363 @@ export class AuthService {
       this.logger.error(`Failed to send verification OTPs: ${error.message}`);
       // Don't fail registration, vendor can request resend later
     }
+  }
+
+  async saveVendorOnboardingStep(
+    vendorId: string,
+    step: number,
+    dto: Partial<CompleteOnboardingDto>,
+  ) {
+    const vendor = await this.validateVendorForOnboarding(vendorId);
+
+    if (step > (vendor.onboardingStep ?? 0) + 1) {
+      throw new ConflictException(
+        `Complete step ${(vendor.onboardingStep ?? 0) + 1} first`,
+      );
+    }
+
+    // const businessData: Prisma.BusinessInfoUpdateInput = {};
+
+    // switch (step) {
+    //   case 1:
+    //     Object.assign(businessData, {
+    //       businessName: dto.businessName,
+    //       businessType: dto.businessType,
+    //       registrationNumber: dto.registrationNumber,
+    //       taxId: dto.taxId,
+    //       description: dto.description,
+    //     });
+    //     break;
+
+    //   case 2:
+    //     Object.assign(businessData, {
+    //       businessPhone: dto.businessPhone,
+    //       businessEmail: dto.businessEmail,
+    //     });
+    //     break;
+
+    //   case 3:
+    //     Object.assign(businessData, {
+    //       address: dto.address,
+    //       city: dto.city,
+    //       state: dto.state,
+    //     });
+    //     break;
+
+    //   case 4:
+    //     Object.assign(businessData, {
+    //       bankName: dto.bankName,
+    //       accountName: dto.accountName,
+    //       accountNumber: dto.accountNumber,
+    //     });
+    //     break;
+    // }
+
+    const businessCreateData: Prisma.BusinessInfoCreateWithoutUserInput = {};
+    const businessUpdateData: Prisma.BusinessInfoUpdateWithoutUserInput = {};
+
+    switch (step) {
+      case 1:
+        Object.assign(businessCreateData, {
+          businessName: dto.businessName,
+          businessType: dto.businessType,
+          registrationNumber: dto.registrationNumber,
+          taxId: dto.taxId,
+          description: dto.description,
+        });
+
+        Object.assign(businessUpdateData, {
+          businessName: dto.businessName,
+          businessType: dto.businessType,
+          registrationNumber: dto.registrationNumber,
+          taxId: dto.taxId,
+          description: dto.description,
+        });
+        break;
+
+      case 2:
+        Object.assign(businessCreateData, {
+          businessPhone: dto.businessPhone,
+          businessEmail: dto.businessEmail,
+        });
+
+        Object.assign(businessUpdateData, {
+          businessPhone: dto.businessPhone,
+          businessEmail: dto.businessEmail,
+        });
+        break;
+
+      case 3:
+        Object.assign(businessCreateData, {
+          address: dto.address,
+          city: dto.city,
+          state: dto.state,
+        });
+
+        Object.assign(businessUpdateData, {
+          address: dto.address,
+          city: dto.city,
+          state: dto.state,
+        });
+        break;
+
+      case 4:
+        Object.assign(businessCreateData, {
+          bankName: dto.bankName,
+          accountName: dto.accountName,
+          accountNumber: dto.accountNumber,
+        });
+
+        Object.assign(businessUpdateData, {
+          bankName: dto.bankName,
+          accountName: dto.accountName,
+          accountNumber: dto.accountNumber,
+        });
+        break;
+    }
+
+    await this.userRepository.updateVendor(vendorId, {
+      onboardingStatus: OnBoardingStatus.IN_PROGRESS,
+      status: UserStatus.PENDING_DOCUMENTS,
+      onboardingStep: step,
+      businessInfo: {
+        upsert: {
+          create: businessCreateData,
+          update: businessUpdateData,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: `Step ${step} saved successfully`,
+      onboardingStep: step,
+      onboardingStatus: OnBoardingStatus.IN_PROGRESS,
+      status: UserStatus.PENDING_DOCUMENTS,
+    };
+  }
+
+  async saveVendorOnboardingStepwk(
+    vendorId: string,
+    step: number,
+    dto: Partial<CompleteOnboardingDto>,
+  ) {
+    const vendor = await this.validateVendorForOnboarding(vendorId);
+
+    if (step > (vendor.onboardingStep ?? 0) + 1) {
+      throw new ConflictException(
+        `Complete step ${(vendor.onboardingStep ?? 0) + 1} first`,
+      );
+    }
+
+    const userData: any = {
+      onboardingStatus: OnBoardingStatus.IN_PROGRESS,
+      onboardingStep: step,
+    };
+
+    const businessData: any = {};
+
+    switch (step) {
+      case 1:
+        Object.assign(businessData, {
+          businessName: dto.businessName,
+          businessType: dto.businessType,
+          registrationNumber: dto.registrationNumber,
+          taxId: dto.taxId,
+          description: dto.description,
+        });
+        break;
+
+      case 2:
+        Object.assign(businessData, {
+          businessPhone: dto.businessPhone,
+          businessEmail: dto.businessEmail,
+        });
+        break;
+
+      case 3:
+        Object.assign(businessData, {
+          address: dto.address,
+          city: dto.city,
+          state: dto.state,
+        });
+        break;
+
+      case 4:
+        Object.assign(businessData, {
+          bankName: dto.bankName,
+          accountName: dto.accountName,
+          accountNumber: dto.accountNumber,
+        });
+        break;
+    }
+
+    return this.prisma.user.update({
+      where: { id: vendorId },
+      data: {
+        ...userData,
+        businessInfo: {
+          upsert: {
+            create: {
+              ...businessData,
+            },
+            update: {
+              ...businessData,
+            },
+          },
+        },
+      },
+      include: {
+        businessInfo: true,
+      },
+    });
+  }
+
+  async saveVendorOnboardingStepbk(
+    vendorId: string,
+    step: number,
+    dto: Partial<CompleteOnboardingDto>,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    onboardingStep: number;
+    onboardingStatus: string;
+  }> {
+    this.logger.log(`Saving onboarding step ${step} for vendor ${vendorId}`);
+
+    const vendor = await this.validateVendorForOnboarding(vendorId);
+
+    if (step < 1 || step > 4) {
+      throw new BadRequestException('Invalid onboarding step');
+    }
+
+    // Prevent skipping steps
+    if (step > vendor.onboardingStep + 1) {
+      throw new ConflictException(
+        `Complete step ${vendor.onboardingStep + 1} first`,
+      );
+    }
+
+    const updatePayload: any = {
+      onboardingStatus: OnBoardingStatus.IN_PROGRESS, //'IN_PROGRESS',
+      onboardingStep: step,
+    };
+
+    switch (step) {
+      case 1:
+        Object.assign(updatePayload, {
+          businessName: dto.businessName,
+          businessType: dto.businessType,
+          registrationNumber: dto.registrationNumber,
+          taxId: dto.taxId,
+          description: dto.description,
+        });
+        break;
+
+      case 2:
+        Object.assign(updatePayload, {
+          businessPhone: dto.businessPhone,
+          businessEmail: dto.businessEmail,
+        });
+        break;
+
+      case 3:
+        Object.assign(updatePayload, {
+          address: dto.address,
+          city: dto.city,
+          state: dto.state,
+        });
+        break;
+
+      case 4:
+        Object.assign(updatePayload, {
+          bankName: dto.bankName,
+          accountName: dto.accountName,
+          accountNumber: dto.accountNumber,
+        });
+        break;
+    }
+
+    await this.userRepository.update(vendorId, updatePayload);
+
+    return {
+      success: true,
+      message: `Step ${step} saved successfully`,
+      onboardingStep: step,
+      onboardingStatus: OnBoardingStatus.IN_PROGRESS,
+    };
+  }
+
+  async submitVendorOnboarding(
+    vendorId: string,
+    files: Express.Multer.File[],
+    documentsMetadata: VendorDocumentMetadataDto[],
+  ): Promise<{
+    success: boolean;
+    message: string;
+    vendor: Partial<User>;
+    uploadedDocuments: any[];
+  }> {
+    this.logger.log(`Submitting final onboarding for vendor ${vendorId}`);
+
+    const vendor = await this.validateVendorForOnboarding(vendorId);
+
+    if (vendor.onboardingStep < 4) {
+      throw new ConflictException(
+        'Complete all previous steps before submitting documents',
+      );
+    }
+
+    if (!files || files.length === 0) {
+      throw new BadRequestException(
+        'At least one document file must be uploaded',
+      );
+    }
+
+    const uploadedDocuments = await this.uploadVendorDocuments(
+      vendorId,
+      files,
+      documentsMetadata,
+    );
+
+    const updatedVendor = await this.userRepository.update(vendorId, {
+      onboardingStatus: OnBoardingStatus.COMPLETED,
+      onboardingStep: 5,
+      onboardingCompletedAt: new Date(),
+      status: UserStatus.UNDER_REVIEW, // Now under admin review
+    });
+
+    return {
+      success: true,
+      message:
+        'Onboarding submitted successfully. Your account is under review.',
+      vendor: {
+        id: updatedVendor.id,
+        email: updatedVendor.email,
+        status: updatedVendor.status,
+        onboardingStatus: updatedVendor.onboardingStatus,
+        onboardingStep: updatedVendor.onboardingStep,
+      },
+      uploadedDocuments: uploadedDocuments.map((doc) => ({
+        documentType: doc.documentType,
+        documentUrl: doc.documentUrl,
+        publicId: doc.publicId,
+      })),
+    };
+  }
+
+  async getVendorOnboardingState(vendorId: string) {
+    const vendor = await this.userRepository.findById(vendorId);
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    return {
+      onboardingStatus: vendor.onboardingStatus,
+      onboardingStep: vendor.onboardingStep,
+      status: vendor.status,
+    };
   }
 
   /**
@@ -1590,6 +2287,81 @@ export class AuthService {
     documentsMetadata: VendorDocumentMetadataDto[],
   ): Promise<any[]> {
     this.logger.log(`Preparing to upload vendor ${vendorId} documents`);
+    const uploadedDocuments: any[] = [];
+    const uploadPromises: Promise<any>[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const metadata = documentsMetadata[i];
+
+      const uploadPromise = this.cloudinary
+        .uploadDocument(file, {
+          folder: `vendors/${vendorId}/documents`,
+          resource_type: 'auto',
+          tags: [metadata.documentType, vendorId, file.originalname],
+        })
+        .then(async (uploadResult) => {
+          // Check if document of this type already exists
+          const existingDocument = await this.userRepository.findVendorDocument(
+            {
+              vendorId,
+              documentType: metadata.documentType,
+            },
+          );
+
+          if (existingDocument) {
+            this.logger.log(
+              `Skipping upload: ${metadata.documentType} already exists for vendor ${vendorId}`,
+            );
+            return existingDocument; // Return the existing document
+          }
+
+          // Create new document
+          const document = await this.userRepository.createVendorDocument({
+            vendorId,
+            documentType: metadata.documentType,
+            documentUrl: uploadResult.secure_url,
+            publicId: uploadResult.public_id,
+            originalName: file.originalname,
+            mimeType: file.mimetype,
+            size: file.size,
+            description: metadata.description,
+            isVerified: false,
+          });
+
+          this.logger.log(
+            `Uploaded ${metadata.documentType} for vendor ${vendorId}: ${uploadResult.secure_url}`,
+          );
+          return document;
+        })
+        .catch((error) => {
+          this.logger.error(
+            `Failed to upload document ${file.originalname}: ${error.message}`,
+          );
+          throw new InternalServerErrorException(
+            `Failed to upload ${metadata.documentType}: ${error.message}`,
+          );
+        });
+
+      uploadPromises.push(uploadPromise);
+    }
+
+    const results = await Promise.all(uploadPromises);
+    uploadedDocuments.push(...results);
+
+    this.logger.log(
+      `Successfully processed ${uploadedDocuments.length} documents for vendor ${vendorId}`,
+    );
+
+    return uploadedDocuments;
+  }
+
+  private async uploadVendorDocumentsWithoutDuplicates(
+    vendorId: string,
+    files: Express.Multer.File[],
+    documentsMetadata: VendorDocumentMetadataDto[],
+  ): Promise<any[]> {
+    this.logger.log(`Preparing to upload vendor ${vendorId} documents`);
     const uploadedDocuments = [];
     const uploadPromises = [];
 
@@ -1649,6 +2421,40 @@ export class AuthService {
    * Validate vendor is eligible for onboarding
    */
   private async validateVendorForOnboarding(vendorId: string): Promise<User> {
+    this.logger.log(`Validating vendor ${vendorId} before onboarding`);
+
+    const vendor = await this.userRepository.findById(vendorId);
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    // Allow document upload if status is PENDING_ONBOARDING
+    // OR if status is PENDING_DOCUMENTS and onboardingStatus is IN_PROGRESS
+    const canProceed =
+      vendor.status === UserStatus.PENDING_ONBOARDING ||
+      (vendor.status === UserStatus.PENDING_DOCUMENTS &&
+        vendor.onboardingStatus === OnBoardingStatus.IN_PROGRESS);
+
+    if (!canProceed) {
+      throw new ConflictException(
+        `Vendor is not ready for onboarding. Current status: ${vendor.status}, onboardingStatus: ${vendor.onboardingStatus}`,
+      );
+    }
+
+    // Ensure email and phone are verified
+    if (!vendor.isEmailVerified || !vendor.isPhoneVerified) {
+      throw new ConflictException(
+        'Both email and phone must be verified before onboarding',
+      );
+    }
+
+    return vendor;
+  }
+
+  private async validateVendorForOnboardingold(
+    vendorId: string,
+  ): Promise<User> {
     this.logger.log(`Validating vendor ${vendorId} before onboarding `);
 
     const vendor = await this.userRepository.findById(vendorId);
@@ -1760,7 +2566,7 @@ export class AuthService {
   /**
    * Upload multiple documents at once
    */
-  private async uploadVendorDocumentsbk(
+  private async uploadVendorDocumentsbk1(
     vendorId: string,
     files: Express.Multer.File[],
     documentMetadata: VendorDocumentDto[],

@@ -1,4 +1,9 @@
-import { Role, UserStatus, VendorDocument } from '@prisma/client';
+import {
+  Role,
+  UserStatus,
+  OnBoardingStatus,
+  VendorDocument,
+} from '@prisma/client';
 
 export class User {
   id: string;
@@ -18,6 +23,8 @@ export class User {
   isEmailVerified?: boolean;
   isPhoneVerified?: boolean;
   onboardingCompletedAt?: Date;
+  onboardingStatus: OnBoardingStatus;
+  onboardingStep: number; // 0 - 5
   verifiedAt?: Date;
   emailVerifiedAt?: Date;
   phoneVerifiedAt?: Date;

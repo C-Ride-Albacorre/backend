@@ -15,6 +15,7 @@ import {
   Param,
   Logger,
   Query,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import {
@@ -23,6 +24,7 @@ import {
   ApiConsumes,
   ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiQuery,
   ApiResponse,
   ApiTags,
@@ -61,6 +63,7 @@ import { AuthResponse } from './interface/auth-response.interface';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { OAuthUser } from '../../common/decorators/oauth-user.decorator';
 import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
+import { Transform } from 'class-transformer';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -127,8 +130,10 @@ export class AuthController {
     return this.authService.loginCustomer(dto);
   }
 
-  @Post('/customer/resend-otp')
-  @ApiOperation({ summary: 'Resend verification OTP' })
+  @Post('/resend-otp')
+  @ApiOperation({
+    summary: 'Resend verification OTP  email | phone number',
+  })
   @ApiResponse({ status: 200, description: 'OTP sent successfully' })
   @ApiResponse({ status: 400, description: 'Invalid request' })
   async resendCustomerOtp(@Body() body: ResendOtpDto) {
@@ -153,7 +158,7 @@ export class AuthController {
     return this.authService.verifyVendorEmail(dto);
   }
 
-  @Post('verify/phone')
+  @Post('/vendor/verify/phone')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify vendor phone' })
   @ApiResponse({ status: 200, description: 'Phone verified successfully' })
@@ -169,6 +174,257 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async loginVendor(@Body() loginDto: LoginDto) {
     return this.authService.loginVendor(loginDto);
+  }
+
+  // @ApiTags('Vendor Onboarding')
+  // @ApiBearerAuth()
+  // @Controller('vendor/onboarding')
+  // @UseGuards(JwtAuthGuard, RolesGuard)
+  // @Roles(UserRole.VENDOR)
+  // export class VendorOnboardingController {
+  //   constructor(
+  //     private readonly onboardingService: VendorOnboardingService,
+  //   ) {}
+
+  @Post('/vendor/onboarding/submit')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.VENDOR)
+  @ApiOperation({
+    summary: 'Submit final onboarding (Step 5 - Upload Documents)',
+    description:
+      'Uploads required business documents and submits onboarding for admin review.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FilesInterceptor('documents', 10))
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        documentsMetadata: {
+          type: 'string',
+          description:
+            'JSON string array describing each uploaded document. Example: [{"documentType":"CAC","description":"CAC certificate"}]',
+          example:
+            '[{"documentType":"CAC","description":"CAC certificate"},{"documentType":"ID_PROOF","description":"Passport"}]',
+        },
+        documents: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+          description: 'Business document files',
+        },
+      },
+      required: ['documentsMetadata', 'documents'],
+    },
+  })
+  async submitVendorOnboarding(
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body('documentsMetadata') documentsMetadataRaw: string, // raw JSON string
+    @Req() req: Request,
+  ) {
+    const vendorId = (req.user as any).id;
+
+    let documentsMetadata: VendorDocumentMetadataDto[];
+
+    try {
+      documentsMetadata = JSON.parse(documentsMetadataRaw);
+    } catch (error) {
+      throw new BadRequestException('Invalid documentsMetadata JSON format');
+    }
+
+    if (!files || files.length === 0) {
+      throw new BadRequestException('At least one document must be uploaded');
+    }
+
+    return this.authService.submitVendorOnboarding(
+      vendorId,
+      files,
+      documentsMetadata,
+    );
+  }
+
+  /**
+   * ================================
+   * SAVE STEP (1–4)
+   * ================================
+   */
+
+  @Post('/vendor/onboarding/:step')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.VENDOR)
+  @ApiOperation({
+    summary: 'Save vendor onboarding step (1–4)',
+    description:
+      'Saves onboarding progress for the specified step. Steps must be completed sequentially.',
+  })
+  @ApiParam({
+    name: 'step',
+    type: Number,
+    example: 1,
+    description: 'Onboarding step number (1–4)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Step saved successfully',
+  })
+  @ApiBody({
+    description: `
+STEP 1 – Business Information
+--------------------------------
+{
+  "businessName": "Acme Inc.",
+  "businessType": "Restaurant",
+  "registrationNumber": "RC1234567",
+  "taxId": "12345678-0001",
+  "description": "Best restaurant in town"
+}
+
+STEP 2 – Contact Details
+--------------------------------
+{
+  "businessPhone": "+1234567890",
+  "businessEmail": "business@acme.com"
+}
+
+STEP 3 – Business Address
+--------------------------------
+{
+  "address": "123 Main St",
+  "city": "Lagos",
+  "state": "Lagos"
+}
+
+STEP 4 – Bank Details
+--------------------------------
+{
+  "bankName": "First Bank",
+  "accountName": "Acme Inc.",
+  "accountNumber": "0123456789"
+}
+`,
+    schema: {
+      type: 'object',
+      properties: {
+        businessName: { type: 'string' },
+        businessType: { type: 'string' },
+        registrationNumber: { type: 'string' },
+        taxId: { type: 'string' },
+        description: { type: 'string' },
+
+        businessPhone: { type: 'string' },
+        businessEmail: { type: 'string' },
+
+        address: { type: 'string' },
+        city: { type: 'string' },
+        state: { type: 'string' },
+
+        bankName: { type: 'string' },
+        accountName: { type: 'string' },
+        accountNumber: { type: 'string' },
+      },
+    },
+  })
+  async saveVendorOnboardingStep(
+    @Param('step', ParseIntPipe) step: number,
+    @Body() dto: Partial<CompleteOnboardingDto>,
+    @Req() req: Request,
+  ) {
+    const vendorId = (req.user as any).id;
+
+    if (step < 1 || step > 4) {
+      throw new BadRequestException('Step must be between 1 and 4');
+    }
+
+    return this.authService.saveVendorOnboardingStep(vendorId, step, dto);
+  }
+
+  /**
+   * ================================
+   * FINAL STEP (STEP 5 – DOCUMENTS)
+   * ================================
+   */
+  // @Post('/vendor/onboarding/submit')
+  // @HttpCode(HttpStatus.OK)
+  // @UseGuards(JwtAuthGuard, RolesGuard)
+  // @ApiBearerAuth()
+  // @Roles(UserRole.VENDOR)
+  // @ApiOperation({
+  //   summary: 'Submit final onboarding (Step 5 - Upload Documents)',
+  //   description:
+  //     'Uploads required business documents and submits onboarding for admin review.',
+  // })
+  // @ApiConsumes('multipart/form-data')
+  // @UseInterceptors(FilesInterceptor('documents', 10))
+  // @ApiBody({
+  //   schema: {
+  //     type: 'object',
+  //     properties: {
+  //       documentsMetadata: {
+  //         type: 'string',
+  //         example:
+  //           '[{"documentType":"BUSINESS_REGISTRATION","description":"CAC certificate"},{"documentType":"TAX_CERTIFICATE","description":"Tax ID"}]',
+  //         description: 'JSON string array describing each uploaded document',
+  //       },
+  //       documents: {
+  //         type: 'array',
+  //         items: {
+  //           type: 'string',
+  //           format: 'binary',
+  //         },
+  //         description: 'Business document files',
+  //       },
+  //     },
+  //     required: ['documentsMetadata', 'documents'],
+  //   },
+  // })
+  // async submitVendorOnboarding(
+  //   @UploadedFiles() files: Express.Multer.File[],
+  //   @Body('documentsMetadata') documentsMetadataRaw: string,
+  //   @Req() req: Request,
+  // ) {
+  //   const vendorId = (req.user as any).id;
+
+  //   let documentsMetadata: VendorDocumentMetadataDto[];
+
+  //   try {
+  //     documentsMetadata = JSON.parse(documentsMetadataRaw);
+  //   } catch (error) {
+  //     throw new BadRequestException('Invalid documentsMetadata JSON format');
+  //   }
+
+  //   if (!files || files.length === 0) {
+  //     throw new BadRequestException('At least one document must be uploaded');
+  //   }
+
+  //   return this.authService.submitVendorOnboarding(
+  //     vendorId,
+  //     files,
+  //     documentsMetadata,
+  //   );
+  // }
+  
+  /**
+   * ================================
+   * GET CURRENT ONBOARDING STATE
+   * ================================
+   */
+  @Get('/vendor/onboarding/state')
+  @ApiOperation({
+    summary: 'Get current vendor onboarding state',
+    description:
+      'Returns onboardingStatus, onboardingStep, and account status for redirect logic.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Onboarding state retrieved successfully',
+  })
+  async getOnboardingState(@Req() req: Request) {
+    const vendorId = (req.user as any).id;
+
+    return this.authService.getVendorOnboardingState(vendorId);
   }
 
   /**
