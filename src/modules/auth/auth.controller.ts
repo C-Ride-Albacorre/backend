@@ -63,7 +63,6 @@ import { AuthResponse } from './interface/auth-response.interface';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { OAuthUser } from '../../common/decorators/oauth-user.decorator';
 import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
-import { Transform } from 'class-transformer';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -175,16 +174,6 @@ export class AuthController {
   async loginVendor(@Body() loginDto: LoginDto) {
     return this.authService.loginVendor(loginDto);
   }
-
-  // @ApiTags('Vendor Onboarding')
-  // @ApiBearerAuth()
-  // @Controller('vendor/onboarding')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles(UserRole.VENDOR)
-  // export class VendorOnboardingController {
-  //   constructor(
-  //     private readonly onboardingService: VendorOnboardingService,
-  //   ) {}
 
   @Post('/vendor/onboarding/submit')
   @HttpCode(HttpStatus.OK)
@@ -341,71 +330,6 @@ STEP 4 – Bank Details
     return this.authService.saveVendorOnboardingStep(vendorId, step, dto);
   }
 
-  /**
-   * ================================
-   * FINAL STEP (STEP 5 – DOCUMENTS)
-   * ================================
-   */
-  // @Post('/vendor/onboarding/submit')
-  // @HttpCode(HttpStatus.OK)
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @ApiBearerAuth()
-  // @Roles(UserRole.VENDOR)
-  // @ApiOperation({
-  //   summary: 'Submit final onboarding (Step 5 - Upload Documents)',
-  //   description:
-  //     'Uploads required business documents and submits onboarding for admin review.',
-  // })
-  // @ApiConsumes('multipart/form-data')
-  // @UseInterceptors(FilesInterceptor('documents', 10))
-  // @ApiBody({
-  //   schema: {
-  //     type: 'object',
-  //     properties: {
-  //       documentsMetadata: {
-  //         type: 'string',
-  //         example:
-  //           '[{"documentType":"BUSINESS_REGISTRATION","description":"CAC certificate"},{"documentType":"TAX_CERTIFICATE","description":"Tax ID"}]',
-  //         description: 'JSON string array describing each uploaded document',
-  //       },
-  //       documents: {
-  //         type: 'array',
-  //         items: {
-  //           type: 'string',
-  //           format: 'binary',
-  //         },
-  //         description: 'Business document files',
-  //       },
-  //     },
-  //     required: ['documentsMetadata', 'documents'],
-  //   },
-  // })
-  // async submitVendorOnboarding(
-  //   @UploadedFiles() files: Express.Multer.File[],
-  //   @Body('documentsMetadata') documentsMetadataRaw: string,
-  //   @Req() req: Request,
-  // ) {
-  //   const vendorId = (req.user as any).id;
-
-  //   let documentsMetadata: VendorDocumentMetadataDto[];
-
-  //   try {
-  //     documentsMetadata = JSON.parse(documentsMetadataRaw);
-  //   } catch (error) {
-  //     throw new BadRequestException('Invalid documentsMetadata JSON format');
-  //   }
-
-  //   if (!files || files.length === 0) {
-  //     throw new BadRequestException('At least one document must be uploaded');
-  //   }
-
-  //   return this.authService.submitVendorOnboarding(
-  //     vendorId,
-  //     files,
-  //     documentsMetadata,
-  //   );
-  // }
-  
   /**
    * ================================
    * GET CURRENT ONBOARDING STATE
@@ -575,21 +499,6 @@ STEP 4 – Bank Details
     return { message: 'Logged out successfully' };
   }
 
-  // @Post('forgot-password')
-  // @ApiOperation({ summary: 'Request a password reset email' })
-  // @ApiResponse({
-  //   status: 200,
-  //   description: 'Password reset email sent if user exists',
-  //   type: ApiResponseDto<AuthResponseDto>,
-  // })
-  // @ApiResponse({
-  //   status: 400,
-  //   description: 'Validation or bad request error',
-  //   type: ApiErrorResponseDto,
-  // })
-  // async forgotPassword(@Body() dto: ForgotPasswordDto) {
-  //   return this.authService.forgotPassword(dto);
-  // }
 
   @Post('forgot-password')
   @ApiOperation({
@@ -682,15 +591,6 @@ STEP 4 – Bank Details
     });
   }
 
-  // @Post('reset-password/otp')
-  // @HttpCode(200)
-  // async resetPasswordWithOtp(@Body() dto: ResetPasswordWithOtpDto) {
-  //   return this.authService.resetPasswordWithOtp(
-  //     dto.phoneNumber,
-  //     dto.otp,
-  //     dto.newPassword,
-  //   );
-  // }
 
   @Get('profile')
   @ApiOperation({ summary: 'Get logged-in user profile' })

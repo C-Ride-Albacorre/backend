@@ -124,54 +124,6 @@ export class AuthService {
     };
   }
 
-  // async registerCustomerbk(dto: CreateCustomerDto) {
-  //   const { email, phoneNumber } = dto;
-  //   this.logger.log(`Registering customer: ${email || phoneNumber}`);
-
-  //   const { user, requiresVerification } =
-  //     await this.userService.createCustomer({
-  //       email: email,
-  //       phoneNumber: phoneNumber,
-  //       password: dto.password,
-  //       firstName: dto.firstName,
-  //       lastName: dto.lastName,
-  //     });
-
-  //   // Return different response based on verification status
-  //   if (requiresVerification) {
-  //     return {
-  //       success: true,
-  //       requiresVerification: true,
-  //       message: 'Registration successful. Please verify your account.',
-  //       verificationIdentifier: user.email || user.phoneNumber,
-  //       user: {
-  //         id: user.id,
-  //         email: user.email,
-  //         role: user.role,
-  //         isVerified: false,
-  //       },
-  //     };
-  //   }
-
-  //   // If no verification required, generate tokens immediately
-  //   return this.generateAuthResponse(user);
-  // }
-
-  // async registerCustomer(dto: CreateCustomerDto) {
-  //   const { email, phoneNumber, firstName, lastName, password } = dto;
-  //   this.logger.log(`Registering customer: ${email || phoneNumber}`);
-
-  //   const user = await this.userService.createCustomer({
-  //     email: email,
-  //     phoneNumber: phoneNumber,
-  //     password: password,
-  //     firstName: firstName,
-  //     lastName: lastName,
-  //   });
-
-  //   return this.generateAuthResponse(user);
-  // }
-
   /**
    * Verify OTP during registration
    */
@@ -354,20 +306,6 @@ export class AuthService {
     });
   }
 
-  // private generateResetToken(userId: string): string {
-  //   return this.jwtService.sign(
-  //     {
-  //       userId,
-  //       type: 'password_reset',
-  //       jti: crypto.randomBytes(16).toString('hex'),
-  //     },
-  //     {
-  //       secret: this.config.get<string>('JWT_SECRET'),
-  //       expiresIn: this.passwordResetTokenExpiresIn,
-  //     },
-  //   );
-  // }
-
   private createAccessTokenPayload(user: User): TokenPayload {
     return {
       sub: user.id,
@@ -461,89 +399,6 @@ export class AuthService {
 
   /* ---------- Forgot Password flow ---------- */
 
-  /**
-   * Initiate password reset process
-   */
-  // async forgotPassword(dto: ForgotPasswordDto): Promise<{
-  //   success: boolean;
-  //   message: string;
-  //   identifier?: string;
-  //   method?: 'email' | 'sms';
-  // }> {
-  //   const { email, phoneNumber } = dto;
-  //   const identifier = email || phoneNumber;
-
-  //   this.logger.log(`Password reset requested for: ${identifier}`);
-
-  //   // Find user by identifier
-  //   // const user = await this.userService.findExistingUser(email, phoneNumber);
-  //   const user = await this.userService.findUserByIdentifier(identifier);
-  //   // Security: Always return success even if user not found
-  //   if (!user) {
-  //     this.logger.debug(`User not found for password reset: ${identifier}`);
-  //     return {
-  //       success: true,
-  //       message:
-  //         'If an account exists with this email/phone, you will receive reset instructions.',
-  //     };
-  //   }
-
-  //   // Check if user is active
-  //   if (!user.isActive) {
-  //     this.logger.warn(`Password reset attempt for inactive user: ${user.id}`);
-  //     return {
-  //       success: true,
-  //       message:
-  //         'If an account exists with this email/phone, you will receive reset instructions.',
-  //     };
-  //   }
-
-  //   // Check if user is verified
-  //   if (!user.isVerified) {
-  //     this.logger.warn(
-  //       `Password reset attempt for unverified user: ${user.id}`,
-  //     );
-  //     return {
-  //       success: false,
-  //       message: 'Please verify your account first before resetting password.',
-  //     };
-  //   }
-
-  //   // Generate reset token
-  //   const resetToken = this.generateResetToken(user.id);
-
-  //   // Determine reset method (email or SMS)
-  //   const method = email ? 'email' : 'sms';
-
-  //   try {
-  //     if (method === 'email' && user.email) {
-  //       await this.sendPasswordResetEmail(user, resetToken);
-  //     } else if (method === 'sms' && user.phoneNumber) {
-  //       await this.sendPasswordResetSms(user, resetToken);
-  //     } else {
-  //       throw new Error(`No ${method} available for user ${user.id}`);
-  //     }
-
-  //     this.logger.log(
-  //       `Password reset ${method} sent to ${identifier} for user ${user.id}`,
-  //     );
-
-  //     return {
-  //       success: true,
-  //       message: 'Password reset instructions sent successfully.',
-  //       identifier,
-  //       method,
-  //     };
-  //   } catch (error) {
-  //     this.logger.error(
-  //       `Failed to send password reset ${method}: ${error.message}`,
-  //     );
-  //     return {
-  //       success: false,
-  //       message: 'Failed to send reset instructions. Please try again later.',
-  //     };
-  //   }
-  // }
 
   /**
    * Verify password reset OTP using Redis cache
@@ -1003,73 +858,6 @@ export class AuthService {
     }
   }
 
-  // async forgotPassword(dto: ForgotPasswordDto) {
-  //   const { email } = dto;
-  //   if (!email) throw new BadRequestException('Email is required');
-
-  //   const user = await this.userService.findByEmail(email);
-  //   if (!user) {
-  //     return { ok: true }; // do not reveal if user exists
-  //   }
-
-  //   const secret = this.config.get<string>('JWT_SECRET');
-  //   if (!secret) throw new Error('JWT_SECRET not configured');
-
-  //   const token = jwt.sign({ userId: user.id }, secret, { expiresIn: '1d' });
-
-  //   console.log('Generated reset token:', token);
-
-  //   const expiresAt = new Date(
-  //     Date.now() +
-  //       Number(this.config.get('PASSWORD_RESET_TOKEN_EXPIRES_MIN') || 60) *
-  //         60000,
-  //   );
-
-  //   const frontendUrl = this.config.get('FRONTEND_URL');
-  //   if (!frontendUrl) throw new Error('FRONTEND_URL not configured');
-
-  //   const resetLink = `${frontendUrl}/auth/reset-password?token=${token}`;
-  //   const timeframe = expiresAt;
-  //   const subject = 'Password reset';
-  //   const context = {
-  //     user: user?.firstName + ' ' + user?.lastName || 'there',
-  //     resetLink,
-  //     timeframe,
-  //   };
-  //   const templateName = 'forgotPassword';
-
-  //   // try {
-  //   //   await this.mailGunService.sendEmailWithTemplate({
-  //   //     to: email,
-  //   //     subject,
-  //   //     templateName,
-  //   //     context,
-  //   //   });
-  //   // } catch (error) {
-  //   //   console.error('Mail sending failed:', error);
-  //   //   throw new InternalServerErrorException(
-  //   //     'Failed to send password reset email',
-  //   //   );
-  //   // }
-
-  //   return { ok: true, message: 'Password reset email sent' };
-  // }
-
-  // async resetPassword(dto: ResetPasswordDto) {
-  //   const { token, newPassword } = dto;
-  //   if (!token || !newPassword) {
-  //     throw new BadRequestException('Token and new password are required');
-  //   }
-  //   const decoded = this.jwtService.verify(token);
-  //   if (!decoded || !decoded.userId) {
-  //     throw new UnauthorizedException('Invalid token');
-  //   }
-
-  //   const hashed = await bcrypt.hash(newPassword, 12);
-  //   await this.userService.updatePassword(decoded.userId, hashed);
-
-  //   return 'Password successfully reset';
-  // }
 
   /* ---------- OAuth (Google) ---------- */
   async validateOAuthLogin({ provider, providerId, email, name }: any) {
@@ -1227,7 +1015,7 @@ export class AuthService {
       nextSteps: [
         'Check your email for verification code',
         'Check your phone for verification code',
-        'Verify email first, then phone',
+        'Verify phone first, then email',
         'Complete business onboarding after both verifications',
       ],
     };
