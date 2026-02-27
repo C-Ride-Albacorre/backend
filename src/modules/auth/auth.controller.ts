@@ -53,7 +53,6 @@ import {
   VerifyPhoneDto,
 } from './dto/create-vendor.dto';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { UploadDocumentDto } from '../user/dto/upload-document.dto';
 import { Roles } from '../../common/decorators/role.decorator';
 import { RolesGuard } from '../../common/guards/role.guard';
 import { UserRole } from '../../shared/enums';
@@ -590,7 +589,6 @@ STEP 4 – Bank Details
     });
   }
 
-
   @Get('profile')
   @ApiOperation({ summary: 'Get logged-in user profile' })
   @UseGuards(JwtAuthGuard)
@@ -628,6 +626,7 @@ STEP 4 – Bank Details
   }
 
   @Get('google/callback')
+  // @Get('/api/auth/google/callback')
   @UseGuards(GoogleAuthGuard)
   @ApiOperation({ summary: 'Google OAuth callback handler' })
   async googleCallback(
@@ -646,7 +645,7 @@ STEP 4 – Bank Details
 
     // Redirect to frontend
     const frontendUrl = this.getFrontendUrl();
-    return res.redirect(`${frontendUrl}/auth/callback?success=true`);
+    return res.redirect(`${frontendUrl}/google/callback?success=true`);
   }
 
   /**
