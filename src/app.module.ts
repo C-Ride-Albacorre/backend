@@ -11,6 +11,8 @@ import { HealthModule } from './modules/health/health.module';
 import { JwtStrategy } from './common/strategies/jwt.strategy';
 // import { VerificationModule } from './modules/verification/verification.module';
 import { RedisModule } from './modules/redis/redis.module';
+import { StoreModule } from './modules/store/store.module';
+import { ProductModule } from './modules/product/product.module';
 
 @Module({
   imports: [
@@ -33,11 +35,12 @@ import { RedisModule } from './modules/redis/redis.module';
     MenusModule,
     HealthModule,
     RedisModule,
+    StoreModule,
+    ProductModule,
     // VerificationModule,
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService, JwtStrategy,
-],
+  providers: [AppService, PrismaService, JwtStrategy],
   exports: [PrismaService],
 })
 export class AppModule {}
