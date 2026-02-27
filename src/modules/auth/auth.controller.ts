@@ -39,9 +39,7 @@ import { ApiResponseDto } from '../../common/dto/api-response.dto';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { UserService } from '../user/user.service';
-// import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password.dto';
-// import { ResetPasswordDto } from './dto/reset-password.dto';
 import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 import { ConfigService } from '@nestjs/config';
 import { OAuthProviderType } from '@prisma/client';
@@ -356,124 +354,125 @@ STEP 4 – Bank Details
    * Users can select files from their computer
    */
 
-  @Post('/vendor/onboarding/:vendorId')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.VENDOR)
-  @HttpCode(HttpStatus.OK)
-  @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FilesInterceptor('documents', 10)) // 'documents' is the field name for files
-  @ApiOperation({ summary: 'Complete vendor onboarding with document files' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        businessName: { type: 'string', example: 'Acme Inc.' },
-        businessType: { type: 'string', example: 'Restaurant' },
-        description: { type: 'string', example: 'Best restaurant in town' },
-        businessPhone: { type: 'string', example: '+1234567890' },
-        businessEmail: { type: 'string', example: 'business@acme.com' },
-        address: { type: 'string', example: '123 Main St' },
-        city: { type: 'string', example: 'Lagos' },
-        state: { type: 'string', example: 'Lagos' },
-        bankName: { type: 'string', example: 'First Bank' },
-        accountName: { type: 'string', example: 'Acme Inc.' },
-        accountNumber: { type: 'string', example: '0123456789' },
-        documentsMetadata: {
-          type: 'string',
-          description: 'JSON string containing document metadata',
-          example:
-            '[{"documentType":"BUSINESS_REGISTRATION","description":"CAC certificate"},{"documentType":"TAX_CERTIFICATE","description":"Tax ID"}]',
-        },
-        documents: {
-          type: 'array',
-          items: {
-            type: 'string',
-            format: 'binary',
-          },
-          description: 'Document files to upload (select from computer)',
-        },
-      },
-    },
-  })
-  async completeOnboarding(
-    @Param('vendorId') vendorId: string,
-    @Body() dto: CompleteOnboardingDto,
-    @UploadedFiles() files: Express.Multer.File[],
-  ) {
-    // Parse the documentsMetadata JSON string
-    let documentsMetadata: VendorDocumentMetadataDto[] = [];
-    try {
-      documentsMetadata = JSON.parse(dto.documentsMetadata);
-    } catch (error) {
-      throw new BadRequestException('Invalid documentsMetadata JSON format');
-    }
+  // @Post('/vendor/onboarding/:vendorId')
+  // @UseGuards(RolesGuard)
+  // @Roles(UserRole.VENDOR)
+  // @HttpCode(HttpStatus.OK)
+  // @ApiConsumes('multipart/form-data')
+  // @UseInterceptors(FilesInterceptor('documents', 10)) // 'documents' is the field name for files
+  // @ApiOperation({ summary: 'Complete vendor onboarding with document files' })
+  // @ApiBody({
+  //   schema: {
+  //     type: 'object',
+  //     properties: {
+  //       businessName: { type: 'string', example: 'Acme Inc.' },
+  //       businessType: { type: 'string', example: 'Restaurant' },
+  //       description: { type: 'string', example: 'Best restaurant in town' },
+  //       businessPhone: { type: 'string', example: '+1234567890' },
+  //       businessEmail: { type: 'string', example: 'business@acme.com' },
+  //       address: { type: 'string', example: '123 Main St' },
+  //       city: { type: 'string', example: 'Lagos' },
+  //       state: { type: 'string', example: 'Lagos' },
+  //       bankName: { type: 'string', example: 'First Bank' },
+  //       accountName: { type: 'string', example: 'Acme Inc.' },
+  //       accountNumber: { type: 'string', example: '0123456789' },
+  //       documentsMetadata: {
+  //         type: 'string',
+  //         description: 'JSON string containing document metadata',
+  //         example:
+  //           '[{"documentType":"BUSINESS_REGISTRATION","description":"CAC certificate"},{"documentType":"TAX_CERTIFICATE","description":"Tax ID"}]',
+  //       },
+  //       documents: {
+  //         type: 'array',
+  //         items: {
+  //           type: 'string',
+  //           format: 'binary',
+  //         },
+  //         description: 'Document files to upload (select from computer)',
+  //       },
+  //     },
+  //   },
+  // })
+  // async completeOnboarding(
+  //   @Param('vendorId') vendorId: string,
+  //   @Body() dto: CompleteOnboardingDto,
+  //   @UploadedFiles() files: Express.Multer.File[],
+  // ) {
+  //   // Parse the documentsMetadata JSON string
+  //   let documentsMetadata: VendorDocumentMetadataDto[] = [];
+  //   try {
+  //     documentsMetadata = JSON.parse(dto.documentsMetadata);
+  //   } catch (error) {
+  //     throw new BadRequestException('Invalid documentsMetadata JSON format');
+  //   }
 
-    // Validate that we have files
-    if (!files || files.length === 0) {
-      throw new BadRequestException(
-        'At least one document file must be uploaded',
-      );
-    }
+  //   // Validate that we have files
+  //   if (!files || files.length === 0) {
+  //     throw new BadRequestException(
+  //       'At least one document file must be uploaded',
+  //     );
+  //   }
 
-    // Validate that number of files matches metadata
-    // if (files.length !== documentsMetadata.length) {
-    //   throw new BadRequestException(
-    //     `Number of files (${files.length}) must match number of document metadata entries (${documentsMetadata.length})`,
-    //   );
-    // }
+  //   // Validate that number of files matches metadata
+  //   // if (files.length !== documentsMetadata.length) {
+  //   //   throw new BadRequestException(
+  //   //     `Number of files (${files.length}) must match number of document metadata entries (${documentsMetadata.length})`,
+  //   //   );
+  //   // }
 
-    return this.authService.completeVendorOnboarding(
-      vendorId,
-      dto,
-      files,
-      documentsMetadata,
-    );
-  }
-  /**
-   * Upload a single document file (for progressive onboarding)
-   */
-  @Post('onboarding/upload-document')
-  @HttpCode(HttpStatus.OK)
-  @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FilesInterceptor('documents')) // Still use FilesInterceptor for single file
-  @ApiOperation({ summary: 'Upload a document file' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        documentType: {
-          type: 'string',
-          enum: ['BUSINESS_REGISTRATION', 'TAX_CERTIFICATE', 'IDENTIFICATION'],
-        },
-        description: { type: 'string' },
-        documents: {
-          type: 'array',
-          items: {
-            type: 'string',
-            format: 'binary',
-          },
-          description: 'Document file to upload (select from computer)',
-        },
-      },
-    },
-  })
-  async uploadDocument(
-    @Req() req,
-    // @Body('documentType') documentType: string,
-    // @Body('description') description: string,
-    @Body() dto: UploadDocumentDto,
-    @UploadedFiles() files: Express.Multer.File[],
-  ) {
-    if (!files || files.length === 0) {
-      throw new BadRequestException('No file uploaded');
-    }
+  //   return this.authService.completeVendorOnboarding(
+  //     vendorId,
+  //     dto,
+  //     files,
+  //     documentsMetadata,
+  //   );
+  // }
 
-    return this.authService.uploadSingleDocument(
-      req.user.id,
-      dto,
-      files[0], // Take the first file
-    );
-  }
+  // /**
+  //  * Upload a single document file (for progressive onboarding)
+  //  */
+  // @Post('onboarding/upload-document')
+  // @HttpCode(HttpStatus.OK)
+  // @ApiConsumes('multipart/form-data')
+  // @UseInterceptors(FilesInterceptor('documents')) // Still use FilesInterceptor for single file
+  // @ApiOperation({ summary: 'Upload a document file' })
+  // @ApiBody({
+  //   schema: {
+  //     type: 'object',
+  //     properties: {
+  //       documentType: {
+  //         type: 'string',
+  //         enum: ['BUSINESS_REGISTRATION', 'TAX_CERTIFICATE', 'IDENTIFICATION'],
+  //       },
+  //       description: { type: 'string' },
+  //       documents: {
+  //         type: 'array',
+  //         items: {
+  //           type: 'string',
+  //           format: 'binary',
+  //         },
+  //         description: 'Document file to upload (select from computer)',
+  //       },
+  //     },
+  //   },
+  // })
+  // async uploadDocument(
+  //   @Req() req,
+  //   // @Body('documentType') documentType: string,
+  //   // @Body('description') description: string,
+  //   @Body() dto: UploadDocumentDto,
+  //   @UploadedFiles() files: Express.Multer.File[],
+  // ) {
+  //   if (!files || files.length === 0) {
+  //     throw new BadRequestException('No file uploaded');
+  //   }
+
+  //   return this.authService.uploadSingleDocument(
+  //     req.user.id,
+  //     dto,
+  //     files[0], // Take the first file
+  //   );
+  // }
 
   @Post('refresh')
   @ApiOperation({ summary: 'Refresh access token' })

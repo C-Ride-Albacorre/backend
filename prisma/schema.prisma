@@ -60,6 +60,42 @@ enum DocumentType {
   ID_PROOF
 }
 
+// Enums for various statuses and types
+enum StoreStatus {
+  ACTIVE
+  INACTIVE
+  PENDING_APPROVAL
+  SUSPENDED
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DRAFT
+  OUT_OF_STOCK
+}
+
+enum StockStatus {
+  IN_STOCK
+  OUT_OF_STOCK
+  LOW_STOCK
+}
+
+enum ProductType {
+  SINGLE
+  VARIABLE
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
 model User {
   id                    String           @id @default(uuid())
   email                 String?          @unique
@@ -89,6 +125,7 @@ model User {
   oauthProviders        OAuthProvider[]
   businessInfo          BusinessInfo?
   documents             VendorDocument[]
+  stores                Store[] // One vendor can have multiple stores
   menus                 Menu[]
 
   @@index([email])
@@ -164,6 +201,154 @@ model VendorDocument {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   user         User           @relation(fields: [userId], references: [id])
+}
+
+// Store Model
+model Store {
+  id               String          @id @default(uuid())
+  storeName        String
+  storeCategory    String // Will be populated from admin-provided categories
+  storeDescription String?
+  storeAddress     String
+  phoneNumber      String
+  email            String
+  minimumOrder     Float?          @default(0)
+  preparationTime  Int? // In minutes
+  deliveryFee      Float?
+  storeLogo        String? // URL to store logo image
+  status           StoreStatus     @default(PENDING_APPROVAL)
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  operatingHours   OperatingHour[] // Operating Hours (one-to-many relation)
+  products         Product[] // Products in this store
+  metadata         Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([storeCategory])
+}
+
+// Operating Hours Model (allows different hours for different days)
+model OperatingHour {
+  id          String    @id @default(uuid())
+  storeId     String
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  dayOfWeek   DayOfWeek // Monday through Sunday
+  isOpen      Boolean   @default(true)
+  openingTime String? // Format: "09:00"
+  closingTime String? // Format: "18:00"
+  breakStart  String? // Optional break time
+  breakEnd    String? // Optional break time
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([storeId, dayOfWeek])
+  @@index([storeId])
+}
+
+// Product Model
+model Product {
+  id                String         @id @default(uuid())
+  productName       String
+  productCategory   String // Will be populated from admin-provided categories
+  sku               String         @unique
+  description       String?
+  productType       ProductType    @default(SINGLE)
+  stockStatus       StockStatus    @default(IN_STOCK)
+  productStatus     ProductStatus  @default(DRAFT)
+  basePrice         Float? // For SINGLE products, base price
+  stockQuantity     Int?           @default(0)
+  lowStockThreshold Int?           @default(5) // Alert when stock below this
+  productImages     ProductImage[] // Images (one-to-many for multiple product images)
+  storeId           String
+  store             Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  variants          Variant[] // Variants (for VARIABLE products)
+  addons            Addon[] // Add-ons (available for all product types)  
+  metadata          Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([storeId])
+  @@index([productCategory])
+  @@index([sku])
+}
+
+// Product Images Model (for multiple images per product)
+model ProductImage {
+  id           String   @id @default(uuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  imageUrl     String
+  isPrimary    Boolean  @default(false)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([productId])
+}
+
+// Variant Model (for VARIABLE products)
+model Variant {
+  id            String      @id @default(uuid())
+  variantName   String // e.g., "Small", "Large", "Red", "Blue"
+  price         Float
+  sku           String      @unique
+  stockQuantity Int         @default(0)
+  stockStatus   StockStatus @default(IN_STOCK)
+  imageUrl      String? // Optional variant-specific image
+  productId     String
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // Variant attributes (JSON for flexibility)
+  attributes    Json? // e.g., { "size": "Large", "color": "Red", "weight": "500g" }
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([productId])
+  @@index([sku])
+}
+
+// Addon Model (available for both SINGLE and VARIABLE products)
+model Addon {
+  id          String   @id @default(uuid())
+  addonName   String // e.g., "Extra Cheese", "Gift Wrap"
+  price       Float
+  description String?
+  isAvailable Boolean  @default(true)
+  maxQuantity Int?     @default(10) // Maximum allowed per order
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // Optional: Addon categories for grouping
+  category    String? // e.g., "Toppings", "Extras", "Packaging"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([productId])
+}
+
+// Admin Categories (for future admin management)
+model StoreCategory {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  description  String?
+  isActive     Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model ProductCategory {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  description  String?
+  isActive     Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([isActive])
 }
 
 model Menu {
