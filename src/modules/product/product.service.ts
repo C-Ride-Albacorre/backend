@@ -14,7 +14,7 @@ export class ProductService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly cloudinaryService: CloudinaryService
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   /**
@@ -251,9 +251,35 @@ export class ProductService {
   }
 
   /**
-   * Delete product (soft delete by setting status to INACTIVE)
+   * Permanently delete product (hard delete)
    */
   async deleteProduct(productId: string, storeId: string, userId: string) {
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id: productId,
+        storeId,
+        store: { userId },
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found or access denied');
+    }
+
+    await this.prisma.product.delete({
+      where: { id: productId },
+    });
+
+    return {
+      success: true,
+      message: 'Product deleted successfully',
+    };
+  }
+
+  /**
+   * Delete product (soft delete by setting status to INACTIVE)
+   */
+  async softDeleteProduct(productId: string, storeId: string, userId: string) {
     const product = await this.prisma.product.findFirst({
       where: {
         id: productId,
