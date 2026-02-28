@@ -207,9 +207,17 @@ export class StoreService {
     }
 
     // Upload new logo if provided
-    const logoUrl = store.storeLogo;
+    let logoUrl = store.storeLogo; // keep existing logo by default
+
+    // If new logo provided → upload and replace
     if (logoFile) {
-      // logoUrl = await this.cloudinaryService.uploadImage(logoFile);
+      // OPTIONAL: delete old logo from cloudinary
+      if (store.storeLogo) {
+        await this.cloudinaryService.deleteDocument(store.storeLogo);
+      }
+
+      const uploadResult = await this.cloudinaryService.uploadLogo(logoFile);
+      logoUrl = uploadResult.secure_url;
     }
 
     // Update store

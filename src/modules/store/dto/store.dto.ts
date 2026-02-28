@@ -186,23 +186,36 @@ export class UpdateStoreDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsPhoneNumber()
+  @IsString()
   phoneNumber?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   minimumOrder?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   preparationTime?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  deliveryFee?: number;
 
   @ApiProperty({ enum: StoreStatus, required: false })
   @IsOptional()
   @IsEnum(StoreStatus)
   status?: StoreStatus;
+
+  @ApiProperty({ type: 'string', format: 'binary', required: false })
+  @IsOptional()
+  logo?: any;
 }
