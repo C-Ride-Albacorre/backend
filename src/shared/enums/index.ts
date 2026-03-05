@@ -46,6 +46,14 @@ export enum UserStatus {
   REJECTED = 'REJECTED',
 }
 
+export enum StoreStatus {
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  SUSPENDED = 'SUSPENDED',
+  REJECTED = 'REJECTED',
+}
+
 export enum DashboardFilterTypes {
   TODAY = 'today',
   YESTERDAY = 'yesterday',
