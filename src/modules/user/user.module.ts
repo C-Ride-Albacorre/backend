@@ -6,7 +6,10 @@ import { AbstractUserRepository } from './repositories/abstract-user.repository'
 import { PrismaUserRepository } from './repositories/prisma-user.repository';
 import { VerificationService } from '../verification/verification.service';
 import { VerificationCacheService } from '../verification/verification-cache.service';
-import { ConsoleEmailProvider, ConsoleSmsProvider } from '../verification/providers/console.provider';
+import {
+  ConsoleEmailProvider,
+  ConsoleSmsProvider,
+} from '../verification/providers/console.provider';
 import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
 import { TermiiSmsProvider } from '../verification/providers/termii-sms.provider';
 

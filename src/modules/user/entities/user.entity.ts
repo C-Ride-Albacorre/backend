@@ -28,6 +28,9 @@ export class User {
   verifiedAt?: Date;
   emailVerifiedAt?: Date;
   phoneVerifiedAt?: Date;
+  approvedAt?: Date;
+  approvedBy?: string; // User ID of admin who approved
+  rejectionReason?: string;
   referralCode?: string;
   referredBy?: string;
   status?: UserStatus;
