@@ -7,7 +7,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { CreateAdminDto } from './dto/create-admin.dto';
-import { ApproveVendorDto, ApprovalAction } from './dto/approve-vendor.dto';
+import { ApproveVendorDto } from './dto/approve-vendor.dto';
 import { ApproveStoreDto } from './dto/approve-store.dto';
 import { VendorFilterDto } from './dto/vendor-filter.dto';
 import { StoreFilterDto } from './dto/store-filter.dto';
@@ -62,7 +62,7 @@ export class AdminService {
     const admin = await this.prisma.user.create({
       data: {
         email: dto.email,
-        phoneNumber: dto.phoneNumber,
+        // phoneNumber: dto.phoneNumber,
         firstName: dto.firstName,
         lastName: dto.lastName,
         password: hashedPassword,
@@ -95,6 +95,94 @@ export class AdminService {
    * Get all vendors with filtering and pagination
    */
   async getAllVendors(filterDto: VendorFilterDto) {
+    const { status, search, hasStores, page = 1, limit = 10 } = filterDto;
+    const skip = (page - 1) * limit;
+
+    // Base where clause: only vendors
+    const where: any = {
+      role: UserRole.VENDOR,
+    };
+
+    // Optional status filter (directly on user)
+    if (status) {
+      where.status = status;
+    }
+
+    // Optional search filter
+    if (search) {
+      where.OR = [
+        // Search in business info if it exists
+        {
+          businessInfo: {
+            businessName: { contains: search, mode: 'insensitive' },
+          },
+        },
+        {
+          businessInfo: {
+            businessEmail: { contains: search, mode: 'insensitive' },
+          },
+        },
+        // Search fallback in user email
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    // Optional filter for stores
+    if (hasStores !== undefined) {
+      where.stores = hasStores ? { some: {} } : { none: {} };
+    }
+
+    // Fetch vendors with pagination
+    const [vendors, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          businessInfo: true,
+          stores: {
+            select: {
+              id: true,
+              storeName: true,
+              status: true,
+            },
+          },
+          _count: {
+            select: { stores: true },
+          },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    // Format response
+    const formattedVendors = vendors.map((vendor) => ({
+      id: vendor.id,
+      email: vendor.email,
+      phoneNumber: vendor.phoneNumber,
+      firstName: vendor.firstName,
+      lastName: vendor.lastName,
+      status: vendor.status,
+      createdAt: vendor.createdAt,
+      businessInfo: vendor.businessInfo,
+      stores: vendor.stores,
+      storeCount: vendor._count.stores,
+    }));
+
+    return {
+      success: true,
+      data: formattedVendors,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getAllVendorsbk(filterDto: VendorFilterDto) {
     const { status, search, hasStores, page = 1, limit = 10 } = filterDto;
     const skip = (page - 1) * limit;
 
@@ -297,13 +385,22 @@ export class AdminService {
     }
 
     if (!vendor.businessInfo) {
-      throw new BadRequestException('Vendor business profile not found');
+      throw new BadRequestException(
+        'Vendor business profile not found. Kindly complete onboarding to proceed',
+      );
     }
 
-    if (vendor.status !== UserStatus.UNDER_REVIEW) {
-      throw new BadRequestException(
-        `Vendor already ${vendor.status.toLowerCase()}`,
-      );
+    // if (vendor.status === UserStatus.APPROVED) {
+    //   throw new BadRequestException(
+    //     `Vendor already ${vendor.status.toLowerCase()}`,
+    //   );
+    // }
+    if (vendor.status === 'ACTIVE') {
+      return {
+        success: true,
+        message: `Vendor already ${vendor.status.toLowerCase()}`,
+        data: vendor,
+      };
     }
 
     const now = new Date();
@@ -311,7 +408,7 @@ export class AdminService {
     let updatedUser;
 
     switch (dto.action) {
-      case ApprovalAction.APPROVE:
+      case UserStatus.APPROVED:
         userUpdateData = {
           status: UserStatus.APPROVED,
           approvedAt: now,
@@ -327,7 +424,7 @@ export class AdminService {
         this.logger.log(`Vendor ${vendorId} approved`);
         break;
 
-      case ApprovalAction.REJECT:
+      case UserStatus.REJECTED:
         if (!dto.rejectionReason) {
           throw new BadRequestException('Rejection reason is required');
         }
@@ -347,7 +444,7 @@ export class AdminService {
         this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
         break;
 
-      case ApprovalAction.SUSPEND:
+      case UserStatus.SUSPENDED:
         userUpdateData = {
           status: UserStatus.SUSPENDED,
           approvedAt: null,
@@ -374,8 +471,8 @@ export class AdminService {
 
     return {
       success: true,
-      message: `Vendor ${dto.action.toLowerCase()}d successfully`,
-      data: updatedUser,
+      message: `Vendor ${dto.action.toLowerCase()} successfully`,
+      role: updatedUser.role,
     };
   }
 
@@ -499,10 +596,17 @@ export class AdminService {
     }
 
     // Check if already processed
-    if (store.status !== StoreStatus.INACTIVE) {
-      throw new BadRequestException(
-        `Store already ${store.status.toLowerCase()}`,
-      );
+    // if (store.status !== StoreStatus.INACTIVE) {
+    //   throw new BadRequestException(
+    //     `Store already ${store.status.toLowerCase()}`,
+    //   );
+    // }
+    if (store.status === 'ACTIVE') {
+      return {
+        success: true,
+        message: `store already ${store.status.toLowerCase()}`,
+        data: store,
+      };
     }
 
     // Process based on action
@@ -559,7 +663,7 @@ export class AdminService {
 
     return {
       success: true,
-      message: `Store ${dto.action.toLowerCase()}d successfully`,
+      message: `Store ${dto.action.toLowerCase()} successfully`,
       data: updatedStore,
     };
   }

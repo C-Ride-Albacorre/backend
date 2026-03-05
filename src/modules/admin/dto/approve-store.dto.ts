@@ -19,7 +19,7 @@ export class ApproveStoreDto {
   @IsString()
   rejectionReason?: string;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
-  commissionRate?: number;
+  // @ApiProperty({ required: false })
+  // @IsOptional()
+  // commissionRate?: number;
 }
