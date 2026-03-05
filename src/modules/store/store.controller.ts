@@ -168,7 +168,7 @@ export class StoreController {
   @Delete('delete')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Simple bulk delete (no detailed results)',
+    summary: 'Single | bulk delete',
     description: 'Delete multiple stores with a simpler response format',
   })
   @ApiBody({
