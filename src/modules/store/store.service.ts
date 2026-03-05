@@ -293,4 +293,32 @@ export class StoreService {
       store: updatedStore,
     };
   }
+
+  /**
+   * Alternative implementation using deleteMany (if you don't need individual results)
+   */
+  async deleteMultipleStoresSimple(
+    vendorId: string,
+    storeIds: string[],
+  ): Promise<{ success: boolean; message: string; deletedCount: number }> {
+    this.logger.log(
+      `Simple delete: Vendor ${vendorId} deleting ${storeIds.length} stores`,
+    );
+
+    // Use deleteMany with both id and vendorId condition
+    const result = await this.prisma.store.deleteMany({
+      where: {
+        id: { in: storeIds },
+        userId: vendorId,
+      },
+    });
+
+    const notDeletedCount = storeIds.length - result.count;
+
+    return {
+      success: notDeletedCount === 0,
+      message: `${result.count} stores deleted successfully${notDeletedCount > 0 ? `. ${notDeletedCount} stores not found or not owned by you.` : ''}`,
+      deletedCount: result.count,
+    };
+  }
 }

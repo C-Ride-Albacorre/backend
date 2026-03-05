@@ -10,9 +10,19 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  HttpException,
+  HttpStatus,
+  HttpCode,
+  Delete,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+  ApiOperation,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { StoreService } from './store.service';
 import {
@@ -150,5 +160,36 @@ export class StoreController {
     @Body() hours: OperatingHoursDto[],
   ) {
     return this.storeService.updateOperatingHours(storeId, req.user.id, hours);
+  }
+
+  /**
+   * SIMPLE BULK DELETE - Alternative endpoint for simpler implementation
+   */
+  @Delete('delete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Simple bulk delete (no detailed results)',
+    description: 'Delete multiple stores with a simpler response format',
+  })
+  @ApiBody({
+    schema: {
+      properties: {
+        storeIds: {
+          type: 'array',
+          items: { type: 'string' },
+          example: ['store-id-1', 'store-id-2'],
+        },
+      },
+    },
+  })
+  async deleteMultipleStoresSimple(
+    @Request() req,
+    @Body('storeIds') storeIds: string[],
+  ) {
+    if (!storeIds || storeIds.length === 0) {
+      throw new HttpException('No store IDs provided', HttpStatus.BAD_REQUEST);
+    }
+
+    return this.storeService.deleteMultipleStoresSimple(req.user.id, storeIds);
   }
 }
