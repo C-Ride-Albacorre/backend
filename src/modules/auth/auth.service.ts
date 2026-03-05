@@ -99,6 +99,42 @@ export class AuthService {
     );
   }
 
+  async login(dto: { email: string; password: string }) {
+    // Find super admin by email
+    const superAdmin = await this.prisma.user.findFirst({
+      where: {
+        email: dto.email,
+ role: {
+        in: [UserRole.SUPER_ADMIN, UserRole.ADMIN], // <-- allow both roles
+      },      },
+    });
+
+    if (!superAdmin) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Check password
+    const isPasswordValid = await Helper.compareHashedText(dto.password, superAdmin.password);
+    
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Generate JWT token
+    const payload = { sub: superAdmin.id, email: superAdmin.email, role: superAdmin.role };
+    const accessToken = this.jwtService.sign(payload);
+
+    return {
+      success: true,
+      accessToken,
+      user: {
+        id: superAdmin.id,
+        email: superAdmin.email,
+        role: superAdmin.role,
+      },
+    };
+  }
+
   /**
    * Register customer with automatic OTP
    */

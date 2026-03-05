@@ -22,6 +22,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiExcludeEndpoint,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -70,6 +71,20 @@ export class AuthController {
     private readonly userService: UserService,
     private config: ConfigService,
   ) {}
+
+  @Post('/admin/login')
+  @HttpCode(HttpStatus.OK)
+  // @ApiExcludeEndpoint() 
+   @ApiBody({
+    description: 'Log in as ADMIN',
+    required: true,
+    schema: {
+      example: { email: 'user@example.com', password: 'password' },
+    },
+  })
+  async loginAdminAndSuperAdmin(@Body() dto: { email: string; password: string }) {
+    return this.authService.login(dto);
+  }
 
   //CUSTOMER
   @Post('/customer/signup')

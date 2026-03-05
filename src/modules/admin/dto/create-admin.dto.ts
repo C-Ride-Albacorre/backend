@@ -5,7 +5,6 @@ import {
   IsOptional,
   MinLength,
   Matches,
-  IsPhoneNumber,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -14,11 +13,6 @@ export class CreateAdminDto {
   @IsOptional()
   @IsEmail()
   email?: string;
-
-  @ApiProperty({ example: '+1234567890', required: false })
-  @IsOptional()
-  @IsPhoneNumber()
-  phoneNumber?: string;
 
   @ApiProperty({ example: 'John' })
   @IsString()
