@@ -1,0 +1,673 @@
+// src/admin/admin.service.ts
+import {
+  Injectable,
+  Logger,
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { CreateAdminDto } from './dto/create-admin.dto';
+import { ApproveVendorDto, ApprovalAction } from './dto/approve-vendor.dto';
+import { ApproveStoreDto } from './dto/approve-store.dto';
+import { VendorFilterDto } from './dto/vendor-filter.dto';
+import { StoreFilterDto } from './dto/store-filter.dto';
+import { PrismaService } from '../../shared/services/prisma.service';
+import { StoreStatus, UserRole } from '../../shared/enums';
+import Helper from '../../shared/utils/helpers';
+import { UserStatus } from '@prisma/client';
+import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
+import { User } from '../user/entities/user.entity';
+
+@Injectable()
+export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly userRepository: AbstractUserRepository,
+  ) {}
+
+  /**
+   * Create a new admin (only super_admin can do this)
+   */
+  async createAdmin(superAdminId: string, dto: CreateAdminDto) {
+    this.logger.log(`Super admin ${superAdminId} creating new admin`);
+
+    // Verify super admin exists and has correct role
+    const superAdmin = await this.prisma.user.findUnique({
+      where: { id: superAdminId },
+    });
+
+    if (!superAdmin || superAdmin.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Only super admins can create admins');
+    }
+
+    // Check if user already exists
+    const existingUser = await this.prisma.user.findFirst({
+      where: {
+        email: dto.email,
+      },
+    });
+
+    if (existingUser) {
+      throw new BadRequestException(
+        'User with this email or phone already exists',
+      );
+    }
+
+    // Hash password
+    const hashedPassword = await Helper.hashText(dto.password);
+
+    // Create admin user
+    const admin = await this.prisma.user.create({
+      data: {
+        email: dto.email,
+        phoneNumber: dto.phoneNumber,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        password: hashedPassword,
+        role: UserRole.ADMIN,
+        isActive: true,
+        isVerified: true,
+        verifiedAt: new Date(),
+      },
+      select: {
+        id: true,
+        email: true,
+        phoneNumber: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    this.logger.log(`Admin created: ${admin.email || admin.phoneNumber}`);
+
+    return {
+      success: true,
+      message: 'Admin created successfully',
+      data: admin,
+    };
+  }
+
+  /**
+   * Get all vendors with filtering and pagination
+   */
+  async getAllVendors(filterDto: VendorFilterDto) {
+    const { status, search, hasStores, page = 1, limit = 10 } = filterDto;
+    const skip = (page - 1) * limit;
+
+    // Build where clause
+    const where: any = {
+      role: UserRole.VENDOR,
+    };
+
+    if (status) {
+      where.user = {
+        status,
+      };
+    }
+
+    if (search) {
+      where.businessInfo = {
+        ...where.businessInfo,
+        OR: [
+          { businessName: { contains: search, mode: 'insensitive' } },
+          { businessEmail: { contains: search, mode: 'insensitive' } },
+        ],
+      };
+    }
+
+    if (hasStores !== undefined) {
+      where.stores = hasStores ? { some: {} } : { none: {} };
+    }
+
+    // Get vendors with pagination
+    const [vendors, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          businessInfo: true,
+          stores: {
+            select: {
+              id: true,
+              storeName: true,
+              status: true,
+            },
+          },
+          _count: {
+            select: {
+              stores: true,
+            },
+          },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    // Format response
+    const formattedVendors = vendors.map((vendor) => ({
+      id: vendor.id,
+      email: vendor.email,
+      phoneNumber: vendor.phoneNumber,
+      firstName: vendor.firstName,
+      lastName: vendor.lastName,
+      createdAt: vendor.createdAt,
+      businessInfo: vendor.businessInfo,
+      stores: vendor.stores,
+      storeCount: vendor._count.stores,
+    }));
+
+    return {
+      success: true,
+      data: formattedVendors,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Approve or reject a vendor
+   */
+  // async approveVendor(
+  //   adminId: string,
+  //   vendorId: string,
+  //   dto: ApproveVendorDto,
+  // ) {
+  //   this.logger.log(`Admin ${adminId} approving vendor ${vendorId}`);
+
+  //   // Find vendor
+  //   const vendor = await this.prisma.user.findFirst({
+  //     where: {
+  //       id: vendorId,
+  //       role: UserRole.VENDOR,
+  //     },
+  //     include: {
+  //       businessInfo: true,
+  //     },
+  //   });
+
+  //   if (!vendor) {
+  //     throw new NotFoundException('Vendor not found');
+  //   }
+
+  //   if (!vendor.businessInfo) {
+  //     throw new BadRequestException('Vendor business profile not found');
+  //   }
+
+  //   // Check if already processed
+  //   if (vendor.status !== UserStatus.UNDER_REVIEW) {
+  //     throw new BadRequestException(
+  //       `Vendor already ${vendor.status.toLowerCase()}`,
+  //     );
+  //   }
+
+  //   // Process based on action
+  //   let updatedProfile;
+  //   const now = new Date();
+
+  //   switch (dto.action) {
+  //     case ApprovalAction.APPROVE:
+  //       updatedProfile = await this.prisma.user.update({
+  //         where: { userId: vendorId },
+  //         data: {
+  //           status: UserStatus.APPROVED,
+  //           approvedAt: now,
+  //           approvedBy: adminId,
+  //           rejectionReason: null,
+  //         },
+  //       });
+  //       this.logger.log(`Vendor ${vendorId} approved`);
+  //       break;
+
+  //     case ApprovalAction.REJECT:
+  //       if (!dto.rejectionReason) {
+  //         throw new BadRequestException('Rejection reason is required');
+  //       }
+  //       updatedProfile = await this.userRepository.update({
+  //         where: { userId: vendorId },
+  //         data: {
+  //           status: UserStatus.REJECTED,
+  //           approvedAt: null,
+  //           approvedBy: adminId,
+  //           rejectionReason: dto.rejectionReason,
+  //         },
+  //       });
+  //       this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
+  //       break;
+
+  //     case ApprovalAction.SUSPEND:
+  //       updatedProfile = await this.prisma.businessInfo.update({
+  //         where: { userId: vendorId },
+  //         data: {
+  //           status: UserStatus.SUSPENDED,
+  //           approvedAt: null,
+  //           approvedBy: adminId,
+  //           rejectionReason: dto.rejectionReason,
+  //         },
+  //       });
+
+  //       // Also suspend all vendor's stores
+  //       await this.prisma.store.updateMany({
+  //         where: { vendorId },
+  //         data: { status: StoreStatus.SUSPENDED },
+  //       });
+
+  //       this.logger.log(`Vendor ${vendorId} suspended`);
+  //       break;
+
+  //     default:
+  //       throw new BadRequestException('Invalid action');
+  //   }
+
+  //   return {
+  //     success: true,
+  //     message: `Vendor ${dto.action.toLowerCase()}d successfully`,
+  //     data: updatedProfile,
+  //   };
+  // }
+
+  async approveVendor(
+    adminId: string,
+    vendorId: string,
+    dto: ApproveVendorDto,
+  ) {
+    this.logger.log(`Admin ${adminId} approving vendor ${vendorId}`);
+
+    const vendor = await this.prisma.user.findFirst({
+      where: {
+        id: vendorId,
+        role: UserRole.VENDOR,
+      },
+      include: {
+        businessInfo: true,
+      },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    if (!vendor.businessInfo) {
+      throw new BadRequestException('Vendor business profile not found');
+    }
+
+    if (vendor.status !== UserStatus.UNDER_REVIEW) {
+      throw new BadRequestException(
+        `Vendor already ${vendor.status.toLowerCase()}`,
+      );
+    }
+
+    const now = new Date();
+    let userUpdateData: Partial<User>;
+    let updatedUser;
+
+    switch (dto.action) {
+      case ApprovalAction.APPROVE:
+        userUpdateData = {
+          status: UserStatus.APPROVED,
+          approvedAt: now,
+          approvedBy: adminId,
+          rejectionReason: null,
+        };
+
+        updatedUser = await this.userRepository.update(
+          vendor.id,
+          userUpdateData,
+        );
+
+        this.logger.log(`Vendor ${vendorId} approved`);
+        break;
+
+      case ApprovalAction.REJECT:
+        if (!dto.rejectionReason) {
+          throw new BadRequestException('Rejection reason is required');
+        }
+
+        userUpdateData = {
+          status: UserStatus.REJECTED,
+          approvedAt: null,
+          approvedBy: adminId,
+          rejectionReason: dto.rejectionReason,
+        };
+
+        updatedUser = await this.userRepository.update(
+          vendor.id,
+          userUpdateData,
+        );
+
+        this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
+        break;
+
+      case ApprovalAction.SUSPEND:
+        userUpdateData = {
+          status: UserStatus.SUSPENDED,
+          approvedAt: null,
+          approvedBy: adminId,
+          rejectionReason: dto.rejectionReason,
+        };
+
+        updatedUser = await this.userRepository.update(
+          vendor.id,
+          userUpdateData,
+        );
+
+        await this.prisma.store.updateMany({
+          where: { userId: vendorId },
+          data: { status: StoreStatus.SUSPENDED },
+        });
+
+        this.logger.log(`Vendor ${vendorId} suspended`);
+        break;
+
+      default:
+        throw new BadRequestException('Invalid action');
+    }
+
+    return {
+      success: true,
+      message: `Vendor ${dto.action.toLowerCase()}d successfully`,
+      data: updatedUser,
+    };
+  }
+
+  /**
+   * Get all stores with filtering and pagination
+   */
+  async getAllStores(filterDto: StoreFilterDto) {
+    const {
+      status,
+      search,
+      vendorId,
+      featured,
+      page = 1,
+      limit = 10,
+    } = filterDto;
+    const skip = (page - 1) * limit;
+
+    // Build where clause
+    const where: any = {};
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (vendorId) {
+      where.vendorId = vendorId;
+    }
+
+    if (featured !== undefined) {
+      where.featured = featured;
+    }
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    // Get stores with pagination
+    const [stores, total] = await Promise.all([
+      this.prisma.store.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              businessInfo: {
+                select: {
+                  businessName: true,
+                  businessEmail: true,
+                },
+              },
+            },
+          },
+          _count: {
+            select: {
+              products: true,
+            },
+          },
+        },
+      }),
+      this.prisma.store.count({ where }),
+    ]);
+
+    // Format response
+    const formattedStores = stores.map((store) => ({
+      id: store.id,
+      name: store.storeName,
+      //slug: store.slug,
+      description: store.storeDescription,
+      email: store.email,
+      phoneNumber: store.phoneNumber,
+      status: store.status,
+      // featured: store.featured,
+      totalProducts: store._count.products,
+      createdAt: store.createdAt,
+      user: {
+        id: store.user.id,
+        name: `${store.user.firstName} ${store.user.lastName}`,
+        businessName: store.user.businessInfo?.businessName,
+        email: store.user.email,
+      },
+    }));
+
+    return {
+      success: true,
+      data: formattedStores,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Approve or reject a store
+   */
+  async approveStore(adminId: string, storeId: string, dto: ApproveStoreDto) {
+    this.logger.log(`Admin ${adminId} approving store ${storeId}`);
+
+    // Find store
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!store) {
+      throw new NotFoundException('Store not found');
+    }
+
+    // Check if already processed
+    if (store.status !== StoreStatus.INACTIVE) {
+      throw new BadRequestException(
+        `Store already ${store.status.toLowerCase()}`,
+      );
+    }
+
+    // Process based on action
+    let updatedStore;
+    const now = new Date();
+
+    switch (dto.action) {
+      case StoreStatus.ACTIVE:
+        updatedStore = await this.prisma.store.update({
+          where: { id: storeId },
+          data: {
+            status: StoreStatus.ACTIVE,
+            approvedAt: now,
+            approvedBy: adminId,
+            rejectionReason: null,
+            // commissionRate: dto.commissionRate || store.commissionRate,
+          },
+        });
+        this.logger.log(`Store ${storeId} approved`);
+        break;
+
+      case StoreStatus.REJECTED:
+        if (!dto.rejectionReason) {
+          throw new BadRequestException('Rejection reason is required');
+        }
+        updatedStore = await this.prisma.store.update({
+          where: { id: storeId },
+          data: {
+            status: StoreStatus.REJECTED,
+            approvedAt: null,
+            approvedBy: adminId,
+            rejectionReason: dto.rejectionReason,
+          },
+        });
+        this.logger.log(`Store ${storeId} rejected: ${dto.rejectionReason}`);
+        break;
+
+      case StoreStatus.SUSPENDED:
+        updatedStore = await this.prisma.store.update({
+          where: { id: storeId },
+          data: {
+            status: StoreStatus.SUSPENDED,
+            approvedAt: null,
+            approvedBy: adminId,
+            rejectionReason: dto.rejectionReason,
+          },
+        });
+        this.logger.log(`Store ${storeId} suspended`);
+        break;
+
+      default:
+        throw new BadRequestException('Invalid action');
+    }
+
+    return {
+      success: true,
+      message: `Store ${dto.action.toLowerCase()}d successfully`,
+      data: updatedStore,
+    };
+  }
+
+  /**
+   * Get dashboard statistics
+   */
+  async getDashboardStats() {
+    const [
+      totalUsers,
+      totalVendors,
+      totalStores,
+      totalProducts,
+      pendingVendors,
+      pendingStores,
+      approvedVendors,
+      approvedStores,
+    ] = await Promise.all([
+      this.prisma.user.count(),
+      this.prisma.user.count({ where: { role: UserRole.VENDOR } }),
+      this.prisma.store.count(),
+      this.prisma.product.count(),
+      this.prisma.user.count({
+        where: { status: UserStatus.UNDER_REVIEW },
+      }),
+      this.prisma.store.count({ where: { status: StoreStatus.INACTIVE } }),
+      this.prisma.user.count({
+        where: { status: UserStatus.APPROVED },
+      }),
+      this.prisma.store.count({ where: { status: StoreStatus.INACTIVE } }),
+    ]);
+
+    return {
+      success: true,
+      data: {
+        totalUsers,
+        totalVendors,
+        totalStores,
+        totalProducts,
+        pendingApprovals: {
+          vendors: pendingVendors,
+          stores: pendingStores,
+        },
+        approved: {
+          vendors: approvedVendors,
+          stores: approvedStores,
+        },
+      },
+    };
+  }
+
+  /**
+   * Get vendor details by ID
+   */
+  async getVendorDetails(vendorId: string) {
+    const vendor = await this.prisma.user.findFirst({
+      where: {
+        id: vendorId,
+        role: UserRole.VENDOR,
+      },
+      include: {
+        businessInfo: true,
+        stores: {
+          include: {
+            _count: {
+              select: { products: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    return {
+      success: true,
+      data: vendor,
+    };
+  }
+
+  /**
+   * Get store details by ID
+   */
+  async getStoreDetails(storeId: string) {
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      include: {
+        user: {
+          include: {
+            businessInfo: true,
+          },
+        },
+        products: {
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!store) {
+      throw new NotFoundException('Store not found');
+    }
+
+    return {
+      success: true,
+      data: store,
+    };
+  }
+}

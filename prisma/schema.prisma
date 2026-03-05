@@ -66,6 +66,7 @@ enum StoreStatus {
   INACTIVE
   PENDING_APPROVAL
   SUSPENDED
+  REJECTED
 }
 
 enum ProductStatus {
@@ -120,6 +121,9 @@ model User {
   status                UserStatus       @default(ACTIVE)
   onboardingStatus      OnBoardingStatus @default(NOT_STARTED)
   onboardingStep        Int?
+  approvedAt            DateTime?
+  approvedBy            String?       // User ID of admin who approved
+  rejectionReason       String?
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   oauthProviders        OAuthProvider[]
@@ -222,6 +226,9 @@ model Store {
   operatingHours   OperatingHour[] // Operating Hours (one-to-many relation)
   products         Product[] // Products in this store
   metadata         Json?
+  approvedAt       DateTime?
+  approvedBy       String?       // User ID of admin who approved
+  rejectionReason  String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 

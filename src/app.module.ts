@@ -13,6 +13,7 @@ import { JwtStrategy } from './common/strategies/jwt.strategy';
 import { RedisModule } from './modules/redis/redis.module';
 import { StoreModule } from './modules/store/store.module';
 import { ProductModule } from './modules/product/product.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { ProductModule } from './modules/product/product.module';
     RedisModule,
     StoreModule,
     ProductModule,
+    AdminModule,
     // VerificationModule,
   ],
   controllers: [AppController],
