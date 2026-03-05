@@ -13,8 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { ConfigService } from '@nestjs/config';
-// import { ForgotPasswordDto } from './dto/forgot-password.dto';
-// import { ResetPasswordDto } from './dto/reset-password.dto';
+
 import {
   ForgotPasswordDto,
   ResetPasswordDto,
