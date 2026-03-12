@@ -51,8 +51,16 @@ async function bootstrap() {
   //   origin: process.env.FRONTEND_URL,
   //   credentials: true,
   // });
+  const allowedOrigins = ['http://localhost:3000', process.env.FRONTEND_URL];
+
   app.enableCors({
-    origin: ['http://localhost:3000', process.env.FRONTEND_UR],
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   });
 
