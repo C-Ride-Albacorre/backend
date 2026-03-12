@@ -74,16 +74,31 @@ export class AuthController {
 
   @Post('/admin/login')
   @HttpCode(HttpStatus.OK)
-  // @ApiExcludeEndpoint() 
-   @ApiBody({
+  // @ApiExcludeEndpoint()
+  @ApiOperation({ summary: 'Admin login' })
+  @ApiBody({
     description: 'Log in as ADMIN',
     required: true,
     schema: {
       example: { email: 'user@example.com', password: 'password' },
     },
   })
-  async loginAdminAndSuperAdmin(@Body() dto: { email: string; password: string }) {
+  async loginAdminAndSuperAdmin(
+    @Body() dto: { email: string; password: string },
+  ) {
     return this.authService.login(dto);
+  }
+
+  @Post('/admin/verify')
+  @ApiOperation({ summary: 'Verify Admin login OTP' })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification successful',
+    type: AuthResponseDto,
+  })
+  @ApiResponse({ status: 401, description: 'Invalid OTP' })
+  async verifyAdminLogin(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyRegistration(dto);
   }
 
   //CUSTOMER
@@ -386,7 +401,6 @@ STEP 4 – Bank Details
     await this.authService.logout(userId);
     return { message: 'Logged out successfully' };
   }
-
 
   @Post('forgot-password')
   @ApiOperation({
