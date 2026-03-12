@@ -12,7 +12,7 @@ import { VerificationPurpose } from '../../../shared/enums';
 export class VerifyOtpDto {
   @ApiProperty({
     description: 'Email address or phone number to verify',
-    example: 'user@example.com or +1234567890',
+    example: 'user@example.com', //or +1234567890',
   })
   @IsString()
   @IsNotEmpty()

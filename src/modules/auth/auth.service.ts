@@ -101,37 +101,92 @@ export class AuthService {
 
   async login(dto: { email: string; password: string }) {
     // Find super admin by email
-    const superAdmin = await this.prisma.user.findFirst({
+    const admin = await this.prisma.user.findFirst({
       where: {
         email: dto.email,
- role: {
-        in: [UserRole.SUPER_ADMIN, UserRole.ADMIN], // <-- allow both roles
-      },      },
+        role: {
+          in: [UserRole.SUPER_ADMIN, UserRole.ADMIN], // <-- allow both roles
+        },
+      },
     });
 
-    if (!superAdmin) {
+    if (!admin) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
     // Check password
-    const isPasswordValid = await Helper.compareHashedText(dto.password, superAdmin.password);
-    
+    const isPasswordValid = await Helper.compareHashedText(
+      dto.password,
+      admin.password,
+    );
+
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
     // Generate JWT token
-    const payload = { sub: superAdmin.id, email: superAdmin.email, role: superAdmin.role };
+    const payload = {
+      sub: admin.id,
+      email: admin.email,
+      role: admin.role,
+    };
     const accessToken = this.jwtService.sign(payload);
 
     return {
       success: true,
       accessToken,
       user: {
-        id: superAdmin.id,
-        email: superAdmin.email,
-        role: superAdmin.role,
+        id: admin.id,
+        email: admin.email,
+        role: admin.role,
       },
+    };
+  }
+
+  async loginWithVerification(dto: { email: string; password: string }) {
+    // Find super admin by email
+    const admin = await this.prisma.user.findFirst({
+      where: {
+        email: dto.email,
+        role: {
+          in: [UserRole.SUPER_ADMIN, UserRole.ADMIN], // <-- allow both roles
+        },
+      },
+    });
+
+    if (!admin) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Check password
+    const isPasswordValid = await Helper.compareHashedText(
+      dto.password,
+      admin.password,
+    );
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (!admin.isActive) {
+      throw new ForbiddenException('Admin account is inactive');
+    }
+
+    // -------------------------------------------------
+    // STEP 1: Send OTP for verification
+    // -------------------------------------------------
+
+    await this.verificationService.sendOtp({
+      identifier: admin.email,
+      purpose: VerificationPurpose.TWO_FACTOR,
+    });
+
+    this.logger.log(`Admin OTP sent: ${admin.email}`);
+
+    return {
+      status: 'OTP_REQUIRED',
+      requiresVerification: true,
+      verificationIdentifier: admin.email,
     };
   }
 
@@ -433,7 +488,6 @@ export class AuthService {
   }
 
   /* ---------- Forgot Password flow ---------- */
-
 
   /**
    * Verify password reset OTP using Redis cache
@@ -892,7 +946,6 @@ export class AuthService {
         return 1;
     }
   }
-
 
   /* ---------- OAuth (Google) ---------- */
   async validateOAuthLogin({ provider, providerId, email, name }: any) {

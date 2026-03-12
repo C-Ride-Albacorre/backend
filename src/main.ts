@@ -47,8 +47,12 @@ async function bootstrap() {
   app.use(helmet());
 
   //   // ================= Global Configurations =================
+  // app.enableCors({
+  //   origin: process.env.FRONTEND_URL,
+  //   credentials: true,
+  // });
   app.enableCors({
-    origin: process.env.FRONTEND_URL,
+    origin: ['http://localhost:3000', process.env.FRONTEND_UR],
     credentials: true,
   });
 
