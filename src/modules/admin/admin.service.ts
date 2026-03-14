@@ -14,7 +14,7 @@ import { StoreFilterDto } from './dto/store-filter.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { StoreStatus, UserRole } from '../../shared/enums';
 import Helper from '../../shared/utils/helpers';
-import { UserStatus } from '@prisma/client';
+import { OnBoardingStatus, UserStatus } from '@prisma/client';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { User } from '../user/entities/user.entity';
 
@@ -363,7 +363,7 @@ export class AdminService {
   //   };
   // }
 
-  async approveVendor(
+  async approveVendorbk(
     adminId: string,
     vendorId: string,
     dto: ApproveVendorDto,
@@ -396,6 +396,124 @@ export class AdminService {
     //   );
     // }
     if (vendor.status === 'ACTIVE') {
+      return {
+        success: true,
+        message: `Vendor already ${vendor.status.toLowerCase()}`,
+        data: vendor,
+      };
+    }
+
+    const now = new Date();
+    let userUpdateData: Partial<User>;
+    let updatedUser;
+
+    switch (dto.action) {
+      case UserStatus.APPROVED:
+        userUpdateData = {
+          status: UserStatus.APPROVED,
+          approvedAt: now,
+          approvedBy: adminId,
+          rejectionReason: null,
+        };
+
+        updatedUser = await this.userRepository.update(
+          vendor.id,
+          userUpdateData,
+        );
+
+        this.logger.log(`Vendor ${vendorId} approved`);
+        break;
+
+      case UserStatus.REJECTED:
+        if (!dto.rejectionReason) {
+          throw new BadRequestException('Rejection reason is required');
+        }
+
+        userUpdateData = {
+          status: UserStatus.REJECTED,
+          approvedAt: null,
+          approvedBy: adminId,
+          rejectionReason: dto.rejectionReason,
+        };
+
+        updatedUser = await this.userRepository.update(
+          vendor.id,
+          userUpdateData,
+        );
+
+        this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
+        break;
+
+      case UserStatus.SUSPENDED:
+        userUpdateData = {
+          status: UserStatus.SUSPENDED,
+          approvedAt: null,
+          approvedBy: adminId,
+          rejectionReason: dto.rejectionReason,
+        };
+
+        updatedUser = await this.userRepository.update(
+          vendor.id,
+          userUpdateData,
+        );
+
+        await this.prisma.store.updateMany({
+          where: { userId: vendorId },
+          data: { status: StoreStatus.SUSPENDED },
+        });
+
+        this.logger.log(`Vendor ${vendorId} suspended`);
+        break;
+
+      default:
+        throw new BadRequestException('Invalid action');
+    }
+
+    return {
+      success: true,
+      message: `Vendor ${dto.action.toLowerCase()} successfully`,
+      role: updatedUser.role,
+    };
+  }
+
+  async approveVendor(
+    adminId: string,
+    vendorId: string,
+    dto: ApproveVendorDto,
+  ) {
+    this.logger.log(`Admin ${adminId} approving vendor ${vendorId}`);
+
+    const vendor = await this.prisma.user.findFirst({
+      where: {
+        id: vendorId,
+        role: UserRole.VENDOR,
+      },
+      include: {
+        businessInfo: true,
+      },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    if (!vendor.businessInfo) {
+      throw new BadRequestException(
+        'Vendor business profile not found. Kindly complete onboarding to proceed',
+      );
+    }
+
+    // 🚨 Prevent approval if onboarding not completed
+    const onboardingCompleted =
+      vendor.onboardingStatus === OnBoardingStatus.COMPLETED;
+
+    if (dto.action === UserStatus.APPROVED && !onboardingCompleted) {
+      throw new BadRequestException(
+        'Vendor has not completed onboarding. Approval not allowed.',
+      );
+    }
+
+    if (vendor.status === UserStatus.ACTIVE) {
       return {
         success: true,
         message: `Vendor already ${vendor.status.toLowerCase()}`,

@@ -14,6 +14,9 @@ import { RedisModule } from './modules/redis/redis.module';
 import { StoreModule } from './modules/store/store.module';
 import { ProductModule } from './modules/product/product.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { CustomerModule } from './modules/customer/customer.module';
+import { PaymentModule } from './modules/payment/payment.module';
+import { OrderModule } from './modules/order/order.module';
 
 @Module({
   imports: [
@@ -39,6 +42,9 @@ import { AdminModule } from './modules/admin/admin.module';
     StoreModule,
     ProductModule,
     AdminModule,
+    CustomerModule,
+    PaymentModule,
+    OrderModule,
     // VerificationModule,
   ],
   controllers: [AppController],
