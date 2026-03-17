@@ -5,7 +5,7 @@ import { PrismaService } from './shared/services/prisma.service';
 import { SharedModule } from './shared/shared.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
-import { MenusModule } from './modules/menu/menus.module';
+// import { MenusModule } from './modules/menu/menus.module';
 import { ConfigModule } from '@nestjs/config';
 import { HealthModule } from './modules/health/health.module';
 import { JwtStrategy } from './common/strategies/jwt.strategy';
@@ -36,7 +36,7 @@ import { OrderModule } from './modules/order/order.module';
     SharedModule,
     AuthModule,
     UserModule,
-    MenusModule,
+    // MenusModule,
     HealthModule,
     RedisModule,
     StoreModule,

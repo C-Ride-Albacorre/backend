@@ -5,11 +5,11 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { PrismaService } from '../../shared/services/prisma.service';
-import { CreateOrderDto, OrderSummaryDto } from '../customer/dto/order.dto';
-import { OrderType } from '@prisma/client';
-import { CartService } from '../customer/cart.service';
+import { CartService } from './cart.service';
+import { CreateOrderDto, OrderSummaryDto } from './dto/order.dto';
 // import { v4 as uuidv4 } from 'uuid';
+import { PrismaService } from '../../shared/services/prisma.service';
+import { OrderType } from '@prisma/client';
 
 @Injectable()
 export class OrderService {
@@ -75,19 +75,8 @@ export class OrderService {
           data: {
             orderId: newOrder.id,
             itemType: item.itemType as any,
-            // productId: item.itemType === 'PRODUCT' ? item.id : undefined,
-            // packageId: item.itemType !== 'PRODUCT' ? item.id : undefined,
-            // productId: item.itemType === 'PRODUCT' ? item.id : null,
-            // packageId:
-            //   item.itemType === 'PACKAGE' || item.itemType === 'DOCUMENT'
-            //     ? item.id
-            //     : null,
-            productId: item.itemType === 'PRODUCT' ? item.productId : null,
-
-            packageId:
-              item.itemType === 'PACKAGE' || item.itemType === 'DOCUMENT'
-                ? item.packageId
-                : null,
+            productId: item.itemType === 'PRODUCT' ? item.id : undefined,
+            packageId: item.itemType !== 'PRODUCT' ? item.id : undefined,
             selectedAddons: item.selectedAddons || [],
             quantity: item.quantity,
             unitPrice: item.unitPrice,
@@ -246,9 +235,10 @@ export class OrderService {
 
     if (types.size === 1) {
       const type = Array.from(types)[0];
-      return type === 'PRODUCT' ? 'VENDOR' : type;
+      // Adjust the mapping below to match your OrderType enum or union
+      return type === 'PRODUCT' ? ('VENDOR' as OrderType) : (type as OrderType);
     }
 
-    return 'MIXED';
+    return 'MIXED' as OrderType;
   }
 }
