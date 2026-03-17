@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { ApproveVendorDto } from './dto/approve-vendor.dto';
@@ -14,9 +15,14 @@ import { StoreFilterDto } from './dto/store-filter.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { StoreStatus, UserRole } from '../../shared/enums';
 import Helper from '../../shared/utils/helpers';
-import { UserStatus } from '@prisma/client';
+import { OnBoardingStatus, UserStatus } from '@prisma/client';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { User } from '../user/entities/user.entity';
+import {
+  CreateSubcategoryDto,
+  UpdateSubcategoryDto,
+} from './dto/subcategory.dto';
+import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto';
 
 @Injectable()
 export class AdminService {
@@ -363,7 +369,7 @@ export class AdminService {
   //   };
   // }
 
-  async approveVendor(
+  async approveVendorbk(
     adminId: string,
     vendorId: string,
     dto: ApproveVendorDto,
@@ -396,6 +402,124 @@ export class AdminService {
     //   );
     // }
     if (vendor.status === 'ACTIVE') {
+      return {
+        success: true,
+        message: `Vendor already ${vendor.status.toLowerCase()}`,
+        data: vendor,
+      };
+    }
+
+    const now = new Date();
+    let userUpdateData: Partial<User>;
+    let updatedUser;
+
+    switch (dto.action) {
+      case UserStatus.APPROVED:
+        userUpdateData = {
+          status: UserStatus.APPROVED,
+          approvedAt: now,
+          approvedBy: adminId,
+          rejectionReason: null,
+        };
+
+        updatedUser = await this.userRepository.update(
+          vendor.id,
+          userUpdateData,
+        );
+
+        this.logger.log(`Vendor ${vendorId} approved`);
+        break;
+
+      case UserStatus.REJECTED:
+        if (!dto.rejectionReason) {
+          throw new BadRequestException('Rejection reason is required');
+        }
+
+        userUpdateData = {
+          status: UserStatus.REJECTED,
+          approvedAt: null,
+          approvedBy: adminId,
+          rejectionReason: dto.rejectionReason,
+        };
+
+        updatedUser = await this.userRepository.update(
+          vendor.id,
+          userUpdateData,
+        );
+
+        this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
+        break;
+
+      case UserStatus.SUSPENDED:
+        userUpdateData = {
+          status: UserStatus.SUSPENDED,
+          approvedAt: null,
+          approvedBy: adminId,
+          rejectionReason: dto.rejectionReason,
+        };
+
+        updatedUser = await this.userRepository.update(
+          vendor.id,
+          userUpdateData,
+        );
+
+        await this.prisma.store.updateMany({
+          where: { userId: vendorId },
+          data: { status: StoreStatus.SUSPENDED },
+        });
+
+        this.logger.log(`Vendor ${vendorId} suspended`);
+        break;
+
+      default:
+        throw new BadRequestException('Invalid action');
+    }
+
+    return {
+      success: true,
+      message: `Vendor ${dto.action.toLowerCase()} successfully`,
+      role: updatedUser.role,
+    };
+  }
+
+  async approveVendor(
+    adminId: string,
+    vendorId: string,
+    dto: ApproveVendorDto,
+  ) {
+    this.logger.log(`Admin ${adminId} approving vendor ${vendorId}`);
+
+    const vendor = await this.prisma.user.findFirst({
+      where: {
+        id: vendorId,
+        role: UserRole.VENDOR,
+      },
+      include: {
+        businessInfo: true,
+      },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    if (!vendor.businessInfo) {
+      throw new BadRequestException(
+        'Vendor business profile not found. Kindly complete onboarding to proceed',
+      );
+    }
+
+    // 🚨 Prevent approval if onboarding not completed
+    const onboardingCompleted =
+      vendor.onboardingStatus === OnBoardingStatus.COMPLETED;
+
+    if (dto.action === UserStatus.APPROVED && !onboardingCompleted) {
+      throw new BadRequestException(
+        'Vendor has not completed onboarding. Approval not allowed.',
+      );
+    }
+
+    if (vendor.status === UserStatus.ACTIVE) {
       return {
         success: true,
         message: `Vendor already ${vendor.status.toLowerCase()}`,
@@ -773,5 +897,270 @@ export class AdminService {
       success: true,
       data: store,
     };
+  }
+
+  // ========== CATEGORY SERVICES ==========
+
+  async createCategory(dto: CreateCategoryDto) {
+    try {
+      return await this.prisma.category.create({
+        data: {
+          name: dto.name,
+          description: dto.description,
+          icon: dto.icon,
+          image: dto.image,
+          isActive: dto.isActive ?? true,
+          displayOrder: dto.displayOrder ?? 0,
+        },
+        include: {
+          subcategories: true,
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException('Category with this name already exists');
+      }
+      throw error;
+    }
+  }
+
+  async getAllCategories() {
+    return this.prisma.category.findMany({
+      include: {
+        subcategories: {
+          orderBy: { displayOrder: 'asc' },
+        },
+        _count: {
+          select: { stores: true },
+        },
+      },
+      orderBy: { displayOrder: 'asc' },
+    });
+  }
+
+  async getCategoryById(id: string) {
+    const category = await this.prisma.category.findUnique({
+      where: { id },
+      include: {
+        subcategories: {
+          orderBy: { displayOrder: 'asc' },
+        },
+        stores: {
+          select: {
+            id: true,
+            storeName: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+
+    return category;
+  }
+
+  async updateCategory(id: string, dto: UpdateCategoryDto) {
+    try {
+      return await this.prisma.category.update({
+        where: { id },
+        data: dto,
+        include: {
+          subcategories: true,
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException('Category with this name already exists');
+      }
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Category not found');
+      }
+      throw error;
+    }
+  }
+
+  async deleteCategory(id: string) {
+    // Soft delete by setting isActive to false
+    try {
+      return await this.prisma.category.update({
+        where: { id },
+        data: { isActive: false },
+      });
+    } catch (error) {
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Category not found');
+      }
+      throw error;
+    }
+  }
+
+  async toggleCategoryStatus(id: string) {
+    const category = await this.getCategoryById(id);
+
+    return this.prisma.category.update({
+      where: { id },
+      data: { isActive: !category.isActive },
+    });
+  }
+
+  async updateDisplayOrder(id: string, displayOrder: number) {
+    return this.prisma.category.update({
+      where: { id },
+      data: { displayOrder },
+    });
+  }
+
+  async bulkReorderCategories(
+    categories: { id: string; displayOrder: number }[],
+  ) {
+    const updates = categories.map(({ id, displayOrder }) =>
+      this.prisma.category.update({
+        where: { id },
+        data: { displayOrder },
+      }),
+    );
+
+    return this.prisma.$transaction(updates);
+  }
+
+  // ========== SUBCATEGORY SERVICES ==========
+
+  async createSubcategory(dto: CreateSubcategoryDto) {
+    // Verify category exists
+    const category = await this.prisma.category.findUnique({
+      where: { id: dto.categoryId },
+    });
+
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+
+    try {
+      return await this.prisma.subcategory.create({
+        data: {
+          name: dto.name,
+          description: dto.description,
+          categoryId: dto.categoryId,
+          isActive: dto.isActive ?? true,
+          displayOrder: dto.displayOrder ?? 0,
+        },
+        include: {
+          category: true,
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(
+          'Subcategory with this name already exists in this category',
+        );
+      }
+      throw error;
+    }
+  }
+
+  async getAllSubcategories() {
+    return this.prisma.subcategory.findMany({
+      include: {
+        category: true,
+        _count: {
+          select: { storeSubcategories: true },
+        },
+      },
+      orderBy: [{ categoryId: 'asc' }, { displayOrder: 'asc' }],
+    });
+  }
+
+  async getSubcategoriesByCategory(categoryId: string) {
+    return this.prisma.subcategory.findMany({
+      where: { categoryId },
+      include: {
+        _count: {
+          select: { storeSubcategories: true },
+        },
+      },
+      orderBy: { displayOrder: 'asc' },
+    });
+  }
+
+  async getSubcategoryById(id: string) {
+    const subcategory = await this.prisma.subcategory.findUnique({
+      where: { id },
+      include: {
+        category: true,
+        storeSubcategories: {
+          include: {
+            store: {
+              select: {
+                id: true,
+                storeName: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!subcategory) {
+      throw new NotFoundException('Subcategory not found');
+    }
+
+    return subcategory;
+  }
+
+  async updateSubcategory(id: string, dto: UpdateSubcategoryDto) {
+    try {
+      return await this.prisma.subcategory.update({
+        where: { id },
+        data: dto,
+        include: {
+          category: true,
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(
+          'Subcategory with this name already exists in this category',
+        );
+      }
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Subcategory not found');
+      }
+      throw error;
+    }
+  }
+
+  async deleteSubcategory(id: string) {
+    // Soft delete by setting isActive to false
+    try {
+      return await this.prisma.subcategory.update({
+        where: { id },
+        data: { isActive: false },
+      });
+    } catch (error) {
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Subcategory not found');
+      }
+      throw error;
+    }
+  }
+
+  async toggleSubcategoryStatus(id: string) {
+    const subcategory = await this.getSubcategoryById(id);
+
+    return this.prisma.subcategory.update({
+      where: { id },
+      data: { isActive: !subcategory.isActive },
+    });
+  }
+
+  async updateSubcategoryDisplayOrder(id: string, displayOrder: number) {
+    return this.prisma.subcategory.update({
+      where: { id },
+      data: { displayOrder },
+    });
   }
 }

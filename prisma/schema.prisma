@@ -122,16 +122,18 @@ model User {
   onboardingStatus      OnBoardingStatus @default(NOT_STARTED)
   onboardingStep        Int?
   approvedAt            DateTime?
-  approvedBy            String?       // User ID of admin who approved
+  approvedBy            String? // User ID of admin who approved
   rejectionReason       String?
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   oauthProviders        OAuthProvider[]
   businessInfo          BusinessInfo?
+  customerLocations     CustomerLocation[]
   documents             VendorDocument[]
   stores                Store[] // One vendor can have multiple stores
-  menus                 Menu[]
-
+  cart                  Cart[]
+  orders                Order[]
+  
   @@index([email])
   @@index([phoneNumber])
 }
@@ -209,28 +211,32 @@ model VendorDocument {
 
 // Store Model
 model Store {
-  id               String          @id @default(uuid())
-  storeName        String
-  storeCategory    String // Will be populated from admin-provided categories
-  storeDescription String?
-  storeAddress     String
-  phoneNumber      String
-  email            String
-  minimumOrder     Float?          @default(0)
-  preparationTime  Int? // In minutes
-  deliveryFee      Float?
-  storeLogo        String? // URL to store logo image
-  status           StoreStatus     @default(PENDING_APPROVAL)
-  userId           String
-  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  operatingHours   OperatingHour[] // Operating Hours (one-to-many relation)
-  products         Product[] // Products in this store
-  metadata         Json?
-  approvedAt       DateTime?
-  approvedBy       String?       // User ID of admin who approved
-  rejectionReason  String?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  id                 String             @id @default(uuid())
+  storeName          String
+  storeCategory      String // Will be populated from admin-provided categories
+  storeDescription   String?
+  storeAddress       String
+  phoneNumber        String
+  email              String
+  minimumOrder       Float?             @default(0)
+  preparationTime    Int? // In minutes
+  deliveryFee        Float?
+  storeLogo          String? // URL to store logo image
+  status             StoreStatus        @default(PENDING_APPROVAL)
+  userId             String
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  operatingHours     OperatingHour[] // Operating Hours (one-to-many relation)
+  products           Product[] // Products in this store
+  metadata           Json?
+  approvedAt         DateTime?
+  approvedBy         String? // User ID of admin who approved
+  rejectionReason    String?
+  storeSubcategories StoreSubcategory[] // Many-to-many with subcategories
+  categoryId         String?
+  category           Category?          @relation(fields: [categoryId], references: [id])
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  orderItems         OrderItem[]
 
   @@index([userId])
   @@index([storeCategory])
@@ -275,6 +281,8 @@ model Product {
   metadata          Json?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
+  cartItems         CartItem[]
+  orderItems        OrderItem[]
 
   @@index([storeId])
   @@index([productCategory])
@@ -310,6 +318,8 @@ model Variant {
   attributes    Json? // e.g., { "size": "Large", "color": "Red", "weight": "500g" }
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
 
   @@index([productId])
   @@index([sku])
@@ -331,6 +341,28 @@ model Addon {
   updatedAt   DateTime @updatedAt
 
   @@index([productId])
+}
+
+// Customer Location
+model CustomerLocation {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address        String
+  city           String?
+  state          String?
+  country        String?
+  postalCode     String?
+  latitude       Float?
+  longitude      Float?
+  isDefault      Boolean  @default(false)
+  label          String?  // e.g., "Home", "Office"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, address])
+  @@index([userId])
+  @@index([isDefault])
 }
 
 // Admin Categories (for future admin management)
@@ -358,15 +390,320 @@ model ProductCategory {
   @@index([isActive])
 }
 
-model Menu {
-  id          String   @id @default(uuid())
+// Add to your schema.prisma
+
+// Store Subcategories (many-to-many relationship)
+model StoreSubcategory {
+  id            String      @id @default(uuid())
+  storeId       String
+  store         Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  subcategoryId String
+  subcategory   Subcategory @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([storeId, subcategoryId])
+  @@index([storeId])
+  @@index([subcategoryId])
+}
+
+// Subcategories managed by Admin
+model Subcategory {
+  id                 String             @id @default(uuid())
+  name               String
+  description        String?
+  categoryId         String
+  category           Category           @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  isActive           Boolean            @default(true)
+  displayOrder       Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  storeSubcategories StoreSubcategory[]
+
+  @@unique([categoryId, name])
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+// Categories managed by Admin
+model Category {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  description  String?
+  icon         String? // URL to category icon
+  image        String? // URL to category image
+  isActive     Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  subcategories Subcategory[]
+  stores        Store[] // Direct relation if needed
+
+  @@index([isActive])
+}
+
+// Package/Document Service (separate from vendor stores)
+model Package {
+  id          String      @id @default(uuid())
   name        String
   description String?
-  imageUrl    String?
-  category    String?
-  type        String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        PackageType // PACKAGE or DOCUMENT
+  weight      Float? // in kg
+  dimensions  Json? // { length, width, height }
+  basePrice   Float
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+
+  @@index([type])
+  @@index([isActive])
+}
+
+enum PackageType {
+  PACKAGE
+  DOCUMENT
+}
+
+// Delivery Options (configured by Admin)
+model DeliveryOption {
+  id            String   @id @default(uuid())
+  name          String // e.g., "Standard Delivery", "Express Delivery", "Same Day"
+  description   String?
+  estimatedDays String? // e.g., "2-3 business days"
+  baseFee       Float
+  perKmFee      Float? // Additional fee per km
+  isActive      Boolean  @default(true)
+  displayOrder  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  orders        Order[]
+
+  @@index([isActive])
+}
+
+// Service Fees (configured by Admin)
+model ServiceFee {
+  id          String          @id @default(uuid())
+  name        String // e.g., "Service Fee", "Platform Fee"
+  description String?
+  feeType     FeeType // PERCENTAGE or FIXED
+  value       Float // Percentage or fixed amount
+  isActive    Boolean         @default(true)
+  appliesTo   FeeApplicableTo // ALL, VENDOR_ORDERS, PACKAGE_ORDERS, DOCUMENT_ORDERS
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([isActive])
+  @@index([appliesTo])
+}
+
+enum FeeType {
+  PERCENTAGE
+  FIXED
+}
+
+enum FeeApplicableTo {
+  ALL
+  VENDOR_ORDERS
+  PACKAGE_ORDERS
+  DOCUMENT_ORDERS
+}
+
+// Tax Settings (configured by Admin)
+model TaxSetting {
+  id          String          @id @default(uuid())
+  name        String // e.g., "VAT", "Sales Tax"
+  description String?
+  rate        Float // Percentage
+  isActive    Boolean         @default(true)
+  appliesTo   TaxApplicableTo // ALL, VENDOR_ORDERS, PACKAGE_ORDERS, DOCUMENT_ORDERS
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([isActive])
+  @@index([appliesTo])
+}
+
+enum TaxApplicableTo {
+  ALL
+  VENDOR_ORDERS
+  PACKAGE_ORDERS
+  DOCUMENT_ORDERS
+}
+
+// Cart
+model Cart {
+  id          String     @id @default(uuid())
   userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId   String? // For guest users
+  items       CartItem[]
+  totalAmount Float      @default(0)
+  expiresAt   DateTime? // Cart expiration
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([userId])
+  @@unique([sessionId])
+  @@index([userId])
+  @@index([sessionId])
+  @@index([expiresAt])
+}
+
+model CartItem {
+  id       String       @id @default(uuid())
+  cartId   String
+  cart     Cart         @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  itemType CartItemType // PRODUCT, PACKAGE, DOCUMENT
+
+  // For product items
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  variantId String?
+  variant   Variant? @relation(fields: [variantId], references: [id])
+
+  // For package/document items
+  packageId String?
+  package   Package? @relation(fields: [packageId], references: [id])
+
+  // Selected add-ons (for products)
+  selectedAddons Json? // Array of addon IDs with quantities
+
+  quantity            Int
+  unitPrice           Float
+  totalPrice          Float
+  specialInstructions String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([cartId])
+  @@index([productId])
+  @@index([packageId])
+}
+
+enum CartItemType {
+  PRODUCT
+  PACKAGE
+  DOCUMENT
+}
+
+// Orders
+model Order {
+  id          String @id @default(uuid())
+  orderNumber String @unique
+  userId      String
+  user        User   @relation(fields: [userId], references: [id])
+
+  // Order details
+  items     OrderItem[]
+  orderType OrderType // VENDOR, PACKAGE, DOCUMENT, MIXED
+
+  // Pricing
+  subtotal    Float
+  deliveryFee Float
+  serviceFee  Float
+  taxAmount   Float
+  totalAmount Float
+
+  // Delivery
+  deliveryOptionId     String?
+  deliveryOption       DeliveryOption? @relation(fields: [deliveryOptionId], references: [id])
+  pickupLocation       String? // For vendor orders (store address)
+  dropoffLocation      String
+  recipientName        String
+  recipientPhone       String
+  deliveryInstructions String?
+
+  // Payment
+  paymentStatus    PaymentStatus  @default(PENDING)
+  paymentMethod    PaymentMethod?
+  paymentReference String?        @unique
+  monnifyReference String?        @unique
+
+  // Status
+  orderStatus   OrderStatus @default(PENDING)
+  statusHistory Json? // Track status changes
+
+  // Metadata
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderNumber])
+  @@index([userId])
+  @@index([orderStatus])
+  @@index([paymentStatus])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id       String       @id @default(uuid())
+  orderId  String
+  order    Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemType CartItemType
+
+  // For product items
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  variantId String?
+  variant   Variant? @relation(fields: [variantId], references: [id])
+  storeId   String?
+  store     Store?   @relation(fields: [storeId], references: [id])
+
+  // For package/document items
+  packageId String?
+  package   Package? @relation(fields: [packageId], references: [id])
+
+  // Selected add-ons
+  selectedAddons Json? // Array of { addonId, name, price, quantity }
+
+  // Pricing
+  quantity            Int
+  unitPrice           Float
+  totalPrice          Float
+  specialInstructions String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([storeId])
+}
+
+enum OrderType {
+  VENDOR // Only vendor products
+  PACKAGE // Only packages
+  DOCUMENT // Only documents
+  MIXED // Mix of different types
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  CONFIRMED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  BANK_TRANSFER
+  USSD
+  QR_CODE
+  WALLET
 }
