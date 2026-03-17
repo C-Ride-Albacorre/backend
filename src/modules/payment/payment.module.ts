@@ -1,9 +1,9 @@
+// src/payment/payment.module.ts
 import { Module } from '@nestjs/common';
-import { PaymentService } from './payment.service';
-import { PaymentController } from './payment.controller';
+import { MonnifyService } from './monnify.service';
 
 @Module({
-  controllers: [PaymentController],
-  providers: [PaymentService],
+  providers: [MonnifyService],
+  exports: [MonnifyService], // export so other modules can use it
 })
 export class PaymentModule {}
