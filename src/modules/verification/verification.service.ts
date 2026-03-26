@@ -30,12 +30,12 @@ export class VerificationService {
       this.configService.get<string>('NODE_ENV') === 'production';
 
     // Choose providers based on environment
-    this.emailProvider = this.isProduction
-      ? zohoEmailProvider
-      : consoleEmailProvider;
     // this.emailProvider = this.isProduction
     //   ? zohoEmailProvider
-    //   : zohoEmailProvider;
+    //   : consoleEmailProvider;
+    this.emailProvider = this.isProduction
+      ? zohoEmailProvider
+      : zohoEmailProvider;
 
     this.smsProvider = this.isProduction
       ? termiiSmsProvider
