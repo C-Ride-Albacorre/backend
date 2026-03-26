@@ -8,6 +8,6 @@ import { RedisHealthIndicator } from './redis.health';
 @Module({
   imports: [ConfigModule],
   providers: [RedisProvider, RedisService, RedisHealthIndicator],
-  exports: [RedisService, RedisHealthIndicator],
+  exports: [RedisProvider, RedisService, RedisHealthIndicator],
 })
 export class RedisModule {}

@@ -689,4 +689,67 @@ export default class Helper {
 
     throw new Error('Invalid registration input');
   }
+
+  static async geocodeAddress(address: string) {
+    try {
+      const response = await axios.get(
+        'https://maps.googleapis.com/maps/api/geocode/json',
+        {
+          params: {
+            address,
+            key: process.env.GOOGLE_MAPS_API_KEY,
+          },
+        },
+      );
+
+      const { status, results } = response.data;
+
+      if (status === 'OK' && results.length > 0) {
+        return results[0].geometry.location;
+      }
+
+      console.log(JSON.stringify(response.data, null, 2));
+
+      // Handle known non-fatal cases
+      if (status === 'ZERO_RESULTS') {
+        console.warn(`No results found for address: ${address}`);
+        return null;
+      }
+
+      if (status === 'OVER_QUERY_LIMIT') {
+        console.error('Google Maps quota exceeded');
+        return null;
+      }
+
+      if (status === 'REQUEST_DENIED') {
+        console.error('Google Maps request denied (check API key & billing)');
+        return null;
+      }
+
+      // Catch-all
+      console.error(`Geocoding failed with status: ${status}`);
+      return null;
+    } catch (error) {
+      console.error('Geocoding request failed:', error.message);
+      return null;
+    }
+  }
+
+  static async geocodeAddressold(address: string) {
+    const response = await axios.get(
+      'https://maps.googleapis.com/maps/api/geocode/json',
+      {
+        params: {
+          address,
+          key: process.env.GOOGLE_MAPS_API_KEY,
+        },
+      },
+    );
+
+    if (response.data.status !== 'OK') {
+      throw new Error('Geocoding failed');
+    }
+
+    return response.data.results[0].geometry.location;
+  }
 }

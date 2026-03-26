@@ -528,7 +528,47 @@ export class UserService {
     return this.userRepository.findByPhone(phoneNumber);
   }
 
-  async markUserLogin(userId: string): Promise<void> {
+  async markUserLogin(userId: string): Promise<{ isFirstLogin: boolean }> {
+    try {
+      const user = await this.userRepository.findById(
+        userId,
+        //select: ['id', 'isNewUser'], // only what you need
+      );
+
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      let isFirstLogin = false;
+
+      if (user.isNewUser) {
+        isFirstLogin = true;
+
+        await this.userRepository.update(userId, {
+          isNewUser: false, // flip after first login
+          lastLoginAt: new Date(),
+        });
+      } else {
+        await this.userRepository.update(userId, {
+          lastLoginAt: new Date(),
+        });
+      }
+
+      this.logger.log(
+        `User ${userId} logged in at ${new Date()} (first login: ${isFirstLogin})`,
+      );
+
+      return { isFirstLogin };
+    } catch (error) {
+      this.logger.error(
+        `Failed to mark login for user ${userId}: ${error.message}`,
+      );
+
+      return { isFirstLogin: false }; // safe fallback
+    }
+  }
+
+  async markUserLoginold(userId: string): Promise<void> {
     try {
       await this.userRepository.update(userId, {
         lastLoginAt: new Date(),
