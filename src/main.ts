@@ -54,6 +54,7 @@ async function bootstrap() {
   const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:4000',
+    'https://backend-service-1rc7.onrender.com',
     process.env.FRONTEND_URL,
   ];
 

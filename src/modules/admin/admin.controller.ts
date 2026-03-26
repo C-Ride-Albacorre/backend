@@ -12,6 +12,9 @@ import {
   HttpStatus,
   Put,
   Delete,
+  UseInterceptors,
+  UploadedFile,
+  UploadedFiles,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -25,6 +28,7 @@ import {
   ApiConflictResponse,
   ApiOkResponse,
   ApiNotFoundResponse,
+  ApiConsumes,
 } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { Roles } from '../../common/decorators/role.decorator';
@@ -42,6 +46,10 @@ import {
   CreateSubcategoryDto,
   UpdateSubcategoryDto,
 } from './dto/subcategory.dto';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+} from '@nestjs/platform-express';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -128,6 +136,13 @@ export class AdminController {
   // ========== CATEGORY ENDPOINTS ==========
 
   @Post()
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'image', maxCount: 1 },
+      { name: 'icon', maxCount: 1 },
+    ]),
+  )
   @ApiOperation({
     summary: 'Create a new category',
     description:
@@ -154,8 +169,15 @@ export class AdminController {
   @ApiConflictResponse({
     description: 'Category with this name already exists',
   })
-  async createCategory(@Body() dto: CreateCategoryDto) {
-    return this.adminService.createCategory(dto);
+  async createCategory(
+    @Body() dto: CreateCategoryDto,
+    @UploadedFiles()
+    files: {
+      image?: Express.Multer.File[];
+      icon?: Express.Multer.File[];
+    },
+  ) {
+    return this.adminService.createCategory(dto, files);
   }
 
   @Get()
@@ -230,10 +252,14 @@ export class AdminController {
   }
 
   @Delete(':id')
+  // @ApiOperation({
+  //   summary: 'Delete category (soft delete)',
+  //   description:
+  //     'Soft deletes a category by setting isActive to false. The category remains in the database but becomes inactive.',
+  // })
   @ApiOperation({
-    summary: 'Delete category (soft delete)',
-    description:
-      'Soft deletes a category by setting isActive to false. The category remains in the database but becomes inactive.',
+    summary: 'Delete category',
+    description: 'Deletes a category from db.',
   })
   @ApiParam({
     name: 'id',
@@ -421,10 +447,14 @@ export class AdminController {
   }
 
   @Delete('subcategories/:id')
+  // @ApiOperation({
+  //   summary: 'Delete subcategory (soft delete)',
+  //   description:
+  //     'Soft deletes a subcategory by setting isActive to false. The subcategory remains in the database but becomes inactive.',
+  // })
   @ApiOperation({
-    summary: 'Delete subcategory (soft delete)',
-    description:
-      'Soft deletes a subcategory by setting isActive to false. The subcategory remains in the database but becomes inactive.',
+    summary: 'Delete subCategory',
+    description: 'Deletes a subCategory from db.',
   })
   @ApiParam({
     name: 'id',
