@@ -23,6 +23,7 @@ import {
   UpdateSubcategoryDto,
 } from './dto/subcategory.dto';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto';
+import { CloudinaryService } from '../../shared/services/cloudinary.service';
 
 @Injectable()
 export class AdminService {
@@ -31,6 +32,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly userRepository: AbstractUserRepository,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   /**
@@ -900,8 +902,55 @@ export class AdminService {
   }
 
   // ========== CATEGORY SERVICES ==========
+  async createCategory(
+    dto: CreateCategoryDto,
+    files?: {
+      image?: Express.Multer.File[];
+      icon?: Express.Multer.File[];
+    },
+  ) {
+    try {
+      let imageUrl: string | null = null;
+      let iconUrl: string | null = null;
 
-  async createCategory(dto: CreateCategoryDto) {
+      // ✅ Upload image
+      if (files?.image?.[0]) {
+        const uploadResult = await this.cloudinaryService.uploadLogo(
+          files.image[0],
+        );
+        imageUrl = uploadResult.secure_url;
+      }
+
+      // ✅ Upload icon
+      if (files?.icon?.[0]) {
+        const uploadResult = await this.cloudinaryService.uploadLogo(
+          files.icon[0],
+        );
+        iconUrl = uploadResult.secure_url;
+      }
+
+      return await this.prisma.category.create({
+        data: {
+          name: dto.name,
+          description: dto.description,
+          icon: iconUrl, // 👈 now from Cloudinary
+          image: imageUrl,
+          isActive: dto.isActive ?? true,
+          displayOrder: dto.displayOrder ?? 0,
+        },
+        include: {
+          subcategories: true,
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException('Category with this name already exists');
+      }
+      throw error;
+    }
+  }
+
+  async createCategorywithouticonimage(dto: CreateCategoryDto) {
     try {
       return await this.prisma.category.create({
         data: {
@@ -983,6 +1032,19 @@ export class AdminService {
   }
 
   async deleteCategory(id: string) {
+    try {
+      return await this.prisma.category.delete({
+        where: { id },
+      });
+    } catch (error) {
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Category not found');
+      }
+      throw error;
+    }
+  }
+
+  async softDeleteCategory(id: string) {
     // Soft delete by setting isActive to false
     try {
       return await this.prisma.category.update({
@@ -1134,6 +1196,19 @@ export class AdminService {
   }
 
   async deleteSubcategory(id: string) {
+    try {
+      return await this.prisma.subcategory.delete({
+        where: { id },
+      });
+    } catch (error) {
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Subcategory not found');
+      }
+      throw error;
+    }
+  }
+
+  async softDeleteSubcategory(id: string) {
     // Soft delete by setting isActive to false
     try {
       return await this.prisma.subcategory.update({

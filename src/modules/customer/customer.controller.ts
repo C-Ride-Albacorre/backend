@@ -20,6 +20,7 @@ import {
   ApiNotFoundResponse,
   ApiParam,
   ApiOkResponse,
+  ApiProperty,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CustomerService } from './customer.service';
@@ -33,6 +34,8 @@ import { MonnifyService } from '../payment/monnify.service';
 import { OrderService } from '../order/order.service';
 import { Roles } from 'src/common/decorators/role.decorator';
 import { UserRole } from 'src/shared/enums';
+import { GetStoresQueryDto } from './dto/get-store.dto';
+import { StoreResponseDto } from './dto/store-response.dto';
 
 @ApiTags('customer')
 @Controller('customer')
@@ -51,7 +54,14 @@ export class CustomerController {
 
   @Post('location')
   @ApiOperation({ summary: 'Save customer location (prompted at first login)' })
-  @ApiBody({ type: SaveLocationDto })
+  // @ApiBody({ type: SaveLocationDto })
+  @ApiBody({
+    description: 'Enter address',
+    required: true,
+    schema: {
+      example: { address: '12 Allen Avenue, Lekki, Lagos' },
+    },
+  })
   async saveLocation(@Request() req, @Body() dto: SaveLocationDto) {
     return this.customerService.saveLocation(req.user.id, dto);
   }
@@ -72,16 +82,92 @@ export class CustomerController {
 
   @Get('stores/category/:categoryId')
   @ApiOperation({ summary: 'Get stores by category' })
-  @ApiQuery({ name: 'latitude', required: false })
-  @ApiQuery({ name: 'longitude', required: false })
+  @ApiQuery({ name: 'lat', required: false })
+  @ApiQuery({ name: 'lng', required: false })
   async getStoresByCategory(
     @Param('categoryId') categoryId: string,
-    @Query('latitude') latitude?: number,
-    @Query('longitude') longitude?: number,
+    @Request() req,
+    // @Query('latitude') latitude?: number,
+    // @Query('longitude') longitude?: number,
+    // @Query('lat') lat?: number,
+    // @Query('lng') lng?: number,
   ) {
-    const location = latitude && longitude ? { latitude, longitude } : null;
-    return this.storeDiscoveryService.getStoresByCategory(categoryId, location);
+    // const location = latitude && longitude ? { latitude, longitude } : null;
+    //const customerLocation = lat && lng ? { lat, lng } : null;
+
+    //return this.storeDiscoveryService.getStoresByCategory(categoryId, location);
+    const customerId = req.user.id;
+    return this.storeDiscoveryService.getStoresByCategory(
+      categoryId,
+      customerId,
+    );
   }
+
+  // @Get('stores/category/:categoryId')
+  // @ApiOperation({
+  //   summary: 'Get stores by category (with optional location support)',
+  //   description:
+  //     'Fetch stores filtered by category. Supports optional GPS coordinates, radius filtering, and pagination. If no location is provided, defaults to user saved address if available.',
+  // })
+  // @ApiParam({
+  //   name: 'categoryId',
+  //   description: 'ID of the store category',
+  //   type: 'string',
+  //   example: '123e4567-e89b-12d3-a456-426614174000',
+  // })
+  // @ApiQuery({
+  //   name: 'lat',
+  //   required: false,
+  //   type: Number,
+  //   description: 'User latitude (optional, overrides saved location)',
+  //   example: 6.5244,
+  // })
+  // @ApiQuery({
+  //   name: 'lng',
+  //   required: false,
+  //   type: Number,
+  //   description: 'User longitude (optional, overrides saved location)',
+  //   example: 3.3792,
+  // })
+  // @ApiQuery({
+  //   name: 'radiusKm',
+  //   required: false,
+  //   type: Number,
+  //   description: 'Search radius in kilometers',
+  //   example: 10,
+  // })
+  // @ApiQuery({
+  //   name: 'page',
+  //   required: false,
+  //   type: Number,
+  //   description: 'Pagination page number',
+  //   example: 1,
+  // })
+  // @ApiQuery({
+  //   name: 'limit',
+  //   required: false,
+  //   type: Number,
+  //   description: 'Number of stores per page',
+  //   example: 20,
+  // })
+  // @ApiOkResponse({
+  //   description:
+  //     'List of stores matching the category and optional location filters',
+  //   type: [StoreResponseDto],
+  // })
+  // async getStoresByCategory(
+  //   @Param('categoryId') categoryId: string,
+  //   @Query() query: GetStoresQueryDto,
+  //   @Request() req,
+  // ): Promise<StoreResponseDto[]> {
+  //   const customerId = req.user?.id;
+
+  //   return this.storeDiscoveryService.getStoresByCategory({
+  //     categoryId,
+  //     customerId,
+  //     ...query, // pass through validated DTO
+  //   });
+  // }
 
   @Get('subcategories/category/:categoryId')
   @ApiOperation({ summary: 'Get subcategories by category with store counts' })

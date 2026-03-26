@@ -31,6 +31,7 @@ export class User {
   approvedAt?: Date;
   approvedBy?: string; // User ID of admin who approved
   rejectionReason?: string;
+  isNewUser?: boolean;
   referralCode?: string;
   referredBy?: string;
   status?: UserStatus;

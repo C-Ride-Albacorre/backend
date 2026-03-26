@@ -1,9 +1,11 @@
+/* eslint-disable prettier/prettier */
 // src/customer/services/customer.service.ts
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { SaveLocationDto } from './dto/location.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
-import { CartItemSummaryDto, CartSummaryDto } from './dto/cart-summary.dto';
+// import { CartItemSummaryDto, CartSummaryDto } from './dto/cart-summary.dto';
 import { DeliveryOptionDto } from './dto/delivery-option.dto';
+import Helper from '../../shared/utils/helpers';
 
 @Injectable()
 export class CustomerService {
@@ -15,6 +17,120 @@ export class CustomerService {
    * Save customer location (prompted at first login)
    */
   async saveLocation(userId: string, dto: SaveLocationDto) {
+  this.logger.log(`Saving location for user: ${userId}`);
+
+  // 1️⃣ Build a clean full address (fallback country if missing)
+  const parts = [
+    dto.address,
+    dto.city,
+    dto.state,
+    dto.country || 'Nigeria', // fallback for Nigerian addresses
+  ].filter(Boolean);
+  const fullAddress = parts.join(', ');
+
+  // 2️⃣ Try geocoding if latitude/longitude not provided
+  if (!dto.latitude || !dto.longitude) {
+    const geo = await Helper.geocodeAddress(fullAddress);
+
+    if (geo) {
+      dto.latitude = geo.lat;  // use correct field names
+      dto.longitude = geo.lng;
+      this.logger.log(`Coordinates found: ${dto.latitude}, ${dto.longitude}`);
+    } else {
+      this.logger.warn(`Could not resolve coordinates for: ${fullAddress}`);
+    }
+  }
+
+  // 3️⃣ Handle default location: unset previous default if needed
+  if (dto.isDefault) {
+    await this.prisma.customerLocation.updateMany({
+      where: { userId, isDefault: true },
+      data: { isDefault: false },
+    });
+  }
+
+  // 4️⃣ Upsert the location: create if new, update if same address exists
+  const location = await this.prisma.customerLocation.upsert({
+    where: {
+      userId_address: {
+        userId,
+        address: dto.address,
+      },
+    },
+    update: {
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      city: dto.city,
+      state: dto.state,
+      country: dto.country,
+      postalCode: dto.postalCode,
+      label: dto.label,
+      isDefault: dto.isDefault,
+    },
+    create: {
+      userId,
+      ...dto,
+    },
+  });
+
+  // 5️⃣ Return consistent response
+  return {
+    success: true,
+    message: dto.latitude && dto.longitude
+      ? 'Location saved with coordinates'
+      : 'Location saved (coordinates unavailable)',
+    location,
+  };
+}
+  async saveLocationbk(userId: string, dto: SaveLocationDto) {
+    this.logger.log(`Saving location for user: ${userId}`);
+
+    // If coordinates are missing → generate them
+    if (!dto.latitude || !dto.longitude) {
+      // const fullAddress = `${dto.address}, ${dto.city || ''}, ${dto.state || ''}, ${dto.country || ''}`;
+      let fullAddress = dto.address;
+
+      if (!dto.address.includes(dto.country || '')) {
+        const parts = [dto.address, dto.city, dto.state, dto.country].filter(
+          Boolean,
+        );
+        fullAddress = parts.join(', ');
+      }
+
+      const geo = await Helper.geocodeAddress(fullAddress);
+      if (geo) {
+        dto.latitude = geo.lat;
+        dto.longitude = geo.lng;
+      } else {
+        this.logger.warn(`Could not resolve coordinates for: ${fullAddress}`);
+      }
+
+    
+    }
+
+    // Handle default location
+    if (dto.isDefault) {
+      await this.prisma.customerLocation.updateMany({
+        where: { userId, isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
+    const location = await this.prisma.customerLocation.create({
+      data: {
+        userId,
+        ...dto,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Location saved successfully',
+      location,
+    };
+  }
+
+  async saveLocationold(userId: string, dto: SaveLocationDto) {
     this.logger.log(`Saving location for user: ${userId}`);
 
     // If this is set as default, unset any existing default

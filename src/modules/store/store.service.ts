@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Inject,
 } from '@nestjs/common';
 import {
   CreateStoreDto,
@@ -11,7 +12,8 @@ import {
 } from './dto/store.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
-import { UserStatus } from 'src/shared/enums';
+import { Queue } from 'bullmq';
+import { GEOCODE_QUEUE } from '../../queue/geocode.queue';
 
 @Injectable()
 export class StoreService {
@@ -20,86 +22,87 @@ export class StoreService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
+    @Inject(GEOCODE_QUEUE)
+    private readonly geocodeQueue: Queue,
   ) {}
 
   /**
    * Create a new store for a vendor
    */
-  // async createStore(
-  //   userId: string,
-  //   dto: CreateStoreDto,
-  //   logoFile?: Express.Multer.File,
-  // ) {
-  //   this.logger.log(`Creating store for vendor: ${userId}`);
 
-  //   // Check vendor exists and is active
-  //   const vendor = await this.prisma.user.findUnique({
-  //     where: { id: userId },
-  //     include: { businessInfo: true },
-  //   });
-
-  //   if (!vendor || vendor.role !== 'VENDOR') {
-  //     throw new NotFoundException('Vendor not found');
-  //   }
-
-  //   if (vendor.status !== UserStatus.APPROVED) {
-  //     throw new BadRequestException(
-  //       'Vendor account must be approved to create stores',
-  //     );
-  //   }
-
-  //   // Upload logo if provided
-  //   // let logoUrl = null;
-  //   // if (logoFile) {
-  //   //   // Use your cloudinary service
-  //   //   logoUrl = await this.cloudinaryService.uploadLogo(logoFile);
-  //   // }
-  //   let logoUrl: string | null = null;
-  //   if (logoFile) {
-  //     const uploadResult = await this.cloudinaryService.uploadLogo(logoFile);
-  //     logoUrl = uploadResult.secure_url; // <-- store only the URL
-  //   }
-
-  //   // Create store with operating hours
-  //   const store = await this.prisma.store.create({
-  //     data: {
-  //       storeName: dto.storeName,
-  //       storeCategory: dto.storeCategory,
-  //       storeDescription: dto.storeDescription,
-  //       storeAddress: dto.storeAddress,
-  //       phoneNumber: dto.phoneNumber,
-  //       email: dto.email,
-  //       minimumOrder: dto.minimumOrder,
-  //       preparationTime: dto.preparationTime,
-  //       deliveryFee: dto.deliveryFee,
-  //       storeLogo: logoUrl,
-  //       user: { connect: { id: userId } }, // <-- use relation
-  //       operatingHours: {
-  //         create: dto.operatingHours.map((hour) => ({
-  //           dayOfWeek: hour.dayOfWeek,
-  //           isOpen: hour.isOpen,
-  //           openingTime: hour.openingTime,
-  //           closingTime: hour.closingTime,
-  //           breakStart: hour.breakStart,
-  //           breakEnd: hour.breakEnd,
-  //         })),
-  //       },
-  //     },
-  //     include: {
-  //       operatingHours: true,
-  //     },
-  //   });
-
-  //   return {
-  //     success: true,
-  //     message: 'Store created successfully',
-  //     store,
-  //   };
-  // }
-  /**
-   * Create a new store for a vendor
-   */
   async createStore(
+    userId: string,
+    dto: CreateStoreDto,
+    logoFile?: Express.Multer.File,
+  ) {
+    this.logger.log(`Creating store for vendor: ${userId}`);
+
+    const vendor = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { businessInfo: true },
+    });
+
+    if (!vendor || vendor.role !== 'VENDOR') {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    if (vendor.status !== 'APPROVED') {
+      throw new BadRequestException(
+        'Vendor account must be active to create stores',
+      );
+    }
+
+    let logoUrl: string | null = null;
+    if (logoFile) {
+      const uploadResult = await this.cloudinaryService.uploadLogo(logoFile);
+      logoUrl = uploadResult.secure_url;
+    }
+
+    // ✅ Create store WITHOUT coordinates
+    const store = await this.prisma.store.create({
+      data: {
+        storeName: dto.storeName,
+        storeCategory: dto.storeCategory,
+        storeDescription: dto.storeDescription,
+        storeAddress: dto.storeAddress,
+        phoneNumber: dto.phoneNumber,
+        email: dto.email,
+        minimumOrder: dto.minimumOrder,
+        preparationTime: dto.preparationTime,
+        deliveryFee: dto.deliveryFee,
+        storeLogo: logoUrl,
+        userId,
+        operatingHours: {
+          create: dto.operatingHours.map((hour) => ({
+            dayOfWeek: hour.dayOfWeek,
+            isOpen: hour.isOpen,
+            openingTime: hour.openingTime,
+            closingTime: hour.closingTime,
+            breakStart: hour.breakStart,
+            breakEnd: hour.breakEnd,
+          })),
+        },
+      },
+      include: {
+        operatingHours: true,
+      },
+    });
+
+    // 🚀 Queue background job
+    //await geocodeQueue.add('geocode-store-job', {
+    await this.geocodeQueue.add('geocode-store-job', {
+      storeId: store.id,
+      address: store.storeAddress,
+    });
+
+    return {
+      success: true,
+      message: 'Store created successfully (location processing...)',
+      store,
+    };
+  }
+
+  async createStorebk(
     userId: string,
     dto: CreateStoreDto,
     logoFile?: Express.Multer.File,
@@ -238,6 +241,14 @@ export class StoreService {
         operatingHours: true,
       },
     });
+
+    // 🚀 If address changed → re-geocode
+    if (dto.storeAddress && dto.storeAddress !== store.storeAddress) {
+      await this.geocodeQueue.add('geocode-store-job', {
+        storeId,
+        address: dto.storeAddress,
+      });
+    }
 
     return {
       success: true,

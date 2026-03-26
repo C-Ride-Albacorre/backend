@@ -346,14 +346,16 @@ export class AuthService {
       await this.userService.updateRefreshToken(user.id, refreshTokenHash);
     }
 
-    await this.userService.markUserLogin(user.id);
+    // await this.userService.markUserLogin(user.id);
+    const loginMeta = await this.userService.markUserLogin(user.id);
 
     return {
       ...tokens,
       user: {
         id: user.id,
         email: user.email,
-        role: user.role, // ✅ dynamic role
+        role: user.role,
+        isNewUser: loginMeta.isFirstLogin,
       },
     };
   }

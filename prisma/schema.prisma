@@ -124,6 +124,7 @@ model User {
   approvedAt            DateTime?
   approvedBy            String? // User ID of admin who approved
   rejectionReason       String?
+  isNewUser             Boolean          @default(false)
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   oauthProviders        OAuthProvider[]
@@ -237,6 +238,8 @@ model Store {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   orderItems         OrderItem[]
+  latitude           Float?
+  longitude          Float?
 
   @@index([userId])
   @@index([storeCategory])

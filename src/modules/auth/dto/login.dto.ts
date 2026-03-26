@@ -38,7 +38,7 @@ export class CustomerLoginDto {
 
   @ApiProperty({
     description: 'Password of the customer',
-    example: 'StrongPass123!',
+    example: 'StrongPassword123!',
   })
   @IsNotEmpty()
   @IsString()
