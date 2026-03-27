@@ -80,7 +80,10 @@ export class CreateStoreDto {
   @IsString()
   storeName: string;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'Store Id',
+    example: 'd8440fe0-da81-4ff1-acaa-685f6351a203',
+  })
   @IsString()
   storeCategory: string;
 

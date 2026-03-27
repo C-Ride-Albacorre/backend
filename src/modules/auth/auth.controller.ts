@@ -378,17 +378,121 @@ STEP 4 – Bank Details
     return this.authService.getVendorOnboardingState(vendorId);
   }
 
-  @Post('refresh')
-  @ApiOperation({ summary: 'Refresh access token' })
-  @ApiResponse({
-    status: 200,
-    description: 'Token refreshed',
-    type: AuthResponseDto,
-  })
-  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
-  async refreshTokens(@Body() refreshTokenDto: RefreshTokenDto) {
-    return this.authService.refreshTokens(refreshTokenDto);
-  }
+  //DRIVER
+  //   async registerDriver(dto: CreateDriverDto) {
+  //     return this.userRegistrationService.registerUser(
+  //       {
+  //         email: dto.email,
+  //         phoneNumber: dto.phoneNumber,
+  //         password: dto.password,
+  //         firstName: dto.firstName,
+  //         lastName: dto.lastName,
+  //       },
+  //       this.registrationOptions,
+  //     );
+  //   }
+
+  //   async verifyDriverEmail(dto: VerifyEmailDto): Promise<VerificationResult> {
+  //     const result = await this.userRegistrationService.verifyEmail(
+  //       dto.email,
+  //       dto.otp,
+  //       {
+  //         role: UserRole.DRIVER,
+  //         verificationPurpose: 'driver_email_verification',
+  //         nextStatusAfterVerification: UserStatus.ACTIVE,
+  //       },
+  //     );
+
+  //     // If both verified, create driver profile
+  //     if (result.requiresOnboarding) {
+  //       const user = await this.userService.findByEmail(dto.email);
+  //       if (user) {
+  //         await this.createDriverProfile(user.id);
+  //       }
+  //     }
+
+  //     return result;
+  //   }
+
+  //   async verifyDriverPhone(dto: VerifyPhoneDto): Promise<VerificationResult> {
+  //     const result = await this.userRegistrationService.verifyPhone(
+  //       dto.phoneNumber,
+  //       dto.otp,
+  //       {
+  //         role: UserRole.DRIVER,
+  //         verificationPurpose: 'driver_phone_verification',
+  //         nextStatusAfterVerification: UserStatus.ACTIVE,
+  //       },
+  //     );
+
+  //     // If both verified, create driver profile
+  //     if (result.requiresOnboarding) {
+  //       const user = await this.userService.findByPhone(dto.phoneNumber);
+  //       if (user) {
+  //         await this.createDriverProfile(user.id);
+  //       }
+  //     }
+
+  //     return result;
+  //   }
+
+  //   async loginDriver(loginDto: LoginDto) {
+  //     const identifier = loginDto.email || loginDto.phoneNumber;
+  //     const user = await this.userRegistrationService.loginUser(
+  //       identifier,
+  //       loginDto.password,
+  //       UserRole.DRIVER,
+  //     );
+
+  //     return user;
+  //   }
+
+  //   private async createDriverProfile(userId: string) {
+  //     // Create driver profile logic
+  //     // This could include license verification, background check, etc.
+  //   }
+
+  //   @Post('refresh')
+  //   @ApiOperation({ summary: 'Refresh access token' })
+  //   @ApiResponse({
+  //     status: 200,
+  //     description: 'Token refreshed',
+  //     type: AuthResponseDto,
+  //   })
+  //   @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  //   async refreshTokens(@Body() refreshTokenDto: RefreshTokenDto) {
+  //     return this.authService.refreshTokens(refreshTokenDto);
+  //   }
+
+  //   //DRIVER
+  // // Driver endpoints
+  //   @Post('/driver/register')
+  //   @ApiOperation({ summary: 'Register a new driver' })
+  //   @ApiResponse({ status: 201, description: 'Driver registered successfully' })
+  //   async registerDriver(@Body() dto: CreateDriverDto) {
+  //     return this.authService.registerDriver(dto);
+  //   }
+
+  //   @Post('/driver/verify/email')
+  //   @HttpCode(HttpStatus.OK)
+  //   @ApiOperation({ summary: 'Verify driver email' })
+  //   async verifyDriverEmail(@Body() dto: VerifyEmailDto) {
+  //     return this.authService.verifyDriverEmail(dto);
+  //   }
+
+  //   @Post('/driver/verify/phone')
+  //   @HttpCode(HttpStatus.OK)
+  //   @ApiOperation({ summary: 'Verify driver phone' })
+  //   async verifyDriverPhone(@Body() dto: VerifyPhoneDto) {
+  //     return this.authService.verifyDriverPhone(dto);
+  //   }
+
+  //   @Post('/driver/login')
+  //   @HttpCode(HttpStatus.OK)
+  //   @ApiOperation({ summary: 'Driver login' })
+  //   async loginDriver(@Body() loginDto: LoginDto) {
+  //     return this.authService.loginDriver(loginDto);
+  //   }
 
   @Post('logout')
   //  @HttpCode(HttpStatus.OK)
