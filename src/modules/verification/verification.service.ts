@@ -37,9 +37,12 @@ export class VerificationService {
       ? zohoEmailProvider
       : zohoEmailProvider;
 
+    // this.smsProvider = this.isProduction
+    //   ? termiiSmsProvider
+    //   : consoleSmsProvider;
     this.smsProvider = this.isProduction
       ? termiiSmsProvider
-      : consoleSmsProvider;
+      : termiiSmsProvider;
 
     this.configService.get<number>('OTP_EXPIRES_IN');
   }
