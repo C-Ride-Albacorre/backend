@@ -13,7 +13,159 @@ export class StoreDiscoveryService {
   /**
    * Get stores by category
    */
-  async getStoresByCategory(params: {
+  async getStores(params: {
+    categoryId: string;
+    subcategoryId?: string;
+    customerId?: string;
+    lat?: number;
+    lng?: number;
+    radiusKm?: number;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const {
+      categoryId,
+      subcategoryId,
+      customerId,
+      lat,
+      lng,
+      radiusKm,
+      search,
+      page,
+      limit,
+    } = params;
+
+    const safePage = Number(page) || 1;
+    const safeLimit = Number(limit) || 20;
+    const skip = (safePage - 1) * safeLimit;
+
+    // ✅ Resolve user location
+    let userLocation: { lat: number; lng: number } | null = null;
+
+    if (lat != null && lng != null) {
+      userLocation = { lat: Number(lat), lng: Number(lng) };
+    } else if (customerId) {
+      const savedLocation = await this.prisma.customerLocation.findFirst({
+        where: { userId: customerId, isDefault: true },
+        select: { latitude: true, longitude: true },
+      });
+
+      if (savedLocation) {
+        userLocation = {
+          lat: Number(savedLocation.latitude),
+          lng: Number(savedLocation.longitude),
+        };
+      }
+    }
+
+    // ✅ Build dynamic WHERE clause
+    const where: any = {
+      storeCategory: categoryId,
+      status: 'ACTIVE',
+      latitude: { not: null },
+      longitude: { not: null },
+    };
+
+    // ✅ Subcategory filter (optional)
+    if (subcategoryId) {
+      where.storeSubcategories = {
+        some: {
+          subcategoryId,
+        },
+      };
+    }
+
+    // ✅ Search filter (DB level)
+    if (search && search.trim().length > 0) {
+      where.OR = [
+        { storeName: { contains: search, mode: 'insensitive' } },
+        { storeAddress: { contains: search, mode: 'insensitive' } },
+        {
+          products: {
+            some: {
+              productName: { contains: search, mode: 'insensitive' },
+            },
+          },
+        },
+      ];
+    }
+
+    // ✅ Fetch from DB
+    const stores = await this.prisma.store.findMany({
+      where,
+      include: {
+        storeSubcategories: { include: { subcategory: true } },
+        operatingHours: true,
+        products: {
+          take: 4,
+          where: { productStatus: 'ACTIVE' },
+          include: {
+            productImages: { take: 1, where: { isPrimary: true } },
+          },
+        },
+      },
+    });
+
+    // ✅ Map + distance
+    let results = stores.map((store) => {
+      let distance: number | null = null;
+
+      if (userLocation) {
+        distance = this.calculateHaversineDistance(userLocation, {
+          lat: Number(store.latitude),
+          lng: Number(store.longitude),
+        });
+      }
+
+      return {
+        id: store.id,
+        storeName: store.storeName,
+        storeCategory: store.storeCategory,
+        subcategories: store.storeSubcategories.map((s) => s.subcategory.name),
+        storeDescription: store.storeDescription,
+        storeAddress: store.storeAddress,
+        phoneNumber: store.phoneNumber,
+        minimumOrder: store.minimumOrder,
+        preparationTime: store.preparationTime,
+        storeLogo: store.storeLogo,
+        isOpen: this.isStoreOpen(store.operatingHours),
+        distance,
+        products: store.products,
+      };
+    });
+
+    // ✅ Radius filter
+    if (userLocation && radiusKm != null) {
+      results = results.filter(
+        (s) => s.distance != null && s.distance <= radiusKm,
+      );
+    }
+
+    // ✅ Sorting
+    if (userLocation) {
+      results.sort(
+        (a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity),
+      );
+    } else {
+      results.sort((a, b) => a.storeName.localeCompare(b.storeName));
+    }
+
+    // ✅ Pagination
+    const paginated = results.slice(skip, skip + safeLimit);
+
+    return {
+      data: paginated,
+      meta: {
+        total: results.length,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(results.length / safeLimit),
+      },
+    };
+  }
+
+  async getStoresByCategoryLatest(params: {
     categoryId: string;
     customerId?: string;
     lat?: number;
@@ -162,7 +314,170 @@ export class StoreDiscoveryService {
     };
   }
 
-  async getStoresByCategoryWithoutSearch(params: {
+  async getStoresBySubcategory(params: {
+    categoryId: string;
+    subcategoryId: string;
+    customerId?: string;
+    lat?: number;
+    lng?: number;
+    radiusKm?: number;
+    page?: number;
+    limit?: number;
+    search?: string;
+  }) {
+    const {
+      categoryId,
+      subcategoryId,
+      customerId,
+      lat,
+      lng,
+      radiusKm,
+      page,
+      limit,
+      search,
+    } = params;
+
+    // ✅ 1. Normalize inputs
+    const safePage = Number(page) || 1;
+    const safeLimit = Number(limit) || 20;
+    const safeRadiusKm = radiusKm !== undefined ? Number(radiusKm) : null;
+    const skip = (safePage - 1) * safeLimit;
+
+    // ✅ 2. Resolve user location
+    let userLocation: { lat: number; lng: number } | null = null;
+
+    if (lat != null && lng != null) {
+      userLocation = { lat: Number(lat), lng: Number(lng) };
+    } else if (customerId) {
+      const savedLocation = await this.prisma.customerLocation.findFirst({
+        where: { userId: customerId, isDefault: true },
+        select: { latitude: true, longitude: true },
+      });
+
+      if (savedLocation?.latitude && savedLocation?.longitude) {
+        userLocation = {
+          lat: Number(savedLocation.latitude),
+          lng: Number(savedLocation.longitude),
+        };
+      }
+    }
+
+    // ✅ 3. Fetch stores by subcategory + category
+    const stores = await this.prisma.store.findMany({
+      where: {
+        storeCategory: categoryId,
+        status: 'ACTIVE',
+        latitude: { not: null },
+        longitude: { not: null },
+        storeSubcategories: {
+          some: {
+            subcategoryId: subcategoryId,
+          },
+        },
+      },
+      include: {
+        storeSubcategories: {
+          include: { subcategory: true },
+        },
+        operatingHours: true,
+        products: {
+          take: 4,
+          where: { productStatus: 'ACTIVE' },
+          include: {
+            productImages: {
+              take: 1,
+              where: { isPrimary: true },
+            },
+          },
+        },
+      },
+    });
+
+    // ✅ 4. Map + distance
+    let results = stores.map((store) => {
+      let distance: number | null = null;
+
+      if (userLocation) {
+        const storeLat = Number(store.latitude);
+        const storeLng = Number(store.longitude);
+
+        if (!isNaN(storeLat) && !isNaN(storeLng)) {
+          distance = this.calculateHaversineDistance(userLocation, {
+            lat: storeLat,
+            lng: storeLng,
+          });
+        }
+      }
+
+      return {
+        id: store.id,
+        storeName: store.storeName,
+        storeCategory: store.storeCategory,
+        subcategories: store.storeSubcategories.map((s) => s.subcategory.name),
+        storeDescription: store.storeDescription,
+        storeAddress: store.storeAddress,
+        phoneNumber: store.phoneNumber,
+        minimumOrder: store.minimumOrder,
+        preparationTime: store.preparationTime,
+        storeLogo: store.storeLogo,
+        isOpen: this.isStoreOpen(store.operatingHours),
+        distance,
+        products: store.products.map((p) => ({
+          id: p.id,
+          productName: p.productName,
+          productImages: p.productImages,
+        })),
+      };
+    });
+
+    // ✅ 5. Search filter
+    if (search && search.trim().length > 0) {
+      const searchLower = search.toLowerCase();
+
+      results = results.filter((store) => {
+        const productMatch = store.products.some((p) =>
+          p.productName.toLowerCase().includes(searchLower),
+        );
+
+        return (
+          store.storeName.toLowerCase().includes(searchLower) ||
+          store.storeAddress?.toLowerCase().includes(searchLower) ||
+          productMatch
+        );
+      });
+    }
+
+    // ✅ 6. Radius filter
+    if (userLocation && safeRadiusKm != null) {
+      results = results.filter(
+        (store) => store.distance != null && store.distance <= safeRadiusKm,
+      );
+    }
+
+    // ✅ 7. Sorting
+    if (userLocation) {
+      results.sort(
+        (a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity),
+      );
+    } else {
+      results.sort((a, b) => a.storeName.localeCompare(b.storeName));
+    }
+
+    // ✅ 8. Pagination
+    const paginatedResults = results.slice(skip, skip + safeLimit);
+
+    return {
+      data: paginatedResults,
+      meta: {
+        total: results.length,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(results.length / safeLimit),
+      },
+    };
+  }
+
+  async getStoresByCategory(params: {
     categoryId: string;
     customerId?: string;
     lat?: number;
