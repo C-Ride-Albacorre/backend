@@ -175,19 +175,133 @@ export class CustomerController {
       ...query,
     });
   }
-  // async getStoresByCategory(
-  //   @Param('categoryId') categoryId: string,
-  //   @Query() query: GetStoresQueryDto,
-  //   @Request() req,
-  // ): Promise<StoreResponseDto[]> {
-  //   const customerId = req.user?.id;
 
-  //   return this.storeDiscoveryService.getStoresByCategory({
-  //     categoryId,
-  //     customerId,
-  //     ...query, // pass through validated DTO
-  //   });
-  // }
+  @Get('stores/category/:categoryId')
+  @ApiOperation({
+    summary: 'Get stores by category (optionally filter by subcategory)',
+    description:
+      'Fetch stores by category. Optionally filter by subcategory, location, radius, search, and pagination. Uses user location if provided, otherwise falls back to saved address.',
+  })
+  @ApiParam({
+    name: 'categoryId',
+    description: 'ID of the store category',
+    type: 'string',
+  })
+  @ApiQuery({
+    name: 'subcategoryId',
+    required: false,
+    type: String,
+    description: 'Optional subcategory filter',
+  })
+  @ApiQuery({ name: 'lat', required: false, type: Number })
+  @ApiQuery({ name: 'lng', required: false, type: Number })
+  @ApiQuery({ name: 'radiusKm', required: false, type: Number })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    description: 'Search by store name, address, or product',
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiOkResponse({
+    description: 'Stores fetched successfully',
+    type: [StoreResponseDto],
+  })
+  async getStores(
+    @Param('categoryId') categoryId: string,
+    @Query() query: GetStoresQueryDto,
+    @Request() req,
+  ): Promise<PaginatedStoreResponse> {
+    const customerId = req.user?.id;
+
+    return this.storeDiscoveryService.getStores({
+      categoryId,
+      customerId,
+      ...query,
+    });
+  }
+
+  @Get('stores/category/:categoryId/subcategory/:subcategoryId')
+  @ApiOperation({
+    summary: 'Get stores by subcategory (with optional location support)',
+    description:
+      'Fetch stores filtered by category and subcategory. Supports optional GPS coordinates, radius filtering, search, and pagination. If no location is provided, defaults to user saved address if available.',
+  })
+  @ApiParam({
+    name: 'categoryId',
+    description: 'ID of the parent store category',
+    type: 'string',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiParam({
+    name: 'subcategoryId',
+    description: 'ID of the store subcategory',
+    type: 'string',
+    example: '987e6543-e21b-12d3-a456-426614174999',
+  })
+  @ApiQuery({
+    name: 'lat',
+    required: false,
+    type: Number,
+    description: 'User latitude (optional, overrides saved location)',
+    example: 6.5244,
+  })
+  @ApiQuery({
+    name: 'lng',
+    required: false,
+    type: Number,
+    description: 'User longitude (optional, overrides saved location)',
+    example: 3.3792,
+  })
+  @ApiQuery({
+    name: 'radiusKm',
+    required: false,
+    type: Number,
+    description: 'Search radius in kilometers',
+    example: 10,
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    description: 'Search stores by name, address, or products',
+    example: 'Coffee | Pizza | Store name',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Pagination page number',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Number of stores per page',
+    example: 20,
+  })
+  @ApiOkResponse({
+    description:
+      'List of stores matching the category, subcategory, and optional filters',
+    type: [StoreResponseDto],
+  })
+  async getStoresBySubcategory(
+    @Param('categoryId') categoryId: string,
+    @Param('subcategoryId') subcategoryId: string,
+    @Query() query: GetStoresQueryDto,
+    @Request() req,
+  ): Promise<PaginatedStoreResponse> {
+    const customerId = req.user?.id;
+
+    return this.storeDiscoveryService.getStoresBySubcategory({
+      categoryId,
+      subcategoryId,
+      customerId,
+      ...query,
+    });
+  }
 
   @Get('subcategories/category/:categoryId')
   @ApiOperation({ summary: 'Get subcategories by category with store counts' })
