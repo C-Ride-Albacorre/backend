@@ -77,11 +77,15 @@ export class CreateAddonDto {
 export class CreateProductDto {
   @ApiProperty()
   @IsString()
-  productName: string;
+  subcategoryId: string;
 
   @ApiProperty()
   @IsString()
-  productCategory: string;
+  productName: string;
+
+  // @ApiProperty()
+  // @IsString()
+  // productCategory: string;
 
   @ApiProperty()
   @IsString()
@@ -145,6 +149,10 @@ export class CreateProductDto {
 }
 
 export class UpdateProductDto {
+  @ApiProperty()
+  @IsString()
+  subcategoryId: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()

@@ -135,7 +135,7 @@ export class AdminController {
 
   // ========== CATEGORY ENDPOINTS ==========
 
-  @Post()
+  @Post('category')
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
     FileFieldsInterceptor([
@@ -180,7 +180,7 @@ export class AdminController {
     return this.adminService.createCategory(dto, files);
   }
 
-  @Get()
+  @Get('categories')
   @ApiOperation({
     summary: 'Get all categories (including inactive)',
     description:
@@ -193,7 +193,7 @@ export class AdminController {
     return this.adminService.getAllCategories();
   }
 
-  @Get(':id')
+  @Get('category/:id')
   @ApiOperation({
     summary: 'Get category by ID',
     description:
@@ -211,7 +211,7 @@ export class AdminController {
     return this.adminService.getCategoryById(id);
   }
 
-  @Put(':id')
+  @Put('category/:id')
   @ApiOperation({
     summary: 'Update category',
     description:
@@ -251,7 +251,7 @@ export class AdminController {
     return this.adminService.updateCategory(id, dto);
   }
 
-  @Delete(':id')
+  @Delete('category/:id')
   // @ApiOperation({
   //   summary: 'Delete category (soft delete)',
   //   description:

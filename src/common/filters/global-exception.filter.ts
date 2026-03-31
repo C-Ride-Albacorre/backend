@@ -20,6 +20,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest();
     const response = ctx.getResponse();
 
+    // ✅ 🚨 PREVENT DOUBLE RESPONSE
+    if (response.headersSent) {
+      return;
+    }
+
     // Determine HTTP status
     const httpStatus =
       exception instanceof HttpException

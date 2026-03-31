@@ -1128,7 +1128,8 @@ export class AdminService {
       include: {
         category: true,
         _count: {
-          select: { storeSubcategories: true },
+          // select: { storeSubcategories: true },
+          select: { products: true }, // ✅ FIXED
         },
       },
       orderBy: [{ categoryId: 'asc' }, { displayOrder: 'asc' }],
@@ -1140,19 +1141,45 @@ export class AdminService {
       where: { categoryId },
       include: {
         _count: {
-          select: { storeSubcategories: true },
+          select: { products: true }, // ✅ FIXED
         },
       },
       orderBy: { displayOrder: 'asc' },
     });
   }
 
+  // async getSubcategoryById(id: string) {
+  //   const subcategory = await this.prisma.subcategory.findUnique({
+  //     where: { id },
+  //     include: {
+  //       category: true,
+  //       storeSubcategories: {
+  //         include: {
+  //           store: {
+  //             select: {
+  //               id: true,
+  //               storeName: true,
+  //               status: true,
+  //             },
+  //           },
+  //         },
+  //       },
+  //     },
+  //   });
+
+  //   if (!subcategory) {
+  //     throw new NotFoundException('Subcategory not found');
+  //   }
+
+  //   return subcategory;
+  // }
+
   async getSubcategoryById(id: string) {
     const subcategory = await this.prisma.subcategory.findUnique({
       where: { id },
       include: {
         category: true,
-        storeSubcategories: {
+        products: {
           include: {
             store: {
               select: {
@@ -1170,7 +1197,21 @@ export class AdminService {
       throw new NotFoundException('Subcategory not found');
     }
 
-    return subcategory;
+    // ✅ Extract unique stores
+    const storesMap = new Map();
+
+    subcategory.products.forEach((product) => {
+      if (product.store) {
+        storesMap.set(product.store.id, product.store);
+      }
+    });
+
+    const stores = Array.from(storesMap.values());
+
+    return {
+      ...subcategory,
+      stores, // ✅ clean store list
+    };
   }
 
   async updateSubcategory(id: string, dto: UpdateSubcategoryDto) {
