@@ -735,21 +735,77 @@ export default class Helper {
     }
   }
 
-  static async geocodeAddressold(address: string) {
-    const response = await axios.get(
-      'https://maps.googleapis.com/maps/api/geocode/json',
-      {
-        params: {
-          address,
-          key: process.env.GOOGLE_MAPS_API_KEY,
-        },
-      },
-    );
+  static isStoreOpen(operatingHours: any[]): boolean {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const currentTime = now.toTimeString().slice(0, 5); // "HH:MM"
 
-    if (response.data.status !== 'OK') {
-      throw new Error('Geocoding failed');
+    const todayHours = operatingHours.find((h) => h.dayOfWeek === dayOfWeek);
+
+    if (!todayHours || !todayHours.isOpen) {
+      return false;
     }
 
-    return response.data.results[0].geometry.location;
+    return (
+      currentTime >= todayHours.openingTime &&
+      currentTime <= todayHours.closingTime
+    );
+  }
+
+  static async calculateDistanceWithGoogle(
+    origin: { lat: number; lng: number },
+    destination: { lat: number; lng: number },
+  ): Promise<number> {
+    try {
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+
+      const url = `https://maps.googleapis.com/maps/api/distancematrix/json`;
+
+      const response = await axios.get(url, {
+        params: {
+          origins: `${origin.lat},${origin.lng}`,
+          destinations: `${destination.lat},${destination.lng}`,
+          key: apiKey,
+        },
+      });
+
+      const element = response.data.rows[0].elements[0];
+
+      if (element.status === 'OK') {
+        // distance in meters → convert to km
+        return element.distance.value / 1000;
+      }
+
+      return Infinity;
+    } catch (error) {
+      logger.error('Distance calculation failed', error);
+      return Infinity;
+    }
+  }
+
+  static calculateHaversineDistance(
+    origin: { lat: number; lng: number },
+    destination: { lat: number; lng: number },
+  ): number {
+    const R = 6371; // km
+
+    console.log('destination', destination);
+
+    const dLat = this.toRad(destination.lat - origin.lat);
+    const dLng = this.toRad(destination.lng - origin.lng);
+
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(this.toRad(origin.lat)) *
+        Math.cos(this.toRad(destination.lat)) *
+        Math.sin(dLng / 2) ** 2;
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
+  }
+
+  static toRad(value: number): number {
+    return (value * Math.PI) / 180;
   }
 }

@@ -14,6 +14,7 @@ import { PrismaService } from '../../shared/services/prisma.service';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { Queue } from 'bullmq';
 import { GEOCODE_QUEUE } from '../../queue/geocode.queue';
+import Helper from '../../shared/utils/helpers';
 
 @Injectable()
 export class StoreService {

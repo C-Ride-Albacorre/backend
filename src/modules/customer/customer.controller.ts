@@ -35,6 +35,7 @@ import { Roles } from 'src/common/decorators/role.decorator';
 import { UserRole } from 'src/shared/enums';
 import { GetStoresQueryDto } from './dto/get-store.dto';
 import { StoreResponseDto } from './dto/store-response.dto';
+import { GetNearbyStoresQueryDto } from './dto/near-by-store.dto';
 
 @ApiTags('customer')
 @Controller('customer')
@@ -77,79 +78,6 @@ export class CustomerController {
   @ApiOperation({ summary: 'Get all categories with subcategories' })
   async getCategories() {
     return this.customerService.getCategories();
-  }
-
-  @Get('stores/category/testing/:categoryId')
-  @ApiOperation({
-    summary: 'Get stores by category (with optional location support)',
-    description:
-      'Fetch stores filtered by category. Supports optional GPS coordinates, radius filtering, and pagination. If no location is provided, defaults to user saved address if available.',
-  })
-  @ApiParam({
-    name: 'categoryId',
-    description: 'ID of the store category',
-    type: 'string',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @ApiQuery({
-    name: 'lat',
-    required: false,
-    type: Number,
-    description: 'User latitude (optional, overrides saved location)',
-    example: 6.5244,
-  })
-  @ApiQuery({
-    name: 'lng',
-    required: false,
-    type: Number,
-    description: 'User longitude (optional, overrides saved location)',
-    example: 3.3792,
-  })
-  @ApiQuery({
-    name: 'radiusKm',
-    required: false,
-    type: Number,
-    description: 'Search radius in kilometers',
-    example: 10,
-  })
-  @ApiQuery({
-    name: 'search',
-    required: false,
-    type: String,
-    description: 'Search stores by name or description | products',
-    example: 'Lus Store | Pizza etc',
-  })
-  @ApiQuery({
-    name: 'page',
-    required: false,
-    type: Number,
-    description: 'Pagination page number',
-    example: 1,
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    description: 'Number of stores per page',
-    example: 20,
-  })
-  @ApiOkResponse({
-    description:
-      'List of stores matching the category and optional location filters',
-    type: [StoreResponseDto],
-  })
-  async getStoresByCategory(
-    @Param('categoryId') categoryId: string,
-    @Query() query: GetStoresQueryDto,
-    @Request() req,
-  ): Promise<PaginatedStoreResponse> {
-    const customerId = req.user?.id;
-
-    return this.storeDiscoveryService.getStoresByCategory({
-      categoryId,
-      customerId,
-      ...query,
-    });
   }
 
   @Get('stores/category/:categoryId')
@@ -198,86 +126,129 @@ export class CustomerController {
     });
   }
 
-  @Get('stores/category/:categoryId/subcategory/:subcategoryId')
+  
+  @Get('stores/nearby')
   @ApiOperation({
-    summary: 'Get stores by subcategory (with optional location support)',
+    summary: 'Get nearby stores (optionally search by name/address/product)',
     description:
-      'Fetch stores filtered by category and subcategory. Supports optional GPS coordinates, radius filtering, search, and pagination. If no location is provided, defaults to user saved address if available.',
-  })
-  @ApiParam({
-    name: 'categoryId',
-    description: 'ID of the parent store category',
-    type: 'string',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @ApiParam({
-    name: 'subcategoryId',
-    description: 'ID of the store subcategory',
-    type: 'string',
-    example: '987e6543-e21b-12d3-a456-426614174999',
+      'Fetch stores based on proximity to user. Optionally filter by search query. Uses user location if provided, otherwise falls back to saved address.',
   })
   @ApiQuery({
     name: 'lat',
     required: false,
     type: Number,
-    description: 'User latitude (optional, overrides saved location)',
-    example: 6.5244,
+    description: 'User latitude',
   })
   @ApiQuery({
     name: 'lng',
     required: false,
     type: Number,
-    description: 'User longitude (optional, overrides saved location)',
-    example: 3.3792,
+    description: 'User longitude',
   })
   @ApiQuery({
     name: 'radiusKm',
     required: false,
     type: Number,
-    description: 'Search radius in kilometers',
-    example: 10,
+    description: 'Radius in km',
   })
   @ApiQuery({
     name: 'search',
     required: false,
     type: String,
-    description: 'Search stores by name, address, or products',
-    example: 'Coffee | Pizza | Store name',
-  })
-  @ApiQuery({
-    name: 'page',
-    required: false,
-    type: Number,
-    description: 'Pagination page number',
-    example: 1,
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    description: 'Number of stores per page',
-    example: 20,
+    description: 'Search by store name, address, description, or product',
   })
   @ApiOkResponse({
-    description:
-      'List of stores matching the category, subcategory, and optional filters',
+    description: 'Nearby stores fetched successfully',
     type: [StoreResponseDto],
   })
-  async getStoresBySubcategory(
-    @Param('categoryId') categoryId: string,
-    @Param('subcategoryId') subcategoryId: string,
-    @Query() query: GetStoresQueryDto,
+  async getNearbyStores(
+    @Query() query: GetNearbyStoresQueryDto,
     @Request() req,
-  ): Promise<PaginatedStoreResponse> {
+  ) {
     const customerId = req.user?.id;
-
-    return this.storeDiscoveryService.getStoresBySubcategory({
-      categoryId,
-      subcategoryId,
-      customerId,
-      ...query,
-    });
+    return this.storeDiscoveryService.getNearbyStores({ ...query, customerId });
   }
+
+  // @Get('stores/category/:categoryId/subcategory/:subcategoryId')
+  // @ApiOperation({
+  //   summary: 'Get stores by subcategory (with optional location support)',
+  //   description:
+  //     'Fetch stores filtered by category and subcategory. Supports optional GPS coordinates, radius filtering, search, and pagination. If no location is provided, defaults to user saved address if available.',
+  // })
+  // @ApiParam({
+  //   name: 'categoryId',
+  //   description: 'ID of the parent store category',
+  //   type: 'string',
+  //   example: '123e4567-e89b-12d3-a456-426614174000',
+  // })
+  // @ApiParam({
+  //   name: 'subcategoryId',
+  //   description: 'ID of the store subcategory',
+  //   type: 'string',
+  //   example: '987e6543-e21b-12d3-a456-426614174999',
+  // })
+  // @ApiQuery({
+  //   name: 'lat',
+  //   required: false,
+  //   type: Number,
+  //   description: 'User latitude (optional, overrides saved location)',
+  //   example: 6.5244,
+  // })
+  // @ApiQuery({
+  //   name: 'lng',
+  //   required: false,
+  //   type: Number,
+  //   description: 'User longitude (optional, overrides saved location)',
+  //   example: 3.3792,
+  // })
+  // @ApiQuery({
+  //   name: 'radiusKm',
+  //   required: false,
+  //   type: Number,
+  //   description: 'Search radius in kilometers',
+  //   example: 10,
+  // })
+  // @ApiQuery({
+  //   name: 'search',
+  //   required: false,
+  //   type: String,
+  //   description: 'Search stores by name, address, or products',
+  //   example: 'Coffee | Pizza | Store name',
+  // })
+  // @ApiQuery({
+  //   name: 'page',
+  //   required: false,
+  //   type: Number,
+  //   description: 'Pagination page number',
+  //   example: 1,
+  // })
+  // @ApiQuery({
+  //   name: 'limit',
+  //   required: false,
+  //   type: Number,
+  //   description: 'Number of stores per page',
+  //   example: 20,
+  // })
+  // @ApiOkResponse({
+  //   description:
+  //     'List of stores matching the category, subcategory, and optional filters',
+  //   type: [StoreResponseDto],
+  // })
+  // async getStoresBySubcategory(
+  //   @Param('categoryId') categoryId: string,
+  //   @Param('subcategoryId') subcategoryId: string,
+  //   @Query() query: GetStoresQueryDto,
+  //   @Request() req,
+  // ): Promise<PaginatedStoreResponse> {
+  //   const customerId = req.user?.id;
+
+  //   return this.storeDiscoveryService.getStoresBySubcategory({
+  //     categoryId,
+  //     subcategoryId,
+  //     customerId,
+  //     ...query,
+  //   });
+  // }
 
   @Get('subcategories/category/:categoryId')
   @ApiOperation({ summary: 'Get subcategories by category with store counts' })

@@ -13,6 +13,7 @@ import {
   HttpStatus,
   HttpCode,
   Delete,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -21,6 +22,8 @@ import {
   ApiConsumes,
   ApiBody,
   ApiOperation,
+  ApiOkResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { StoreService } from './store.service';
@@ -29,13 +32,20 @@ import {
   UpdateStoreDto,
   OperatingHoursDto,
 } from './dto/store.dto';
+import Helper from '../../shared/utils/helpers';
+import { PrismaService } from '../../shared/services/prisma.service';
+import { StoreResponseDto } from '../customer/dto/store-response.dto';
+import { GetNearbyStoresQueryDto } from '../customer/dto/near-by-store.dto';
 
 @ApiTags('vendor/stores')
 @Controller('vendor/stores')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class StoreController {
-  constructor(private readonly storeService: StoreService) {}
+  constructor(
+    private readonly storeService: StoreService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Post()
   @ApiConsumes('multipart/form-data')
@@ -104,4 +114,5 @@ export class StoreController {
 
     return this.storeService.deleteMultipleStoresSimple(req.user.id, storeIds);
   }
+
 }
