@@ -20,7 +20,6 @@ import {
   ApiNotFoundResponse,
   ApiParam,
   ApiOkResponse,
-  ApiProperty,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CustomerService } from './customer.service';
@@ -80,30 +79,7 @@ export class CustomerController {
     return this.customerService.getCategories();
   }
 
-  // @Get('stores/category/:categoryId')
-  // @ApiOperation({ summary: 'Get stores by category' })
-  // @ApiQuery({ name: 'lat', required: false })
-  // @ApiQuery({ name: 'lng', required: false })
-  // async getStoresByCategory(
-  //   @Param('categoryId') categoryId: string,
-  //   @Request() req,
-  //   // @Query('latitude') latitude?: number,
-  //   // @Query('longitude') longitude?: number,
-  //   // @Query('lat') lat?: number,
-  //   // @Query('lng') lng?: number,
-  // ) {
-  //   // const location = latitude && longitude ? { latitude, longitude } : null;
-  //   //const customerLocation = lat && lng ? { lat, lng } : null;
-
-  //   //return this.storeDiscoveryService.getStoresByCategory(categoryId, location);
-  //   const customerId = req.user.id;
-  //   return this.storeDiscoveryService.getStoresByCategory(
-  //     categoryId,
-  //     customerId,
-  //   );
-  // }
-
-  @Get('stores/category/:categoryId')
+  @Get('stores/category/testing/:categoryId')
   @ApiOperation({
     summary: 'Get stores by category (with optional location support)',
     description:

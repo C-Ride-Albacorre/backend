@@ -1,6 +1,6 @@
 // src/customer/services/store-discovery.service.ts
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { StoreWithDetailsDto } from './dto/store.dto';
+// import { StoreWithDetailsDto } from './dto/store.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import axios from 'axios';
 
@@ -36,8 +36,11 @@ export class StoreDiscoveryService {
       limit,
     } = params;
 
+    // ✅ Normalize inputs
     const safePage = Number(page) || 1;
     const safeLimit = Number(limit) || 20;
+    const safeRadiusKm = radiusKm !== undefined ? Number(radiusKm) : null;
+
     const skip = (safePage - 1) * safeLimit;
 
     // ✅ Resolve user location
@@ -51,7 +54,7 @@ export class StoreDiscoveryService {
         select: { latitude: true, longitude: true },
       });
 
-      if (savedLocation) {
+      if (savedLocation?.latitude && savedLocation?.longitude) {
         userLocation = {
           lat: Number(savedLocation.latitude),
           lng: Number(savedLocation.longitude),
@@ -59,182 +62,95 @@ export class StoreDiscoveryService {
       }
     }
 
-    // ✅ Build dynamic WHERE clause
+    // ✅ Base WHERE clause
     const where: any = {
-      storeCategory: categoryId,
+      categoryId: categoryId,
       status: 'ACTIVE',
       latitude: { not: null },
       longitude: { not: null },
     };
 
-    // ✅ Subcategory filter (optional)
-    if (subcategoryId) {
-      where.storeSubcategories = {
-        some: {
-          subcategoryId,
-        },
-      };
-    }
+    const cleanSearch = search?.trim();
 
-    // ✅ Search filter (DB level)
-    if (search && search.trim().length > 0) {
+    if (cleanSearch && cleanSearch.length > 0) {
       where.OR = [
-        { storeName: { contains: search, mode: 'insensitive' } },
-        { storeAddress: { contains: search, mode: 'insensitive' } },
+        // Store name (startsWith OR contains)
+        { storeName: { startsWith: cleanSearch, mode: 'insensitive' } },
+        { storeName: { contains: cleanSearch, mode: 'insensitive' } },
+
+        // Store fields
+        { storeAddress: { contains: cleanSearch, mode: 'insensitive' } },
+        { storeDescription: { contains: cleanSearch, mode: 'insensitive' } },
+
+        // Product search
         {
           products: {
             some: {
-              productName: { contains: search, mode: 'insensitive' },
+              productStatus: 'ACTIVE',
+              OR: [
+                {
+                  productName: { startsWith: cleanSearch, mode: 'insensitive' },
+                },
+                { productName: { contains: cleanSearch, mode: 'insensitive' } },
+                { description: { contains: cleanSearch, mode: 'insensitive' } },
+                {
+                  subcategory: {
+                    name: { contains: cleanSearch, mode: 'insensitive' },
+                  },
+                },
+              ],
             },
           },
         },
       ];
     }
 
-    // ✅ Fetch from DB
+    // ✅ Subcategory filter (via products)
+    if (subcategoryId) {
+      where.products = {
+        some: {
+          subcategoryId: subcategoryId,
+          productStatus: 'ACTIVE',
+        },
+      };
+    }
+
+    // ✅ Fetch from DB (with pagination)
     const stores = await this.prisma.store.findMany({
       where,
+      skip,
+      take: safeLimit,
       include: {
-        storeSubcategories: { include: { subcategory: true } },
+        category: true,
         operatingHours: true,
         products: {
           take: 4,
           where: { productStatus: 'ACTIVE' },
           include: {
-            productImages: { take: 1, where: { isPrimary: true } },
+            productImages: {
+              take: 1,
+              where: { isPrimary: true },
+            },
+            subcategory: true,
           },
         },
       },
+      orderBy: {
+        createdAt: 'desc', // fallback ordering
+      },
     });
+
+    // ✅ Count total (for pagination meta)
+    const total = await this.prisma.store.count({ where });
 
     // ✅ Map + distance
     let results = stores.map((store) => {
       let distance: number | null = null;
 
       if (userLocation) {
-        distance = this.calculateHaversineDistance(userLocation, {
-          lat: Number(store.latitude),
-          lng: Number(store.longitude),
-        });
-      }
-
-      return {
-        id: store.id,
-        storeName: store.storeName,
-        storeCategory: store.storeCategory,
-        subcategories: store.storeSubcategories.map((s) => s.subcategory.name),
-        storeDescription: store.storeDescription,
-        storeAddress: store.storeAddress,
-        phoneNumber: store.phoneNumber,
-        minimumOrder: store.minimumOrder,
-        preparationTime: store.preparationTime,
-        storeLogo: store.storeLogo,
-        isOpen: this.isStoreOpen(store.operatingHours),
-        distance,
-        products: store.products,
-      };
-    });
-
-    // ✅ Radius filter
-    if (userLocation && radiusKm != null) {
-      results = results.filter(
-        (s) => s.distance != null && s.distance <= radiusKm,
-      );
-    }
-
-    // ✅ Sorting
-    if (userLocation) {
-      results.sort(
-        (a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity),
-      );
-    } else {
-      results.sort((a, b) => a.storeName.localeCompare(b.storeName));
-    }
-
-    // ✅ Pagination
-    const paginated = results.slice(skip, skip + safeLimit);
-
-    return {
-      data: paginated,
-      meta: {
-        total: results.length,
-        page: safePage,
-        limit: safeLimit,
-        totalPages: Math.ceil(results.length / safeLimit),
-      },
-    };
-  }
-
-  async getStoresByCategoryLatest(params: {
-    categoryId: string;
-    customerId?: string;
-    lat?: number;
-    lng?: number;
-    radiusKm?: number;
-    page?: number;
-    limit?: number;
-    search?: string;
-  }) {
-    const { categoryId, customerId, lat, lng, radiusKm, page, limit, search } =
-      params;
-
-    // 1️⃣ Normalize inputs
-    const safePage = Number(page) || 1;
-    const safeLimit = Number(limit) || 20;
-    const safeRadiusKm = radiusKm !== undefined ? Number(radiusKm) : null;
-    const skip = (safePage - 1) * safeLimit;
-
-    this.logger.log(
-      `Fetching stores | category=${categoryId} | user=${customerId}`,
-    );
-
-    // 2️⃣ Resolve user location
-    let userLocation: { lat: number; lng: number } | null = null;
-    if (lat != null && lng != null) {
-      userLocation = { lat: Number(lat), lng: Number(lng) };
-    } else if (customerId) {
-      const savedLocation = await this.prisma.customerLocation.findFirst({
-        where: { userId: customerId, isDefault: true },
-        select: { latitude: true, longitude: true },
-      });
-
-      if (savedLocation?.latitude != null && savedLocation?.longitude != null) {
-        userLocation = {
-          lat: Number(savedLocation.latitude),
-          lng: Number(savedLocation.longitude),
-        };
-      }
-    }
-
-    // 3️⃣ Fetch all stores in the category
-    const stores = await this.prisma.store.findMany({
-      where: {
-        storeCategory: categoryId,
-        status: 'ACTIVE',
-        latitude: { not: null },
-        longitude: { not: null },
-      },
-      include: {
-        storeSubcategories: { include: { subcategory: true } },
-        operatingHours: true,
-        products: {
-          take: 4,
-          where: { productStatus: 'ACTIVE' },
-          include: { productImages: { take: 1, where: { isPrimary: true } } },
-        },
-      },
-    });
-
-    if (stores.length === 0) {
-      console.warn('⚠️ No stores found for this category');
-    }
-
-    // 4️⃣ Map stores and calculate distance
-    let results = stores.map((store) => {
-      let distance: number | null = null;
-      if (userLocation) {
         const storeLat = Number(store.latitude);
         const storeLng = Number(store.longitude);
+
         if (!isNaN(storeLat) && !isNaN(storeLng)) {
           distance = this.calculateHaversineDistance(userLocation, {
             lat: storeLat,
@@ -246,8 +162,8 @@ export class StoreDiscoveryService {
       return {
         id: store.id,
         storeName: store.storeName,
-        storeCategory: store.storeCategory,
-        subcategories: store.storeSubcategories.map((s) => s.subcategory.name),
+        categoryId: store.categoryId, // required by StoreResponseDto
+        storeCategory: store.category?.name, // ✅ FIXED
         storeDescription: store.storeDescription,
         storeAddress: store.storeAddress,
         phoneNumber: store.phoneNumber,
@@ -256,60 +172,39 @@ export class StoreDiscoveryService {
         storeLogo: store.storeLogo,
         isOpen: this.isStoreOpen(store.operatingHours),
         distance,
-        products: store.products.map((p) => ({
-          id: p.id,
-          productName: p.productName,
-          description: p.description,
-          productImages: p.productImages.map((img) => ({
-            id: img.id,
-            imageUrl: img.imageUrl,
-            isPrimary: img.isPrimary,
-          })),
-        })),
+
+        // ✅ derive subcategories from products
+        subcategories: [
+          ...new Set(
+            store.products.map((p) => p.subcategory?.name).filter(Boolean),
+          ),
+        ],
+
+        products: store.products,
       };
     });
 
-    // 5️⃣ Apply search filter (storeName, storeAddress, productName)
-    if (search && search.trim().length > 0) {
-      const searchLower = search.toLowerCase();
-      results = results.filter(
-        (store) =>
-          store.storeName.toLowerCase().includes(searchLower) ||
-          store.storeAddress?.toLowerCase().includes(searchLower) ||
-          store.products.some(
-            (p) =>
-              p.productName.toLowerCase().includes(searchLower) ||
-              p.description.toLowerCase().includes(searchLower),
-          ),
-      );
-    }
-
-    // 6️⃣ Apply radius filter if user location exists
+    // ✅ Radius filter (after fetch)
     if (userLocation && safeRadiusKm != null) {
       results = results.filter(
-        (store) => store.distance != null && store.distance <= safeRadiusKm,
+        (s) => s.distance != null && s.distance <= safeRadiusKm,
       );
     }
 
-    // 7️⃣ Sort stores
+    // ✅ Sort by distance if available
     if (userLocation) {
       results.sort(
         (a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity),
       );
-    } else {
-      results.sort((a, b) => a.storeName.localeCompare(b.storeName));
     }
 
-    // 8️⃣ Apply pagination
-    const paginatedResults = results.slice(skip, skip + safeLimit);
-
     return {
-      data: paginatedResults,
+      data: results,
       meta: {
-        total: results.length,
+        total,
         page: safePage,
         limit: safeLimit,
-        totalPages: Math.ceil(results.length / safeLimit),
+        totalPages: Math.ceil(total / safeLimit),
       },
     };
   }
@@ -337,13 +232,12 @@ export class StoreDiscoveryService {
       search,
     } = params;
 
-    // ✅ 1. Normalize inputs
     const safePage = Number(page) || 1;
     const safeLimit = Number(limit) || 20;
     const safeRadiusKm = radiusKm !== undefined ? Number(radiusKm) : null;
     const skip = (safePage - 1) * safeLimit;
 
-    // ✅ 2. Resolve user location
+    // ✅ Resolve user location
     let userLocation: { lat: number; lng: number } | null = null;
 
     if (lat != null && lng != null) {
@@ -362,28 +256,47 @@ export class StoreDiscoveryService {
       }
     }
 
-    // ✅ 3. Fetch stores by subcategory + category
-    const stores = await this.prisma.store.findMany({
-      where: {
-        storeCategory: categoryId,
-        status: 'ACTIVE',
-        latitude: { not: null },
-        longitude: { not: null },
-        storeSubcategories: {
-          some: {
-            subcategoryId: subcategoryId,
-          },
+    // ✅ WHERE
+    const where: any = {
+      categoryId,
+      status: 'ACTIVE',
+      latitude: { not: null },
+      longitude: { not: null },
+      products: {
+        some: {
+          subcategoryId,
+          productStatus: 'ACTIVE',
         },
       },
-      include: {
-        storeSubcategories: {
-          include: { subcategory: true },
+    };
+
+    // ✅ Search in DB
+    if (search && search.trim()) {
+      where.OR = [
+        { storeName: { contains: search, mode: 'insensitive' } },
+        { storeAddress: { contains: search, mode: 'insensitive' } },
+        {
+          products: {
+            some: {
+              productName: { contains: search, mode: 'insensitive' },
+            },
+          },
         },
+      ];
+    }
+
+    const stores = await this.prisma.store.findMany({
+      where,
+      skip,
+      take: safeLimit,
+      include: {
+        category: true,
         operatingHours: true,
         products: {
           take: 4,
           where: { productStatus: 'ACTIVE' },
           include: {
+            subcategory: true,
             productImages: {
               take: 1,
               where: { isPrimary: true },
@@ -393,7 +306,8 @@ export class StoreDiscoveryService {
       },
     });
 
-    // ✅ 4. Map + distance
+    const total = await this.prisma.store.count({ where });
+
     let results = stores.map((store) => {
       let distance: number | null = null;
 
@@ -412,8 +326,7 @@ export class StoreDiscoveryService {
       return {
         id: store.id,
         storeName: store.storeName,
-        storeCategory: store.storeCategory,
-        subcategories: store.storeSubcategories.map((s) => s.subcategory.name),
+        storeCategory: store.category?.name,
         storeDescription: store.storeDescription,
         storeAddress: store.storeAddress,
         phoneNumber: store.phoneNumber,
@@ -422,57 +335,34 @@ export class StoreDiscoveryService {
         storeLogo: store.storeLogo,
         isOpen: this.isStoreOpen(store.operatingHours),
         distance,
-        products: store.products.map((p) => ({
-          id: p.id,
-          productName: p.productName,
-          productImages: p.productImages,
-        })),
+        subcategories: [
+          ...new Set(
+            store.products.map((p) => p.subcategory?.name).filter(Boolean),
+          ),
+        ],
+        products: store.products,
       };
     });
 
-    // ✅ 5. Search filter
-    if (search && search.trim().length > 0) {
-      const searchLower = search.toLowerCase();
-
-      results = results.filter((store) => {
-        const productMatch = store.products.some((p) =>
-          p.productName.toLowerCase().includes(searchLower),
-        );
-
-        return (
-          store.storeName.toLowerCase().includes(searchLower) ||
-          store.storeAddress?.toLowerCase().includes(searchLower) ||
-          productMatch
-        );
-      });
-    }
-
-    // ✅ 6. Radius filter
     if (userLocation && safeRadiusKm != null) {
       results = results.filter(
-        (store) => store.distance != null && store.distance <= safeRadiusKm,
+        (s) => s.distance != null && s.distance <= safeRadiusKm,
       );
     }
 
-    // ✅ 7. Sorting
     if (userLocation) {
       results.sort(
         (a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity),
       );
-    } else {
-      results.sort((a, b) => a.storeName.localeCompare(b.storeName));
     }
 
-    // ✅ 8. Pagination
-    const paginatedResults = results.slice(skip, skip + safeLimit);
-
     return {
-      data: paginatedResults,
+      data: results,
       meta: {
-        total: results.length,
+        total,
         page: safePage,
         limit: safeLimit,
-        totalPages: Math.ceil(results.length / safeLimit),
+        totalPages: Math.ceil(total / safeLimit),
       },
     };
   }
@@ -488,49 +378,22 @@ export class StoreDiscoveryService {
   }) {
     const { categoryId, customerId, lat, lng, radiusKm, page, limit } = params;
 
-    // ✅ 1. Normalize inputs
     const safePage = Number(page) || 1;
     const safeLimit = Number(limit) || 20;
     const safeRadiusKm = radiusKm !== undefined ? Number(radiusKm) : null;
-
     const skip = (safePage - 1) * safeLimit;
 
-    this.logger.log(
-      `Fetching stores | category=${categoryId} | user=${customerId}`,
-    );
-
-    console.log('🔍 INPUT DEBUG', {
-      categoryId,
-      customerId,
-      lat,
-      lng,
-      safeRadiusKm,
-      safePage,
-      safeLimit,
-      skip,
-    });
-
-    // ✅ 2. Resolve user location
     let userLocation: { lat: number; lng: number } | null = null;
 
     if (lat != null && lng != null) {
-      userLocation = {
-        lat: Number(lat),
-        lng: Number(lng),
-      };
+      userLocation = { lat: Number(lat), lng: Number(lng) };
     } else if (customerId) {
       const savedLocation = await this.prisma.customerLocation.findFirst({
-        where: {
-          userId: customerId,
-          isDefault: true,
-        },
-        select: {
-          latitude: true,
-          longitude: true,
-        },
+        where: { userId: customerId, isDefault: true },
+        select: { latitude: true, longitude: true },
       });
 
-      if (savedLocation?.latitude != null && savedLocation?.longitude != null) {
+      if (savedLocation?.latitude && savedLocation?.longitude) {
         userLocation = {
           lat: Number(savedLocation.latitude),
           lng: Number(savedLocation.longitude),
@@ -538,23 +401,21 @@ export class StoreDiscoveryService {
       }
     }
 
-    // ✅ 3. Fetch ALL stores (NO pagination here)
     const stores = await this.prisma.store.findMany({
       where: {
-        storeCategory: categoryId,
+        categoryId,
         status: 'ACTIVE',
         latitude: { not: null },
         longitude: { not: null },
       },
       include: {
-        storeSubcategories: {
-          include: { subcategory: true },
-        },
+        category: true,
         operatingHours: true,
         products: {
           take: 4,
           where: { productStatus: 'ACTIVE' },
           include: {
+            subcategory: true,
             productImages: {
               take: 1,
               where: { isPrimary: true },
@@ -564,14 +425,7 @@ export class StoreDiscoveryService {
       },
     });
 
-    console.log('store', stores);
-
-    if (stores.length === 0) {
-      console.warn('⚠️ No stores found for this category');
-    }
-
-    // ✅ 4. Map + distance calculation
-    const results = stores.map((store) => {
+    let results = stores.map((store) => {
       let distance: number | null = null;
 
       if (userLocation) {
@@ -583,24 +437,14 @@ export class StoreDiscoveryService {
             lat: storeLat,
             lng: storeLng,
           });
-
-          if (isNaN(distance)) {
-            console.warn('❌ NaN distance detected', {
-              storeId: store.id,
-              storeLat,
-              storeLng,
-              userLocation,
-            });
-            distance = null;
-          }
         }
       }
 
       return {
         id: store.id,
         storeName: store.storeName,
-        storeCategory: store.storeCategory,
-        subcategories: store.storeSubcategories.map((s) => s.subcategory.name),
+        storeCategory: store.category?.name,
+        categoryId: store.categoryId, // required by StoreResponseDto
         storeDescription: store.storeDescription,
         storeAddress: store.storeAddress,
         phoneNumber: store.phoneNumber,
@@ -609,203 +453,39 @@ export class StoreDiscoveryService {
         storeLogo: store.storeLogo,
         isOpen: this.isStoreOpen(store.operatingHours),
         distance,
+        subcategories: [
+          ...new Set(
+            store.products.map((p) => p.subcategory?.name).filter(Boolean),
+          ),
+        ],
       };
     });
 
-    // ✅ 5. Filter + sort
-    let finalResults = results;
+    if (userLocation && safeRadiusKm != null) {
+      results = results.filter(
+        (s) => s.distance != null && s.distance <= safeRadiusKm,
+      );
+    }
 
     if (userLocation) {
-      // Optional radius filtering
-      if (safeRadiusKm != null) {
-        finalResults = finalResults.filter(
-          (store) => store.distance != null && store.distance <= safeRadiusKm,
-        );
-      }
-
-      // Sort by proximity
-      finalResults.sort(
+      results.sort(
         (a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity),
       );
     } else {
-      // Fallback sorting
-      finalResults.sort((a, b) => a.storeName.localeCompare(b.storeName));
+      results.sort((a, b) => a.storeName.localeCompare(b.storeName));
     }
 
-    // ✅ 6. Apply pagination AFTER sorting
-    const paginatedResults = finalResults.slice(skip, skip + safeLimit);
+    const paginatedResults = results.slice(skip, skip + safeLimit);
 
-    // (Optional but recommended)
     return {
       data: paginatedResults,
       meta: {
-        total: finalResults.length,
+        total: results.length,
         page: safePage,
         limit: safeLimit,
-        totalPages: Math.ceil(finalResults.length / safeLimit),
+        totalPages: Math.ceil(results.length / safeLimit),
       },
     };
-  }
-
-  async getStoresByCategoryByProximity(params: {
-    categoryId: string;
-    customerId?: string;
-    lat?: number;
-    lng?: number;
-    radiusKm?: number;
-    page?: number;
-    limit?: number;
-  }) {
-    const { categoryId, customerId, lat, lng, radiusKm, page, limit } = params;
-
-    // ✅ 1. Normalize numbers (CRITICAL FIX)
-    const safePage = Number(page) || 1;
-    const safeLimit = Number(limit) || 20;
-    const safeRadiusKm = radiusKm !== undefined ? Number(radiusKm) : null;
-
-    const skip = (safePage - 1) * safeLimit;
-
-    this.logger.log(
-      `Fetching stores | category=${categoryId} | user=${customerId}`,
-    );
-
-    console.log('🔍 INPUT DEBUG', {
-      categoryId,
-      customerId,
-      lat,
-      lng,
-      safeRadiusKm,
-      safePage,
-      safeLimit,
-      skip,
-    });
-
-    // ✅ 2. Resolve user location
-    let userLocation: { lat: number; lng: number } | null = null;
-
-    if (lat != null && lng != null) {
-      userLocation = {
-        lat: Number(lat),
-        lng: Number(lng),
-      };
-    } else if (customerId) {
-      const savedLocation = await this.prisma.customerLocation.findFirst({
-        where: {
-          userId: customerId,
-          isDefault: true,
-        },
-        select: {
-          latitude: true,
-          longitude: true,
-        },
-      });
-
-      if (savedLocation?.latitude != null && savedLocation?.longitude != null) {
-        userLocation = {
-          lat: Number(savedLocation.latitude),
-          lng: Number(savedLocation.longitude),
-        };
-      }
-    }
-
-    // ✅ 3. Fetch stores (BASE QUERY)
-    const stores = await this.prisma.store.findMany({
-      where: {
-        storeCategory: categoryId,
-        status: 'ACTIVE',
-        latitude: { not: null },
-        longitude: { not: null },
-      },
-      skip,
-      take: safeLimit,
-      include: {
-        storeSubcategories: {
-          include: { subcategory: true },
-        },
-        operatingHours: true,
-        products: {
-          take: 4,
-          where: { productStatus: 'ACTIVE' },
-          include: {
-            productImages: {
-              take: 1,
-              where: { isPrimary: true },
-            },
-          },
-        },
-      },
-    });
-
-    if (stores.length === 0) {
-      console.warn('⚠️ No stores found for this category');
-    }
-
-    // ✅ 4. Map + SAFE distance calculation
-    const results = stores.map((store) => {
-      let distance: number | null = null;
-
-      if (userLocation) {
-        const storeLat = Number(store.latitude);
-        const storeLng = Number(store.longitude);
-
-        if (!isNaN(storeLat) && !isNaN(storeLng)) {
-          distance = this.calculateHaversineDistance(userLocation, {
-            lat: storeLat,
-            lng: storeLng,
-          });
-
-          if (isNaN(distance)) {
-            console.warn('❌ NaN distance detected', {
-              storeId: store.id,
-              storeLat,
-              storeLng,
-              userLocation,
-            });
-            distance = null;
-          }
-        }
-      }
-
-      return {
-        id: store.id,
-        storeName: store.storeName,
-        storeCategory: store.storeCategory,
-        subcategories: store.storeSubcategories.map((s) => s.subcategory.name),
-        storeDescription: store.storeDescription,
-        storeAddress: store.storeAddress,
-        phoneNumber: store.phoneNumber,
-        minimumOrder: store.minimumOrder,
-        preparationTime: store.preparationTime,
-        storeLogo: store.storeLogo,
-        isOpen: this.isStoreOpen(store.operatingHours),
-        distance,
-      };
-    });
-
-    // ✅ 5. Filtering + sorting
-    let finalResults = results;
-
-    if (userLocation) {
-      // Apply radius ONLY if provided and greater than 0
-      if (safeRadiusKm != null && safeRadiusKm > 0) {
-        finalResults = finalResults.filter(
-          (store) => store.distance != null && store.distance <= safeRadiusKm,
-        );
-      }
-
-      // Sort by distance
-      finalResults.sort(
-        (a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity),
-      );
-    } else {
-      // Sort alphabetically if no user location
-      finalResults.sort((a, b) => a.storeName.localeCompare(b.storeName));
-    }
-
-    // ✅ Apply pagination AFTER sorting if needed
-    // const paginatedResults = finalResults.slice(skip, skip + safeLimit);
-
-    return finalResults;
   }
 
   private async calculateDistanceWithGoogle(
@@ -882,28 +562,40 @@ export class StoreDiscoveryService {
    * Get subcategories with store counts
    */
   async getSubcategoriesWithStoreCount(categoryId: string) {
+    // Get all subcategories
     const subcategories = await this.prisma.subcategory.findMany({
       where: {
         categoryId,
         isActive: true,
       },
-      include: {
-        storeSubcategories: {
-          where: {
-            store: {
-              status: 'ACTIVE',
-            },
-          },
-        },
-      },
+      orderBy: { displayOrder: 'asc' },
     });
 
-    return subcategories.map((sub) => ({
-      id: sub.id,
-      name: sub.name,
-      description: sub.description,
-      storeCount: sub.storeSubcategories.length,
-    }));
+    // Count stores per subcategory
+    const results = await Promise.all(
+      subcategories.map(async (sub) => {
+        const storeCount = await this.prisma.store.count({
+          where: {
+            status: 'ACTIVE',
+            products: {
+              some: {
+                subcategoryId: sub.id,
+                productStatus: 'ACTIVE',
+              },
+            },
+          },
+        });
+
+        return {
+          id: sub.id,
+          name: sub.name,
+          description: sub.description,
+          storeCount,
+        };
+      }),
+    );
+
+    return results;
   }
 
   /**
@@ -913,13 +605,12 @@ export class StoreDiscoveryService {
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       include: {
-        storeSubcategories: {
-          include: { subcategory: true },
-        },
+        category: true, // store category
         operatingHours: true,
         products: {
           where: { productStatus: 'ACTIVE' },
           include: {
+            subcategory: true, // product subcategory
             productImages: {
               orderBy: { displayOrder: 'asc' },
             },
@@ -1000,9 +691,9 @@ export class StoreDiscoveryService {
    * Calculate distance between store and customer (simplified)
    * In production, use a proper geolocation library
    */
-  private calculateDistance(store: any, customerLocation: any): number {
-    // Simplified - in production, use proper distance calculation
-    // based on latitude/longitude
-    return Math.random() * 10; // Mock distance in km
-  }
+  // private calculateDistance(store: any, customerLocation: any): number {
+  //   // Simplified - in production, use proper distance calculation
+  //   // based on latitude/longitude
+  //   return Math.random() * 10; // Mock distance in km
+  // }
 }

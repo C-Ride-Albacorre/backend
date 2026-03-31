@@ -7,6 +7,7 @@ import {
 } from './dto/product.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ProductService {
@@ -20,6 +21,7 @@ export class ProductService {
   /**
    * Create a new product (SINGLE or VARIABLE)
    */
+
   async createProduct(
     userId: string,
     storeId: string,
@@ -38,34 +40,37 @@ export class ProductService {
     }
 
     // Upload images
-    const uploadedImages = [];
+    const uploadedImages: string[] = [];
     for (const image of images) {
       const uploadResult = await this.cloudinaryService.uploadLogo(image);
       uploadedImages.push(uploadResult.secure_url);
     }
 
-    // Create product with images
-    const product = await this.prisma.product.create({
-      data: {
-        productName: dto.productName,
-        productCategory: dto.productCategory,
-        sku: dto.sku,
-        description: dto.description,
-        productType: dto.productType,
-        stockStatus: dto.stockStatus,
-        productStatus: dto.productStatus,
-        basePrice: dto.basePrice,
-        stockQuantity: dto.stockQuantity,
-        lowStockThreshold: dto.lowStockThreshold,
-        storeId,
-        productImages: {
-          create: uploadedImages.map((url, index) => ({
-            imageUrl: url,
-            isPrimary: index === 0,
-            displayOrder: index,
-          })),
-        },
+    // ✅ IMPORTANT: explicitly type this
+    const data: Prisma.ProductUncheckedCreateInput = {
+      productName: dto.productName,
+      // productCategory: dto.productCategory,
+      sku: dto.sku,
+      description: dto.description,
+      productType: dto.productType,
+      stockStatus: dto.stockStatus,
+      productStatus: dto.productStatus,
+      basePrice: dto.basePrice,
+      stockQuantity: dto.stockQuantity,
+      lowStockThreshold: dto.lowStockThreshold,
+      storeId, // ✅ now valid
+      subcategoryId: dto.subcategoryId, // ✅ FIX
+      productImages: {
+        create: uploadedImages.map((url, index) => ({
+          imageUrl: url,
+          isPrimary: index === 0,
+          displayOrder: index,
+        })),
       },
+    };
+
+    const product = await this.prisma.product.create({
+      data,
       include: {
         productImages: true,
       },
@@ -89,6 +94,75 @@ export class ProductService {
       product: completeProduct,
     };
   }
+  // async createProduct(
+  //   userId: string,
+  //   storeId: string,
+  //   dto: CreateProductDto,
+  //   images: Express.Multer.File[],
+  // ) {
+  //   this.logger.log(`Creating product for store: ${storeId}`);
+
+  //   // Verify store belongs to vendor
+  //   const store = await this.prisma.store.findFirst({
+  //     where: { id: storeId, userId },
+  //   });
+
+  //   if (!store) {
+  //     throw new NotFoundException('Store not found or access denied');
+  //   }
+
+  //   // Upload images
+  //   const uploadedImages = [];
+  //   for (const image of images) {
+  //     const uploadResult = await this.cloudinaryService.uploadLogo(image);
+  //     uploadedImages.push(uploadResult.secure_url);
+  //   }
+
+  //   // Create product with images
+  //   const product = await this.prisma.product.create({
+  //     data: {
+  //       productName: dto.productName,
+  //       productCategory: dto.productCategory,
+  //       sku: dto.sku,
+  //       description: dto.description,
+  //       productType: dto.productType,
+  //       stockStatus: dto.stockStatus,
+  //       productStatus: dto.productStatus,
+  //       basePrice: dto.basePrice,
+  //       stockQuantity: dto.stockQuantity,
+  //       lowStockThreshold: dto.lowStockThreshold,
+  //       storeId,
+  //       productImages: {
+  //         create: uploadedImages.map((url, index) => ({
+  //           imageUrl: url,
+  //           isPrimary: index === 0,
+  //           displayOrder: index,
+  //         })),
+  //       },
+  //     },
+  //     include: {
+  //       productImages: true,
+  //     },
+  //   });
+
+  //   // If VARIABLE product, create variants
+  //   if (dto.productType === 'VARIABLE' && dto.variants?.length) {
+  //     await this.createVariants(product.id, dto.variants);
+  //   }
+
+  //   // Create add-ons if provided
+  //   if (dto.addons?.length) {
+  //     await this.createAddons(product.id, dto.addons);
+  //   }
+
+  //   const completeProduct = await this.getProductWithDetails(product.id);
+
+  //   return {
+  //     success: true,
+  //     message: 'Product created successfully',
+  //     product: completeProduct,
+  //   };
+  // }
 
   /**
    * Create variants for a product
@@ -228,7 +302,9 @@ export class ProductService {
       where: { id: productId },
       data: {
         productName: dto.productName,
-        productCategory: dto.productCategory,
+        // productCategory: dto.productCategory,
+        storeId, // ✅ now valid
+        subcategoryId: dto.subcategoryId, // ✅ FIX
         description: dto.description,
         stockStatus: dto.stockStatus,
         productStatus: dto.productStatus,

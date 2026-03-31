@@ -168,18 +168,35 @@ export class CustomerService {
   /**
    * Get all active categories
    */
-  async getCategories() {
-    return this.prisma.category.findMany({
-      where: { isActive: true },
-      include: {
-        subcategories: {
-          where: { isActive: true },
-          orderBy: { displayOrder: 'asc' },
+   async getCategories() {
+  return this.prisma.category.findMany({
+    where: { isActive: true },
+    include: {
+      _count: {
+        select: {
+          stores: true, // works because Store.categoryId exists
         },
       },
-      orderBy: { displayOrder: 'asc' },
-    });
-  }
+      subcategories: {
+        where: { isActive: true },
+        orderBy: { displayOrder: 'asc' },
+      },
+    },
+    orderBy: { displayOrder: 'asc' },
+  });
+}
+  // async getCategories() {
+  //   return this.prisma.category.findMany({
+  //     where: { isActive: true },
+  //     include: {
+  //       subcategories: {
+  //         where: { isActive: true },
+  //         orderBy: { displayOrder: 'asc' },
+  //       },
+  //     },
+  //     orderBy: { displayOrder: 'asc' },
+  //   });
+  // }
 
   /**
    * Get packages (for package/document orders)

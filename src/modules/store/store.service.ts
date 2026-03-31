@@ -58,11 +58,19 @@ export class StoreService {
       logoUrl = uploadResult.secure_url;
     }
 
+    const category = await this.prisma.category.findUnique({
+      where: { id: dto.categoryId },
+    });
+
+    if (!category) {
+      throw new NotFoundException('Invalid category');
+    }
+
     // ✅ Create store WITHOUT coordinates
     const store = await this.prisma.store.create({
       data: {
         storeName: dto.storeName,
-        storeCategory: dto.storeCategory,
+        categoryId: dto.categoryId,
         storeDescription: dto.storeDescription,
         storeAddress: dto.storeAddress,
         phoneNumber: dto.phoneNumber,
@@ -98,73 +106,6 @@ export class StoreService {
     return {
       success: true,
       message: 'Store created successfully (location processing...)',
-      store,
-    };
-  }
-
-  async createStorebk(
-    userId: string,
-    dto: CreateStoreDto,
-    logoFile?: Express.Multer.File,
-  ) {
-    this.logger.log(`Creating store for vendor: ${userId}`);
-
-    // Check vendor exists and is active
-    const vendor = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { businessInfo: true },
-    });
-
-    if (!vendor || vendor.role !== 'VENDOR') {
-      throw new NotFoundException('Vendor not found');
-    }
-
-    if (vendor.status !== 'APPROVED') {
-      throw new BadRequestException(
-        'Vendor account must be active to create stores',
-      );
-    }
-
-    // Upload logo if provided
-    let logoUrl: string | null = null;
-    if (logoFile) {
-      const uploadResult = await this.cloudinaryService.uploadLogo(logoFile);
-      logoUrl = uploadResult.secure_url; // <-- store only the URL
-    }
-
-    // Create store with operating hours
-    const store = await this.prisma.store.create({
-      data: {
-        storeName: dto.storeName,
-        storeCategory: dto.storeCategory,
-        storeDescription: dto.storeDescription,
-        storeAddress: dto.storeAddress,
-        phoneNumber: dto.phoneNumber,
-        email: dto.email,
-        minimumOrder: dto.minimumOrder,
-        preparationTime: dto.preparationTime,
-        deliveryFee: dto.deliveryFee,
-        storeLogo: logoUrl,
-        userId,
-        operatingHours: {
-          create: dto.operatingHours.map((hour) => ({
-            dayOfWeek: hour.dayOfWeek,
-            isOpen: hour.isOpen,
-            openingTime: hour.openingTime,
-            closingTime: hour.closingTime,
-            breakStart: hour.breakStart,
-            breakEnd: hour.breakEnd,
-          })),
-        },
-      },
-      include: {
-        operatingHours: true,
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Store created successfully',
       store,
     };
   }
@@ -228,7 +169,7 @@ export class StoreService {
       where: { id: storeId },
       data: {
         storeName: dto.storeName,
-        storeCategory: dto.storeCategory,
+        categoryId: dto.categoryId,
         storeDescription: dto.storeDescription,
         storeAddress: dto.storeAddress,
         phoneNumber: dto.phoneNumber,

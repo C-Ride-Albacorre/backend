@@ -85,7 +85,7 @@ export class CreateStoreDto {
     example: 'd8440fe0-da81-4ff1-acaa-685f6351a203',
   })
   @IsString()
-  storeCategory: string;
+  categoryId: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -175,7 +175,7 @@ export class UpdateStoreDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  storeCategory?: string;
+  categoryId?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
