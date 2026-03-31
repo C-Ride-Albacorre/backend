@@ -1,8 +1,6 @@
-// src/customer/services/store-discovery.service.ts
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-// import { StoreWithDetailsDto } from './dto/store.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
-import axios from 'axios';
+import Helper from '../../shared/utils/helpers';
 
 @Injectable()
 export class StoreDiscoveryService {
@@ -152,7 +150,7 @@ export class StoreDiscoveryService {
         const storeLng = Number(store.longitude);
 
         if (!isNaN(storeLat) && !isNaN(storeLng)) {
-          distance = this.calculateHaversineDistance(userLocation, {
+          distance = Helper.calculateHaversineDistance(userLocation, {
             lat: storeLat,
             lng: storeLng,
           });
@@ -170,7 +168,7 @@ export class StoreDiscoveryService {
         minimumOrder: store.minimumOrder,
         preparationTime: store.preparationTime,
         storeLogo: store.storeLogo,
-        isOpen: this.isStoreOpen(store.operatingHours),
+        isOpen: Helper.isStoreOpen(store.operatingHours),
         distance,
 
         // ✅ derive subcategories from products
@@ -205,6 +203,144 @@ export class StoreDiscoveryService {
         page: safePage,
         limit: safeLimit,
         totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  }
+
+  async getNearbyStores(params: {
+    customerId?: string;
+    lat?: number;
+    lng?: number;
+    radiusKm?: number;
+    search?: string;
+  }) {
+    const { customerId, lat, lng, radiusKm, search } = params;
+
+    // ✅ Resolve user location
+    let userLocation: { lat: number; lng: number } | null = null;
+
+    if (lat != null && lng != null) {
+      userLocation = { lat: Number(lat), lng: Number(lng) };
+    } else if (customerId) {
+      const savedLocation = await this.prisma.customerLocation.findFirst({
+        where: { userId: customerId, isDefault: true },
+        select: { latitude: true, longitude: true },
+      });
+
+      if (savedLocation?.latitude && savedLocation?.longitude) {
+        userLocation = {
+          lat: Number(savedLocation.latitude),
+          lng: Number(savedLocation.longitude),
+        };
+      }
+    }
+
+    // ✅ Base WHERE clause: only active stores with coordinates
+    const where: any = {
+      status: 'ACTIVE',
+      latitude: { not: null },
+      longitude: { not: null },
+    };
+
+    // ✅ Optional search filter
+    const cleanSearch = search?.trim();
+    if (cleanSearch) {
+      where.OR = [
+        { storeName: { contains: cleanSearch, mode: 'insensitive' } },
+        { storeAddress: { contains: cleanSearch, mode: 'insensitive' } },
+        { storeDescription: { contains: cleanSearch, mode: 'insensitive' } },
+        {
+          products: {
+            some: {
+              productStatus: 'ACTIVE',
+              OR: [
+                { productName: { contains: cleanSearch, mode: 'insensitive' } },
+                { description: { contains: cleanSearch, mode: 'insensitive' } },
+              ],
+            },
+          },
+        },
+      ];
+    }
+
+    // ✅ Fetch all matching stores
+    const stores = await this.prisma.store.findMany({
+      where,
+      include: {
+        category: true,
+        operatingHours: true,
+        products: {
+          take: 4,
+          where: { productStatus: 'ACTIVE' },
+          include: {
+            productImages: { take: 1, where: { isPrimary: true } },
+            subcategory: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // ✅ Map + distance calculation
+    let results = stores.map((store) => {
+      let distance: number | null = null;
+
+      if (userLocation) {
+        const storeLat = Number(store.latitude);
+        const storeLng = Number(store.longitude);
+        if (!isNaN(storeLat) && !isNaN(storeLng)) {
+          distance = Helper.calculateHaversineDistance(userLocation, {
+            lat: storeLat,
+            lng: storeLng,
+          });
+        }
+      }
+
+      return {
+        id: store.id,
+        storeName: store.storeName,
+        storeCategory: store.category?.name || null,
+        storeDescription: store.storeDescription,
+        storeAddress: store.storeAddress,
+        phoneNumber: store.phoneNumber,
+        minimumOrder: store.minimumOrder,
+        preparationTime: store.preparationTime,
+        storeLogo: store.storeLogo,
+        isOpen: Helper.isStoreOpen(store.operatingHours),
+        distance,
+        subcategories: [
+          ...new Set(
+            store.products.map((p) => p.subcategory?.name).filter(Boolean),
+          ),
+        ],
+        products: store.products,
+      };
+    });
+
+    // ✅ Radius filter if provided
+    if (userLocation && radiusKm != null) {
+      results = results.filter(
+        (s) => s.distance != null && s.distance <= radiusKm,
+      );
+    }
+
+    // ✅ Sort by distance if available
+    if (userLocation) {
+      results.sort(
+        (a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity),
+      );
+    }
+
+    // ✅ Return with meta, same as getStores
+    const total = results.length;
+
+    return {
+      data: results,
+      meta: {
+        total,
+        page: 1,
+        limit: total,
+        totalPages: 1,
       },
     };
   }
@@ -316,7 +452,7 @@ export class StoreDiscoveryService {
         const storeLng = Number(store.longitude);
 
         if (!isNaN(storeLat) && !isNaN(storeLng)) {
-          distance = this.calculateHaversineDistance(userLocation, {
+          distance = Helper.calculateHaversineDistance(userLocation, {
             lat: storeLat,
             lng: storeLng,
           });
@@ -333,7 +469,7 @@ export class StoreDiscoveryService {
         minimumOrder: store.minimumOrder,
         preparationTime: store.preparationTime,
         storeLogo: store.storeLogo,
-        isOpen: this.isStoreOpen(store.operatingHours),
+        isOpen: Helper.isStoreOpen(store.operatingHours),
         distance,
         subcategories: [
           ...new Set(
@@ -433,7 +569,7 @@ export class StoreDiscoveryService {
         const storeLng = Number(store.longitude);
 
         if (!isNaN(storeLat) && !isNaN(storeLng)) {
-          distance = this.calculateHaversineDistance(userLocation, {
+          distance = Helper.calculateHaversineDistance(userLocation, {
             lat: storeLat,
             lng: storeLng,
           });
@@ -451,7 +587,7 @@ export class StoreDiscoveryService {
         minimumOrder: store.minimumOrder,
         preparationTime: store.preparationTime,
         storeLogo: store.storeLogo,
-        isOpen: this.isStoreOpen(store.operatingHours),
+        isOpen: Helper.isStoreOpen(store.operatingHours),
         distance,
         subcategories: [
           ...new Set(
@@ -488,62 +624,62 @@ export class StoreDiscoveryService {
     };
   }
 
-  private async calculateDistanceWithGoogle(
-    origin: { lat: number; lng: number },
-    destination: { lat: number; lng: number },
-  ): Promise<number> {
-    try {
-      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  // private async calculateDistanceWithGoogle(
+  //   origin: { lat: number; lng: number },
+  //   destination: { lat: number; lng: number },
+  // ): Promise<number> {
+  //   try {
+  //     const apiKey = process.env.GOOGLE_MAPS_API_KEY;
 
-      const url = `https://maps.googleapis.com/maps/api/distancematrix/json`;
+  //     const url = `https://maps.googleapis.com/maps/api/distancematrix/json`;
 
-      const response = await axios.get(url, {
-        params: {
-          origins: `${origin.lat},${origin.lng}`,
-          destinations: `${destination.lat},${destination.lng}`,
-          key: apiKey,
-        },
-      });
+  //     const response = await axios.get(url, {
+  //       params: {
+  //         origins: `${origin.lat},${origin.lng}`,
+  //         destinations: `${destination.lat},${destination.lng}`,
+  //         key: apiKey,
+  //       },
+  //     });
 
-      const element = response.data.rows[0].elements[0];
+  //     const element = response.data.rows[0].elements[0];
 
-      if (element.status === 'OK') {
-        // distance in meters → convert to km
-        return element.distance.value / 1000;
-      }
+  //     if (element.status === 'OK') {
+  //       // distance in meters → convert to km
+  //       return element.distance.value / 1000;
+  //     }
 
-      return Infinity;
-    } catch (error) {
-      this.logger.error('Distance calculation failed', error);
-      return Infinity;
-    }
-  }
+  //     return Infinity;
+  //   } catch (error) {
+  //     this.logger.error('Distance calculation failed', error);
+  //     return Infinity;
+  //   }
+  // }
 
-  private calculateHaversineDistance(
-    origin: { lat: number; lng: number },
-    destination: { lat: number; lng: number },
-  ): number {
-    const R = 6371; // km
+  // private calculateHaversineDistance(
+  //   origin: { lat: number; lng: number },
+  //   destination: { lat: number; lng: number },
+  // ): number {
+  //   const R = 6371; // km
 
-    console.log('destination', destination);
+  //   console.log('destination', destination);
 
-    const dLat = this.toRad(destination.lat - origin.lat);
-    const dLng = this.toRad(destination.lng - origin.lng);
+  //   const dLat = this.toRad(destination.lat - origin.lat);
+  //   const dLng = this.toRad(destination.lng - origin.lng);
 
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(this.toRad(origin.lat)) *
-        Math.cos(this.toRad(destination.lat)) *
-        Math.sin(dLng / 2) ** 2;
+  //   const a =
+  //     Math.sin(dLat / 2) ** 2 +
+  //     Math.cos(this.toRad(origin.lat)) *
+  //       Math.cos(this.toRad(destination.lat)) *
+  //       Math.sin(dLng / 2) ** 2;
 
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  //   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-    return R * c;
-  }
+  //   return R * c;
+  // }
 
-  private toRad(value: number): number {
-    return (value * Math.PI) / 180;
-  }
+  // private toRad(value: number): number {
+  //   return (value * Math.PI) / 180;
+  // }
 
   /**
    * Get subcategories by category
@@ -670,22 +806,22 @@ export class StoreDiscoveryService {
   /**
    * Check if store is open
    */
-  private isStoreOpen(operatingHours: any[]): boolean {
-    const now = new Date();
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const currentTime = now.toTimeString().slice(0, 5); // "HH:MM"
+  // private isStoreOpen(operatingHours: any[]): boolean {
+  //   const now = new Date();
+  //   const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  //   const currentTime = now.toTimeString().slice(0, 5); // "HH:MM"
 
-    const todayHours = operatingHours.find((h) => h.dayOfWeek === dayOfWeek);
+  //   const todayHours = operatingHours.find((h) => h.dayOfWeek === dayOfWeek);
 
-    if (!todayHours || !todayHours.isOpen) {
-      return false;
-    }
+  //   if (!todayHours || !todayHours.isOpen) {
+  //     return false;
+  //   }
 
-    return (
-      currentTime >= todayHours.openingTime &&
-      currentTime <= todayHours.closingTime
-    );
-  }
+  //   return (
+  //     currentTime >= todayHours.openingTime &&
+  //     currentTime <= todayHours.closingTime
+  //   );
+  // }
 
   /**
    * Calculate distance between store and customer (simplified)
