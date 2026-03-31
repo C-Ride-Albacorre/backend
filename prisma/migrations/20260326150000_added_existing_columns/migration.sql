@@ -1,3 +1,0 @@
-ALTER TABLE "Store" ADD COLUMN "latitude" FLOAT;
-ALTER TABLE "Store" ADD COLUMN "longitude" FLOAT;
-ALTER TABLE "User" ADD COLUMN "isNewUser" BOOLEAN DEFAULT false;

@@ -286,51 +286,113 @@ export class AuthService {
   async refreshTokens(refreshTokenDto: RefreshTokenDto): Promise<AuthResponse> {
     const { refreshToken } = refreshTokenDto;
 
+    this.logger.log(`Refresh token attempt`);
+
     try {
-      // Verify the refresh token
+      // 1. Verify token
       const payload = this.jwtService.verify(refreshToken, {
         secret: this.refreshTokenSecret,
       });
 
+      // 2. Find user
       const user = await this.userService.findById(payload.sub);
 
-      if (!user || !user.isActive) {
-        throw new UnauthorizedException('User not found or inactive');
+      if (!user) {
+        throw new UnauthorizedException('Invalid credentials');
       }
 
-      // If rotation is enabled, verify stored hash
+      // 3. Match login checks EXACTLY
+      if (!user.isActive) {
+        this.logger.warn(`Refresh attempt for inactive user: ${user.id}`);
+        throw new UnauthorizedException('Account is deactivated');
+      }
+
+      if (!user.isVerified) {
+        this.logger.warn(`Refresh attempt for unverified user: ${user.id}`);
+        throw new UnauthorizedException(
+          'Account not verified. Please verify your email/phone.',
+        );
+      }
+
+      // 4. Validate refresh token (rotation security)
       if (this.refreshTokenRotationEnabled && user.refreshTokenHash) {
         const isValid = await bcrypt.compare(
           refreshToken,
           user.refreshTokenHash,
         );
+
         if (!isValid) {
-          this.logger.warn(`Invalid refresh token used for user: ${user.id}`);
-          // Invalidate all refresh tokens for this user (potential token theft)
+          this.logger.warn(
+            `Invalid refresh token reuse detected for user: ${user.id}`,
+          );
+
+          // possible token theft → revoke all sessions
           await this.userService.updateRefreshToken(user.id, null);
-          throw new UnauthorizedException('Invalid refresh token');
+
+          throw new UnauthorizedException('Invalid credentials');
         }
       }
 
-      // Generate new tokens
-      const newTokens = await this.generateAuthResponse(user);
-
-      // Invalidate old refresh token if rotation is enabled
-      if (this.refreshTokenRotationEnabled) {
-        await this.rotateRefreshToken(
-          user.id,
-          refreshToken,
-          newTokens.refreshToken,
-        );
-      }
+      // 5. Generate new tokens (same as login)
+      const authResponse = await this.generateAuthResponse(user);
 
       this.logger.log(`Tokens refreshed for user: ${user.id}`);
-      return newTokens;
+
+      return authResponse;
     } catch (error) {
-      this.logger.error(`Token refresh failed: ${error.message}`);
-      throw new UnauthorizedException('Invalid refresh token');
+      this.logger.error(`Refresh failed: ${error.message}`);
+      throw new UnauthorizedException('Invalid credentials');
     }
   }
+
+  // async refreshTokensbk(refreshTokenDto: RefreshTokenDto): Promise<AuthResponse> {
+  //   const { refreshToken } = refreshTokenDto;
+
+  //   try {
+  //     // Verify the refresh token
+  //     const payload = this.jwtService.verify(refreshToken, {
+  //       secret: this.refreshTokenSecret,
+  //     });
+
+  //     const user = await this.userService.findById(payload.sub);
+
+  //     if (!user || !user.isActive) {
+  //       throw new UnauthorizedException('User not found or inactive');
+  //     }
+
+  //     // If rotation is enabled, verify stored hash
+  //     if (this.refreshTokenRotationEnabled && user.refreshTokenHash) {
+  //       const isValid = await bcrypt.compare(
+  //         refreshToken,
+  //         user.refreshTokenHash,
+  //       );
+  //       if (!isValid) {
+  //         this.logger.warn(`Invalid refresh token used for user: ${user.id}`);
+  //         // Invalidate all refresh tokens for this user (potential token theft)
+  //         await this.userService.updateRefreshToken(user.id, null);
+  //         throw new UnauthorizedException('Invalid refresh token');
+  //       }
+  //     }
+
+  //     // Generate new tokens
+  //     const newTokens = await this.generateAuthResponse(user);
+
+  //     // Invalidate old refresh token if rotation is enabled
+  //     if (this.refreshTokenRotationEnabled) {
+  //       await this.rotateRefreshToken(
+  //         user.id,
+  //         refreshToken,
+  //         newTokens.refreshToken,
+  //       );
+  //     }
+
+  //     this.logger.log(`Tokens refreshed for user: ${user.id}`);
+  //     return newTokens;
+  //   } catch (error) {
+  //     this.logger.error(`Token refresh failed: ${error.message}`);
+  //     throw new UnauthorizedException('Invalid refresh token');
+  //   }
+  // }
 
   async logout(userId: string): Promise<void> {
     this.logger.log(`Logging out user: ${userId}`);

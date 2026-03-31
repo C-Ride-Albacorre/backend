@@ -4,6 +4,7 @@ export class StoreResponseDto {
   @ApiProperty() id: string;
   @ApiProperty() storeName: string;
   @ApiProperty() storeCategory: string;
+  @ApiProperty() categoryId?: string;
   @ApiProperty({ type: [String] }) subcategories: string[];
   @ApiProperty() storeDescription: string;
   @ApiProperty() storeAddress: string;

@@ -493,6 +493,17 @@ STEP 4 – Bank Details
   //   async loginDriver(@Body() loginDto: LoginDto) {
   //     return this.authService.loginDriver(loginDto);
   //   }
+  @Post('refresh')
+  @ApiOperation({ summary: 'Refresh access token' })
+  @ApiResponse({
+    status: 200,
+    description: 'Token refreshed',
+    type: AuthResponseDto,
+  })
+  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  async refreshTokens(@Body() refreshTokenDto: RefreshTokenDto) {
+    return this.authService.refreshTokens(refreshTokenDto);
+  }
 
   @Post('logout')
   //  @HttpCode(HttpStatus.OK)
@@ -639,7 +650,8 @@ STEP 4 – Bank Details
   @ApiOperation({ summary: 'Google OAuth callback handler' })
   async googleCallback(
     @OAuthUser() googleUser: OAuthUser,
-    @Res({ passthrough: true }) res: Response,
+    @Res() res: Response, // ❗ remove passthrough
+    // @Res({ passthrough: true }) res: Response,
   ) {
     this.logger.debug(`OAuth callback - Role: ${googleUser.requestedRole}`);
 
