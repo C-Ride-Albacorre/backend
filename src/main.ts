@@ -55,6 +55,7 @@ async function bootstrap() {
     'http://localhost:3000',
     'http://localhost:4000',
     'https://backend-service-1rc7.onrender.com',
+    'https://c-ride.co/',
     process.env.FRONTEND_URL,
   ];
 
