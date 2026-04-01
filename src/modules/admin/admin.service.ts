@@ -1011,7 +1011,57 @@ export class AdminService {
     return category;
   }
 
-  async updateCategory(id: string, dto: UpdateCategoryDto) {
+  async updateCategory(
+    id: string,
+    dto: UpdateCategoryDto,
+    files?: {
+      image?: Express.Multer.File[];
+      icon?: Express.Multer.File[];
+    },
+  ) {
+    try {
+      let imageUrl: string | null = null;
+      let iconUrl: string | null = null;
+
+      // ✅ Upload new image if provided
+      if (files?.image?.[0]) {
+        const uploadResult = await this.cloudinaryService.uploadLogo(
+          files.image[0],
+        );
+        imageUrl = uploadResult.secure_url;
+      }
+
+      // ✅ Upload new icon if provided
+      if (files?.icon?.[0]) {
+        const uploadResult = await this.cloudinaryService.uploadLogo(
+          files.icon[0],
+        );
+        iconUrl = uploadResult.secure_url;
+      }
+
+      return await this.prisma.category.update({
+        where: { id },
+        data: {
+          ...dto,
+          ...(imageUrl && { image: imageUrl }),
+          ...(iconUrl && { icon: iconUrl }),
+        },
+        include: {
+          subcategories: true,
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException('Category with this name already exists');
+      }
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Category not found');
+      }
+      throw error;
+    }
+  }
+
+  async updateCategoryWithimage(id: string, dto: UpdateCategoryDto) {
     try {
       return await this.prisma.category.update({
         where: { id },

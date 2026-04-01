@@ -125,22 +125,24 @@ export class AuthService {
     }
 
     // Generate JWT token
-    const payload = {
-      sub: admin.id,
-      email: admin.email,
-      role: admin.role,
-    };
-    const accessToken = this.jwtService.sign(payload);
+    // const payload = {
+    //   sub: admin.id,
+    //   email: admin.email,
+    //   role: admin.role,
+    // };
 
-    return {
-      success: true,
-      accessToken,
-      user: {
-        id: admin.id,
-        email: admin.email,
-        role: admin.role,
-      },
-    };
+    return this.generateAuthResponse(admin);
+
+    // const accessToken = this.jwtService.sign(payload);\
+    // return {
+    //   success: true,
+    //   accessToken,
+    //   user: {
+    //     id: admin.id,
+    //     email: admin.email,
+    //     role: admin.role,
+    //   },
+    // };
   }
 
   async loginWithVerification(dto: { email: string; password: string }) {
@@ -289,54 +291,85 @@ export class AuthService {
     this.logger.log(`Refresh token attempt`);
 
     try {
-      // 1. Verify token
-      const payload = this.jwtService.verify(refreshToken, {
-        secret: this.refreshTokenSecret,
-      });
-
-      // 2. Find user
-      const user = await this.userService.findById(payload.sub);
-
-      if (!user) {
+      // 1️⃣ Verify token
+      let payload;
+      try {
+        payload = this.jwtService.verify(refreshToken, {
+          secret: this.refreshTokenSecret,
+        });
+        this.logger.log(`JWT payload verified: ${JSON.stringify(payload)}`);
+      } catch (err) {
+        this.logger.error(`JWT verification failed: ${err.message}`);
         throw new UnauthorizedException('Invalid credentials');
       }
 
-      // 3. Match login checks EXACTLY
-      if (!user.isActive) {
-        this.logger.warn(`Refresh attempt for inactive user: ${user.id}`);
-        throw new UnauthorizedException('Account is deactivated');
-      }
-
-      if (!user.isVerified) {
-        this.logger.warn(`Refresh attempt for unverified user: ${user.id}`);
-        throw new UnauthorizedException(
-          'Account not verified. Please verify your email/phone.',
+      // 2️⃣ Find user
+      const user = await this.userService.findById(payload.sub);
+      if (!user) {
+        this.logger.warn(
+          `Refresh attempt failed: user not found for id ${payload.sub}`,
         );
+        throw new UnauthorizedException('Invalid credentials');
+      }
+      this.logger.log(`User fetched: ${JSON.stringify(user)}`);
+
+      // 3️⃣ Role-specific checks
+      switch (user.role) {
+        case 'CUSTOMER':
+          if (!user.isActive) {
+            this.logger.warn(`Inactive customer: ${user.id}`);
+            throw new UnauthorizedException('Account is deactivated');
+          }
+          if (!user.isVerified) {
+            this.logger.warn(`Unverified customer: ${user.id}`);
+            throw new UnauthorizedException(
+              'Account not verified. Please verify your email/phone.',
+            );
+          }
+          break;
+
+        case 'VENDOR':
+          if (!user.approvedAt || user.status !== 'APPROVED') {
+            this.logger.warn(`Unapproved/inactive vendor: ${user.id}`);
+            throw new UnauthorizedException(
+              'Vendor account not approved or inactive',
+            );
+          }
+          break;
+
+        case 'ADMIN':
+          if (!user.isActive) {
+            this.logger.warn(`Inactive admin: ${user.id}`);
+            throw new UnauthorizedException('Admin account is deactivated');
+          }
+          // You can add extra checks for admin if needed
+          break;
+
+        default:
+          this.logger.warn(`Unknown role: ${user.role} for user ${user.id}`);
+          throw new UnauthorizedException('Invalid credentials');
       }
 
-      // 4. Validate refresh token (rotation security)
+      // 4️⃣ Validate refresh token (rotation security)
       if (this.refreshTokenRotationEnabled && user.refreshTokenHash) {
         const isValid = await bcrypt.compare(
           refreshToken,
           user.refreshTokenHash,
         );
-
         if (!isValid) {
           this.logger.warn(
             `Invalid refresh token reuse detected for user: ${user.id}`,
           );
-
-          // possible token theft → revoke all sessions
           await this.userService.updateRefreshToken(user.id, null);
-
           throw new UnauthorizedException('Invalid credentials');
         }
       }
 
-      // 5. Generate new tokens (same as login)
+      // 5️⃣ Generate new tokens
       const authResponse = await this.generateAuthResponse(user);
-
-      this.logger.log(`Tokens refreshed for user: ${user.id}`);
+      this.logger.log(
+        `Tokens refreshed for user: ${user.id} (role: ${user.role})`,
+      );
 
       return authResponse;
     } catch (error) {
@@ -344,55 +377,6 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
   }
-
-  // async refreshTokensbk(refreshTokenDto: RefreshTokenDto): Promise<AuthResponse> {
-  //   const { refreshToken } = refreshTokenDto;
-
-  //   try {
-  //     // Verify the refresh token
-  //     const payload = this.jwtService.verify(refreshToken, {
-  //       secret: this.refreshTokenSecret,
-  //     });
-
-  //     const user = await this.userService.findById(payload.sub);
-
-  //     if (!user || !user.isActive) {
-  //       throw new UnauthorizedException('User not found or inactive');
-  //     }
-
-  //     // If rotation is enabled, verify stored hash
-  //     if (this.refreshTokenRotationEnabled && user.refreshTokenHash) {
-  //       const isValid = await bcrypt.compare(
-  //         refreshToken,
-  //         user.refreshTokenHash,
-  //       );
-  //       if (!isValid) {
-  //         this.logger.warn(`Invalid refresh token used for user: ${user.id}`);
-  //         // Invalidate all refresh tokens for this user (potential token theft)
-  //         await this.userService.updateRefreshToken(user.id, null);
-  //         throw new UnauthorizedException('Invalid refresh token');
-  //       }
-  //     }
-
-  //     // Generate new tokens
-  //     const newTokens = await this.generateAuthResponse(user);
-
-  //     // Invalidate old refresh token if rotation is enabled
-  //     if (this.refreshTokenRotationEnabled) {
-  //       await this.rotateRefreshToken(
-  //         user.id,
-  //         refreshToken,
-  //         newTokens.refreshToken,
-  //       );
-  //     }
-
-  //     this.logger.log(`Tokens refreshed for user: ${user.id}`);
-  //     return newTokens;
-  //   } catch (error) {
-  //     this.logger.error(`Token refresh failed: ${error.message}`);
-  //     throw new UnauthorizedException('Invalid refresh token');
-  //   }
-  // }
 
   async logout(userId: string): Promise<void> {
     this.logger.log(`Logging out user: ${userId}`);
