@@ -485,10 +485,10 @@ model DriverProfile {
   
   // Vehicle Information (Step 2)
   vehicleType      VehicleType     @default(CAR)
-  vehicleMake      String
-  vehicleModel     String
-  year             Int
-  licensePlate     String          @unique
+  vehicleMake      String?
+  vehicleModel     String?
+  year             Int?
+  licensePlate     String?          @unique
   
   // Documents (Step 3)
   driverLicenseUrl     String?

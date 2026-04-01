@@ -126,7 +126,6 @@ export class CustomerController {
     });
   }
 
-  
   @Get('stores/nearby')
   @ApiOperation({
     summary: 'Get nearby stores (optionally search by name/address/product)',
