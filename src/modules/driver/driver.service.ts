@@ -85,30 +85,33 @@ export class DriverService {
     });
 
     // Create or update driver profile
-    // await this.prisma.driverProfile.upsert({
-    //   where: { userId: driverId },
-    //   create: {
-    //     userId: driverId,
-    //     fullName: dto.fullName,
-    //     phoneNumber: dto.phoneNumber,
-    //     email: dto.email,
-    //     address: dto.address,
-    //     city: dto.city,
-    //     state: dto.state,
-    //     country: dto.country || 'NG',
-    //     postalCode: dto.postalCode,
-    //   },
-    //   update: {
-    //     fullName: dto.fullName,
-    //     phoneNumber: dto.phoneNumber,
-    //     email: dto.email,
-    //     address: dto.address,
-    //     city: dto.city,
-    //     state: dto.state,
-    //     country: dto.country || 'NG',
-    //     postalCode: dto.postalCode,
-    //   },
-    // });
+    await this.prisma.driverProfile.upsert({
+      where: { userId: driverId },
+      create: {
+        userId: driverId,
+        fullName: dto.fullName,
+        phoneNumber: dto.phoneNumber,
+        email: dto.email,
+        address: dto.address,
+        city: dto.city,
+        state: dto.state,
+        country: dto.country || 'NG',
+        postalCode: dto.postalCode,
+        // user: {
+        //   connect: { id: driverId },
+        // },
+      },
+      update: {
+        fullName: dto.fullName,
+        phoneNumber: dto.phoneNumber,
+        email: dto.email,
+        address: dto.address,
+        city: dto.city,
+        state: dto.state,
+        country: dto.country || 'NG',
+        postalCode: dto.postalCode,
+      },
+    });
 
     return {
       success: true,
