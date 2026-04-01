@@ -26,7 +26,7 @@ import {
   OnBoardingStatus,
   Prisma,
   UserStatus,
-  VendorDocument,
+  // VendorDocument,
 } from '@prisma/client';
 import Helper from '../../shared/utils/helpers';
 import {
