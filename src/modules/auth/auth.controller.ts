@@ -61,6 +61,7 @@ import { AuthResponse } from './interface/auth-response.interface';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { OAuthUser } from '../../common/decorators/oauth-user.decorator';
 import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
+import { CreateUserDto } from './dto/create-user.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -167,39 +168,74 @@ export class AuthController {
   }
 
   // VENDOR
+  // @Post('/vendor/register')
+  // @ApiOperation({ summary: 'Register a new vendor' })
+  // @ApiResponse({ status: 201, description: 'Vendor registered successfully' })
+  // @ApiResponse({ status: 409, description: 'Vendor already exists' })
+  // async registerVendor(@Body() dto: CreateVendorDto) {
+  //   return this.authService.registerVendor(dto);
+  // }
+
   @Post('/vendor/register')
-  @ApiOperation({ summary: 'Register a new vendor' })
+  @ApiOperation({ summary: 'Register a new Vendor' })
   @ApiResponse({ status: 201, description: 'Vendor registered successfully' })
   @ApiResponse({ status: 409, description: 'Vendor already exists' })
-  async registerVendor(@Body() dto: CreateVendorDto) {
-    return this.authService.registerVendor(dto);
+  async registerVendor(@Body() dto: CreateUserDto) {
+    return this.authService.registerUser(dto, UserRole.VENDOR);
   }
 
-  @Post('/vendor/verify/email')
+  // @Post('/vendor/verify/email')
+  // @HttpCode(HttpStatus.OK)
+  // @ApiOperation({ summary: 'Verify vendor email' })
+  // @ApiResponse({ status: 200, description: 'Email verified successfully' })
+  // @ApiResponse({ status: 401, description: 'Invalid verification code' })
+  // async verifyVendorEmail(@Body() dto: VerifyEmailDto) {
+  //   return this.authService.verifyVendorEmail(dto);
+  // }
+
+  @Post('/user/verify/email')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Verify vendor email' })
+  @ApiOperation({ summary: 'Verify user email' })
   @ApiResponse({ status: 200, description: 'Email verified successfully' })
   @ApiResponse({ status: 401, description: 'Invalid verification code' })
-  async verifyVendorEmail(@Body() dto: VerifyEmailDto) {
-    return this.authService.verifyVendorEmail(dto);
+  async verifyUserEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyUserEmail(dto);
   }
 
-  @Post('/vendor/verify/phone')
+  // @Post('/vendor/verify/phone')
+  // @HttpCode(HttpStatus.OK)
+  // @ApiOperation({ summary: 'Verify vendor phone' })
+  // @ApiResponse({ status: 200, description: 'Phone verified successfully' })
+  // @ApiResponse({ status: 401, description: 'Invalid verification code' })
+  // async verifyVendorPhone(@Body() dto: VerifyPhoneDto) {
+  //   return this.authService.verifyVendorPhone(dto);
+  // }
+
+  @Post('/user/verify/phone')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Verify vendor phone' })
+  @ApiOperation({ summary: 'Verify user phone' })
   @ApiResponse({ status: 200, description: 'Phone verified successfully' })
   @ApiResponse({ status: 401, description: 'Invalid verification code' })
-  async verifyVendorPhone(@Body() dto: VerifyPhoneDto) {
-    return this.authService.verifyVendorPhone(dto);
+  async verifyUserPhone(@Body() dto: VerifyPhoneDto) {
+    return this.authService.verifyUserPhone(dto);
   }
+
+  // @Post('/vendor/login')
+  // @HttpCode(HttpStatus.OK)
+  // @ApiOperation({ summary: 'Vendor login' })
+  // @ApiResponse({ status: 200, description: 'Login successful' })
+  // @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  // async loginVendor(@Body() loginDto: LoginDto) {
+  //   return this.authService.loginVendor(loginDto);
+  // }
 
   @Post('/vendor/login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Vendor login' })
+  @ApiOperation({ summary: 'User login' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  async loginVendor(@Body() loginDto: LoginDto) {
-    return this.authService.loginVendor(loginDto);
+  async loginUser(@Body() loginDto: LoginDto) {
+    return this.authService.loginUser(loginDto, UserRole.VENDOR);
   }
 
   @Post('/vendor/onboarding/submit')
@@ -379,6 +415,22 @@ STEP 4 – Bank Details
   }
 
   //DRIVER
+  @Post('/driver/register')
+  @ApiOperation({ summary: 'Register a new Driver' })
+  @ApiResponse({ status: 201, description: 'Driver registered successfully' })
+  @ApiResponse({ status: 409, description: 'Driver already exists' })
+  async registerDriver(@Body() dto: CreateUserDto) {
+    return this.authService.registerUser(dto, UserRole.DISPATCHER);
+  }
+
+  @Post('/driver/login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Driver login' })
+  @ApiResponse({ status: 200, description: 'Login successful' })
+  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  async loginDriver(@Body() loginDto: LoginDto) {
+    return this.authService.loginUser(loginDto, UserRole.DISPATCHER);
+  }
   //   async registerDriver(dto: CreateDriverDto) {
   //     return this.userRegistrationService.registerUser(
   //       {
@@ -763,14 +815,14 @@ STEP 4 – Bank Details
     res.cookie('accessToken', authResponse.accessToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'strict',
+      sameSite: 'none',
       maxAge: 15 * 60 * 1000, // 15 min
     });
 
     res.cookie('refreshToken', authResponse.refreshToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'strict',
+      sameSite: 'none',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
   }

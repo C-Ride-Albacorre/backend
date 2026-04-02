@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { DriverStep1Dto } from './dto/step1-driver.dto';
 import { DriverStep2Dto } from './dto/step2-driver.dto';
-import { DriverStep3Dto, DriverStep3MetadataDto } from './dto/step3-driver.dto';
+import { DriverStep3MetadataDto } from './dto/step3-driver.dto';
 import { DriverStep4Dto } from './dto/step4-driver.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { UserRole, UserStatus } from '../../shared/enums';
