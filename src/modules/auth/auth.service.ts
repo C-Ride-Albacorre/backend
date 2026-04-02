@@ -58,6 +58,7 @@ import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { UploadDocumentDto } from '../user/dto/upload-document.dto';
 import { RegisterResponseDto } from './dto/registration-response.dto';
+import { CreateUserDto } from './dto/create-user.dto';
 
 @Injectable()
 export class AuthService {
@@ -1157,6 +1158,43 @@ export class AuthService {
     };
   }
 
+  async registerUser(dto: CreateUserDto, role: UserRole): Promise<any> {
+    this.logger.log(`Registering ${role}: ${dto.email}`);
+
+    await this.checkExistingUser(dto.email, dto.phoneNumber);
+
+    const hashedPassword = await Helper.hashText(dto.password);
+
+    const user = await this.userRepository.create({
+      email: dto.email,
+      phoneNumber: dto.phoneNumber,
+      password: hashedPassword,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      role,
+      status: UserStatus.PENDING_EMAIL_VERIFICATION,
+    });
+
+    await this.sendInitialUserVerificationOtps(user);
+
+    return {
+      success: true,
+      message: `${role} registration successful. Please verify your email and phone.`,
+      user: {
+        id: user.id,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        status: user.status,
+        role: user.role,
+      },
+      nextSteps: [
+        'Check your email for verification code',
+        'Check your phone for verification code',
+        'Verify phone first, then email',
+      ],
+    };
+  }
+
   /**
    * Verify Vendor Email - Step 2
    */
@@ -1220,6 +1258,70 @@ export class AuthService {
         status: updatedVendor.status,
         onboardingStatus: updatedVendor.onboardingStatus,
         onboardingStep: updatedVendor.onboardingStep,
+      },
+    };
+  }
+
+  async verifyUserEmail(dto: VerifyEmailDto): Promise<{
+    success: boolean;
+    message: string;
+    nextAction: string;
+    accessToken?: string;
+    user: Partial<User>;
+  }> {
+    this.logger.log(`Verifying email for: ${dto.email}`);
+
+    const isValid = await this.verificationService.verifyOtp({
+      identifier: dto.email,
+      otp: dto.otp,
+      purpose: VerificationPurpose.USER_EMAIL_VERIFICATION,
+    });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    const user = await this.userRepository.findByEmail(dto.email);
+    if (!user) {
+      throw new NotFoundException('user not found');
+    }
+
+    if (!user.isPhoneVerified) {
+      throw new BadRequestException('Please verify your phone number first');
+    }
+
+    if (user.isEmailVerified) {
+      throw new ConflictException('Email already verified');
+    }
+
+    user.isEmailVerified = true;
+    user.emailVerifiedAt = new Date();
+
+    user.status = UserStatus.PENDING_ONBOARDING;
+
+    // Initialize onboarding
+    if (!user.onboardingStatus) {
+      user.onboardingStatus = 'NOT_STARTED';
+      user.onboardingStep = 0;
+    }
+
+    const updatedUser = await this.userRepository.update(user.id, user);
+
+    // Now fully verified → issue JWT
+    const auth = await this.generateAuthResponse(updatedUser);
+
+    return {
+      success: true,
+      message: 'Email verified successfully',
+      nextAction: 'Complete business onboarding',
+      accessToken: auth.accessToken,
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        phoneNumber: updatedUser.phoneNumber,
+        status: updatedUser.status,
+        onboardingStatus: updatedUser.onboardingStatus,
+        onboardingStep: updatedUser.onboardingStep,
       },
     };
   }
@@ -1289,6 +1391,67 @@ export class AuthService {
     };
   }
 
+  async verifyUserPhone(dto: VerifyPhoneDto): Promise<{
+    success: boolean;
+    message: string;
+    nextAction: string;
+    user: Partial<User>;
+  }> {
+    this.logger.log(`Verifying phone for: ${dto.phoneNumber}`);
+
+    const isValid = await this.verificationService.verifyOtp({
+      identifier: dto.phoneNumber,
+      otp: dto.otp,
+      purpose: VerificationPurpose.USER_PHONE_VERIFICATION,
+    });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    const user = await this.userRepository.findByPhone(dto.phoneNumber);
+    if (!user) {
+      throw new NotFoundException('user not found');
+    }
+
+    if (user.isPhoneVerified) {
+      throw new ConflictException('Phone already verified');
+    }
+
+    user.isPhoneVerified = true;
+    user.phoneVerifiedAt = new Date();
+
+    // If email not verified yet → next step is email
+    if (!user.isEmailVerified) {
+      user.status = UserStatus.PENDING_EMAIL_VERIFICATION;
+    } else {
+      user.status = UserStatus.PENDING_ONBOARDING;
+
+      if (!user.onboardingStatus) {
+        user.onboardingStatus = 'NOT_STARTED';
+        user.onboardingStep = 0;
+      }
+    }
+
+    const updatedUser = await this.userRepository.update(user.id, user);
+
+    return {
+      success: true,
+      message: 'Phone verified successfully',
+      nextAction: updatedUser.isEmailVerified
+        ? 'Complete business onboarding'
+        : 'Verify your email address',
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        phoneNumber: updatedUser.phoneNumber,
+        status: updatedUser.status,
+        isPhoneVerified: updatedUser.isPhoneVerified,
+        isEmailVerified: updatedUser.isEmailVerified,
+      },
+    };
+  }
+
   /**
    * Vendor Login
    */
@@ -1350,6 +1513,71 @@ export class AuthService {
       onboardingStatus: vendor.onboardingStatus,
       onboardingStep: vendor.onboardingStep,
       status: vendor.status,
+    };
+  }
+
+  async loginUser(loginDto: LoginDto, role: UserRole) {
+    const { email, password } = loginDto;
+    this.logger.log(`user login attempt: ${email}`);
+
+    const user = await this.userRepository.findByEmail(email);
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (user.role !== role) {
+      throw new UnauthorizedException('Invalid role');
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    /**
+     * Enforce verification order
+     * Phone → Email → Onboarding
+     */
+
+    if (!user.isPhoneVerified) {
+      throw new UnauthorizedException(
+        'Please verify your phone number before logging in',
+      );
+    }
+
+    if (!user.isEmailVerified) {
+      throw new UnauthorizedException(
+        'Please verify your email address before logging in',
+      );
+    }
+
+    // ✅ DO NOT block login for:
+    // - PENDING_ONBOARDING
+    // - IN_PROGRESS
+    // - COMPLETED
+    // - PENDING (admin review)
+    // - REJECTED
+    // - APPROVED
+
+    // Update last login
+    const lastLoginAt = new Date();
+
+    await this.userRepository.update(user.id, {
+      lastLoginAt,
+    });
+
+    // Generate auth tokens
+    const auth = await this.generateAuthResponse(user);
+
+    return {
+      ...auth,
+      // Return onboarding + account state
+      onboardingStatus: user.onboardingStatus,
+      onboardingStep: user.onboardingStep,
+      status: user.status,
     };
   }
 
@@ -1442,6 +1670,24 @@ export class AuthService {
     }
   }
 
+  private async checkExistingUser(
+    email: string,
+    phoneNumber: string,
+  ): Promise<void> {
+    const existingUser = await this.userRepository.findExistingUser(
+      email,
+      phoneNumber,
+    );
+    if (existingUser) {
+      this.logger.warn(
+        `${existingUser.role} already exists with email: ${email} or phone: ${phoneNumber}`,
+      );
+      throw new ConflictException(
+        'Use with this email or phone already exists',
+      );
+    }
+  }
+
   private async sendInitialVerificationOtps(vendor: User): Promise<void> {
     try {
       // Send email verification OTP
@@ -1458,6 +1704,29 @@ export class AuthService {
 
       this.logger.log(
         `Verification OTPs sent to ${vendor.email} and ${vendor.phoneNumber}`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to send verification OTPs: ${error.message}`);
+      // Don't fail registration, vendor can request resend later
+    }
+  }
+
+  private async sendInitialUserVerificationOtps(user: User): Promise<void> {
+    try {
+      // Send email verification OTP
+      await this.verificationService.sendOtp({
+        identifier: user.email,
+        purpose: VerificationPurpose.USER_EMAIL_VERIFICATION,
+      });
+
+      // Send phone verification OTP
+      await this.verificationService.sendOtp({
+        identifier: user.phoneNumber,
+        purpose: VerificationPurpose.USER_PHONE_VERIFICATION,
+      });
+
+      this.logger.log(
+        `Verification OTPs sent to ${user.email} and ${user.phoneNumber}`,
       );
     } catch (error) {
       this.logger.error(`Failed to send verification OTPs: ${error.message}`);
@@ -1596,157 +1865,6 @@ export class AuthService {
       onboardingStep: step,
       onboardingStatus: OnBoardingStatus.IN_PROGRESS,
       status: UserStatus.PENDING_DOCUMENTS,
-    };
-  }
-
-  async saveVendorOnboardingStepwk(
-    vendorId: string,
-    step: number,
-    dto: Partial<CompleteOnboardingDto>,
-  ) {
-    const vendor = await this.validateVendorForOnboarding(vendorId);
-
-    if (step > (vendor.onboardingStep ?? 0) + 1) {
-      throw new ConflictException(
-        `Complete step ${(vendor.onboardingStep ?? 0) + 1} first`,
-      );
-    }
-
-    const userData: any = {
-      onboardingStatus: OnBoardingStatus.IN_PROGRESS,
-      onboardingStep: step,
-    };
-
-    const businessData: any = {};
-
-    switch (step) {
-      case 1:
-        Object.assign(businessData, {
-          businessName: dto.businessName,
-          businessType: dto.businessType,
-          registrationNumber: dto.registrationNumber,
-          taxId: dto.taxId,
-          description: dto.description,
-        });
-        break;
-
-      case 2:
-        Object.assign(businessData, {
-          businessPhone: dto.businessPhone,
-          businessEmail: dto.businessEmail,
-        });
-        break;
-
-      case 3:
-        Object.assign(businessData, {
-          address: dto.address,
-          city: dto.city,
-          state: dto.state,
-        });
-        break;
-
-      case 4:
-        Object.assign(businessData, {
-          bankName: dto.bankName,
-          accountName: dto.accountName,
-          accountNumber: dto.accountNumber,
-        });
-        break;
-    }
-
-    return this.prisma.user.update({
-      where: { id: vendorId },
-      data: {
-        ...userData,
-        businessInfo: {
-          upsert: {
-            create: {
-              ...businessData,
-            },
-            update: {
-              ...businessData,
-            },
-          },
-        },
-      },
-      include: {
-        businessInfo: true,
-      },
-    });
-  }
-
-  async saveVendorOnboardingStepbk(
-    vendorId: string,
-    step: number,
-    dto: Partial<CompleteOnboardingDto>,
-  ): Promise<{
-    success: boolean;
-    message: string;
-    onboardingStep: number;
-    onboardingStatus: string;
-  }> {
-    this.logger.log(`Saving onboarding step ${step} for vendor ${vendorId}`);
-
-    const vendor = await this.validateVendorForOnboarding(vendorId);
-
-    if (step < 1 || step > 4) {
-      throw new BadRequestException('Invalid onboarding step');
-    }
-
-    // Prevent skipping steps
-    if (step > vendor.onboardingStep + 1) {
-      throw new ConflictException(
-        `Complete step ${vendor.onboardingStep + 1} first`,
-      );
-    }
-
-    const updatePayload: any = {
-      onboardingStatus: OnBoardingStatus.IN_PROGRESS, //'IN_PROGRESS',
-      onboardingStep: step,
-    };
-
-    switch (step) {
-      case 1:
-        Object.assign(updatePayload, {
-          businessName: dto.businessName,
-          businessType: dto.businessType,
-          registrationNumber: dto.registrationNumber,
-          taxId: dto.taxId,
-          description: dto.description,
-        });
-        break;
-
-      case 2:
-        Object.assign(updatePayload, {
-          businessPhone: dto.businessPhone,
-          businessEmail: dto.businessEmail,
-        });
-        break;
-
-      case 3:
-        Object.assign(updatePayload, {
-          address: dto.address,
-          city: dto.city,
-          state: dto.state,
-        });
-        break;
-
-      case 4:
-        Object.assign(updatePayload, {
-          bankName: dto.bankName,
-          accountName: dto.accountName,
-          accountNumber: dto.accountNumber,
-        });
-        break;
-    }
-
-    await this.userRepository.update(vendorId, updatePayload);
-
-    return {
-      success: true,
-      message: `Step ${step} saved successfully`,
-      onboardingStep: step,
-      onboardingStatus: OnBoardingStatus.IN_PROGRESS,
     };
   }
 

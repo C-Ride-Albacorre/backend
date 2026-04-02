@@ -24,6 +24,8 @@ export enum VerificationPurpose {
   TWO_FACTOR = 'two_factor',
   VENDOR_EMAIL_VERIFICATION = 'vendor_email_verification',
   VENDOR_PHONE_VERIFICATION = 'vendor_phone_verification',
+  USER_EMAIL_VERIFICATION = 'user_email_verification',
+  USER_PHONE_VERIFICATION = 'user_phone_verification',
 }
 
 export enum DocumentType {
