@@ -17,6 +17,8 @@ import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { OnBoardingStatus, Prisma } from '@prisma/client';
 import { DriverOnboardingDto } from './dto/driver-onboarding.dto';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
+import Helper from 'src/shared/utils/helpers';
+import { DriverDocumentMetadataDto } from './dto/driver-document-metadata.dto';
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',
@@ -130,15 +132,59 @@ export class DriverService {
         await this.prisma.driverProfile.create({
           data: {
             userId: driverId,
-            fullName: dto.fullName!,
-            phoneNumber: dto.phoneNumber!,
-            email: dto.email!,
+            // fullName: dto.fullName!,
+            //phoneNumber: dto.phoneNumber!,
+            //email: dto.email!,
             address: dto.address!,
             city: dto.city!,
             state: dto.state!,
           },
         });
         break;
+      // case 1: {
+      //   // 1️⃣ Build full address
+      //   const parts = [
+      //     dto.address,
+      //     dto.city,
+      //     dto.state,
+      //     dto.country || 'Nigeria',
+      //   ].filter(Boolean);
+
+      //   const fullAddress = parts.join(', ');
+
+      //   let latitude: number | undefined;
+      //   let longitude: number | undefined;
+
+      //   // 2️⃣ Geocode address
+      //   const geo = await Helper.geocodeAddress(fullAddress);
+
+      //   if (geo) {
+      //     latitude = geo.lat;
+      //     longitude = geo.lng;
+
+      //     this.logger.log(
+      //       `Driver coordinates resolved: ${latitude}, ${longitude}`,
+      //     );
+      //   } else {
+      //     this.logger.warn(`Could not resolve coordinates for: ${fullAddress}`);
+      //   }
+
+      //   // 3️⃣ Create driver profile
+      //   await this.prisma.driverProfile.create({
+      //     data: {
+      //       userId: driverId,
+      //       address: dto.address,
+      //       city: dto.city,
+      //       state: dto.state,
+      //       country: dto.country || 'NG',
+      //       latitude,
+      //       longitude,
+      //       locationUpdatedAt: latitude && longitude ? new Date() : null,
+      //     },
+      //   });
+
+      //   break;
+      // }
 
       case 2:
         // Step 2: Vehicle Information → UPDATE profile
@@ -186,7 +232,11 @@ export class DriverService {
     };
   }
 
-  async submitDriverOnboarding(driverId: string, files: Express.Multer.File[]) {
+  async submitDriverOnboarding(
+    driverId: string,
+    files: Express.Multer.File[],
+    metadata: DriverDocumentMetadataDto[],
+  ) {
     const driver = await this.validateDriverForOnboarding(driverId);
 
     if (driver.onboardingStep < 2) {
@@ -195,13 +245,40 @@ export class DriverService {
       );
     }
 
-    if (!files || files.length < 3) {
-      throw new BadRequestException(
-        'Driver license, insurance, and registration are required',
-      );
+    if (!files || files.length !== 3) {
+      throw new BadRequestException('Exactly 3 document files are required');
     }
 
-    const uploadedDocs = await this.uploadDriverDocuments(driverId, files);
+    if (metadata.length !== 3) {
+      throw new BadRequestException('Exactly 3 metadata entries are required');
+    }
+
+    const requiredTypes: DriverDocumentType[] = [
+      DriverDocumentType.DRIVER_LICENSE,
+      DriverDocumentType.VEHICLE_INSURANCE,
+      DriverDocumentType.VEHICLE_REGISTRATION,
+    ];
+
+    const providedTypes = metadata.map((m) => m.documentType);
+
+    // ✅ Prevent duplicates
+    const uniqueTypes = new Set(providedTypes);
+    if (uniqueTypes.size !== providedTypes.length) {
+      throw new BadRequestException('Duplicate document types not allowed');
+    }
+
+    // ✅ Ensure all required types exist
+    for (const type of requiredTypes) {
+      if (!providedTypes.includes(type)) {
+        throw new BadRequestException(`${type} is required`);
+      }
+    }
+
+    const uploadedDocs = await this.uploadDriverDocuments(
+      driverId,
+      files,
+      metadata,
+    );
 
     const updatedDriver = await this.userRepository.update(driverId, {
       onboardingStatus: OnBoardingStatus.COMPLETED,
@@ -223,7 +300,6 @@ export class DriverService {
       documents: uploadedDocs,
     };
   }
-
   async getDriverOnboardingState(driverId: string) {
     const driver = await this.userRepository.findById(driverId);
 
@@ -256,68 +332,56 @@ export class DriverService {
     return step + 1;
   }
 
-  async uploadDriverDocuments(driverId: string, files: Express.Multer.File[]) {
-    if (!files || files.length === 0) {
-      throw new BadRequestException('No files uploaded');
+  async uploadDriverDocuments(
+    userId: string, 
+    files: Express.Multer.File[],
+    metadata: DriverDocumentMetadataDto[],
+  ) {
+    // ✅ Get DriverProfile ID (CRITICAL FIX)
+    const driverProfile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!driverProfile) {
+      throw new NotFoundException('Driver profile not found');
     }
 
-    if (files.length !== 3) {
-      throw new BadRequestException(
-        'Exactly 3 documents are required: license, insurance, registration',
-      );
-    }
+    const driverId = driverProfile.id;
 
-    // Map files by fieldname (recommended way)
-    const requiredFields = [
-      'driverLicense',
-      'vehicleInsurance',
-      'vehicleRegistration',
-    ];
+    const uploadPromises = files.map(async (file, i) => {
+      const meta = metadata[i];
 
-    const uploadedDocs = [];
-
-    for (const field of requiredFields) {
-      const file = files.find((f) => f.fieldname === field);
-
-      if (!file) {
-        throw new BadRequestException(`${field} is required`);
-      }
-
-      // Upload to cloud (Cloudinary / S3 etc.)
-      // const uploadResult = await this.cloudinaryService.uploadLogo(file, {
-      //   folder: `drivers/${driverId}`,
-      // });
+      // 1️⃣ Upload file
       const uploadResult = await this.cloudinaryService.uploadLogo(file);
 
-      let documentType: DriverDocumentType;
+      // 2️⃣ Check if document already exists
+      const existing = await this.prisma.driverDocument.findUnique({
+        where: {
+          driverId_documentType: {
+            driverId,
+            documentType: meta.documentType,
+          },
+        },
+      });
 
-      switch (field) {
-        case 'driverLicense':
-          documentType = DriverDocumentType.DRIVER_LICENSE;
-          break;
-        case 'vehicleInsurance':
-          documentType = DriverDocumentType.VEHICLE_INSURANCE;
-          break;
-        case 'vehicleRegistration':
-          documentType = DriverDocumentType.VEHICLE_REGISTRATION;
-          break;
+      if (existing) {
+        return existing; // skip duplicate
       }
 
-      // Save in DB
-      const savedDoc = await this.prisma.driverDocument.create({
+      // 3️⃣ Create document
+      return this.prisma.driverDocument.create({
         data: {
           driverId,
-          documentType,
+          documentType: meta.documentType,
           documentUrl: uploadResult.secure_url,
           publicId: uploadResult.public_id,
         },
       });
+    });
 
-      uploadedDocs.push(savedDoc);
-    }
-
-    return uploadedDocs;
+    return Promise.all(uploadPromises);
   }
+
   /////////////////////////////////////////////////
 
   /**
@@ -343,80 +407,84 @@ export class DriverService {
   /**
    * Save Step 1: Personal Information
    */
-  async saveStep1(driverId: string, dto: DriverStep1Dto) {
-    this.logger.log(`Saving step 1 for driver: ${driverId}`);
+  // async saveStep1(driverId: string, dto: DriverStep1Dto) {
+  //   this.logger.log(`Saving step 1 for driver: ${driverId}`);
 
-    const driver = await this.validateDriverForOnboarding(driverId);
+  //   const driver = await this.validateDriverForOnboarding(driverId);
 
-    // Check sequential order
-    if ((driver.onboardingStep ?? 0) > 1) {
-      throw new ConflictException('Already completed step 1');
-    }
+  //   // Check sequential order
+  //   if ((driver.onboardingStep ?? 0) > 1) {
+  //     throw new ConflictException('Already completed step 1');
+  //   }
 
-    // Check if email or phone already exists for active users
-    const existingUser = await this.prisma.user.findFirst({
-      where: {
-        OR: [{ email: dto.email }, { phoneNumber: dto.phoneNumber }],
-        NOT: { id: driverId },
-        //status: { not: 'DELETED' },
-      },
-    });
+  //   // Check if email or phone already exists for active users
+  //   const existingUser = await this.prisma.user.findFirst({
+  //     where: {
+  //       OR: [{ email: dto.email }, { phoneNumber: dto.phoneNumber }],
+  //       NOT: { id: driverId },
+  //       //status: { not: 'DELETED' },
+  //     },
+  //   });
 
-    if (existingUser) {
-      throw new ConflictException('Email or phone number already in use');
-    }
+  //   if (existingUser) {
+  //     throw new ConflictException('Email or phone number already in use');
+  //   }
 
-    // Update user basic info
-    await this.prisma.user.update({
-      where: { id: driverId },
-      data: {
-        email: dto.email,
-        phoneNumber: dto.phoneNumber,
-        firstName: dto.fullName.split(' ')[0],
-        lastName: dto.fullName.split(' ').slice(1).join(' ') || '',
-        onboardingStep: 1,
-        onboardingStatus: OnBoardingStatus.IN_PROGRESS,
-        status: UserStatus.PENDING_DOCUMENTS,
-      },
-    });
+  //   // Update user basic info
+  //   await this.prisma.user.update({
+  //     where: { id: driverId },
+  //     data: {
+  //       email: dto.email,
+  //       phoneNumber: dto.phoneNumber,
+  //       firstName: dto.firstName,
+  //       lastName: dto.lastName,
+  //       // firstName: dto.fullName.split(' ')[0],
+  //       // lastName: dto.fullName.split(' ').slice(1).join(' ') || '',
+  //       onboardingStep: 1,
+  //       onboardingStatus: OnBoardingStatus.IN_PROGRESS,
+  //       status: UserStatus.PENDING_DOCUMENTS,
+  //     },
+  //   });
 
-    // Create or update driver profile
-    await this.prisma.driverProfile.upsert({
-      where: { userId: driverId },
-      create: {
-        userId: driverId,
-        fullName: dto.fullName,
-        phoneNumber: dto.phoneNumber,
-        email: dto.email,
-        address: dto.address,
-        city: dto.city,
-        state: dto.state,
-        country: dto.country || 'NG',
-        postalCode: dto.postalCode,
-        // user: {
-        //   connect: { id: driverId },
-        // },
-      },
-      update: {
-        fullName: dto.fullName,
-        phoneNumber: dto.phoneNumber,
-        email: dto.email,
-        address: dto.address,
-        city: dto.city,
-        state: dto.state,
-        country: dto.country || 'NG',
-        postalCode: dto.postalCode,
-      },
-    });
+  //   // Create or update driver profile
+  //   await this.prisma.driverProfile.upsert({
+  //     where: { userId: driverId },
+  //     create: {
+  //       userId: driverId,
+  //       firstName: dto.firstName,
+  //       lastName: dto.lastName,
+  //       phoneNumber: dto.phoneNumber,
+  //       email: dto.email,
+  //       address: dto.address,
+  //       city: dto.city,
+  //       state: dto.state,
+  //       country: dto.country || 'NG',
+  //       postalCode: dto.postalCode,
+  //       // user: {
+  //       //   connect: { id: driverId },
+  //       // },
+  //     },
+  //     update: {
+  //       firstName: dto.firstName,
+  //       lastName: dto.lastName,
+  //       phoneNumber: dto.phoneNumber,
+  //       email: dto.email,
+  //       address: dto.address,
+  //       city: dto.city,
+  //       state: dto.state,
+  //       country: dto.country || 'NG',
+  //       postalCode: dto.postalCode,
+  //     },
+  //   });
 
-    return {
-      success: true,
-      message: 'Step 1 completed successfully',
-      onboardingStep: 1,
-      onboardingStatus: OnBoardingStatus.IN_PROGRESS,
-      nextStep: 2,
-    };
-  }
+  //   return {
+  //     success: true,
+  //     message: 'Step 1 completed successfully',
+  //     onboardingStep: 1,
+  //     onboardingStatus: OnBoardingStatus.IN_PROGRESS,
+  //     nextStep: 2,
+  //   };
+  // }
 
   /**
    * Save Step 2: Vehicle Information
@@ -561,186 +629,183 @@ export class DriverService {
   /**
    * Save Step 4: Review and Submit
    */
-  async saveStep4(driverId: string, dto: DriverStep4Dto) {
-    this.logger.log(`Saving step 4 for driver: ${driverId}`);
+  // async saveStep4(driverId: string, dto: DriverStep4Dto) {
+  //   this.logger.log(`Saving step 4 for driver: ${driverId}`);
 
-    const driver = await this.validateDriverForOnboarding(driverId);
+  //   const driver = await this.validateDriverForOnboarding(driverId);
 
-    if (driver.onboardingStep !== 3) {
-      throw new ConflictException('Please complete step 3 first');
-    }
+  //   if (driver.onboardingStep !== 3) {
+  //     throw new ConflictException('Please complete step 3 first');
+  //   }
 
-    if (!dto.confirmInformation) {
-      throw new BadRequestException(
-        'Please confirm that all information is correct',
-      );
-    }
+  //   if (!dto.confirmInformation) {
+  //     throw new BadRequestException(
+  //       'Please confirm that all information is correct',
+  //     );
+  //   }
 
-    // Get full driver profile to validate all fields
-    const profile = await this.prisma.driverProfile.findUnique({
-      where: { userId: driverId },
-      include: {
-        documents: true,
-      },
-    });
+  //   // Get full driver profile to validate all fields
+  //   const profile = await this.prisma.driverProfile.findUnique({
+  //     where: { userId: driverId },
+  //     include: {
+  //       documents: true,
+  //     },
+  //   });
 
-    if (!profile) {
-      throw new BadRequestException('Driver profile not found');
-    }
+  //   if (!profile) {
+  //     throw new BadRequestException('Driver profile not found');
+  //   }
 
-    // ✅ Validate required fields
-    const requiredFields = [
-      profile.fullName,
-      profile.phoneNumber,
-      profile.email,
-      profile.address,
-      profile.city,
-      profile.state,
-      profile.vehicleType,
-      profile.vehicleMake,
-      profile.vehicleModel,
-      profile.year,
-      profile.licensePlate,
-    ];
+  //   // ✅ Validate required fields
+  //   const requiredFields = [
+  //     driver.firstName + ' ' + driver.lastName,
+  //     driver.phoneNumber,
+  //     driver.email,
+  //     profile.address,
+  //     profile.city,
+  //     profile.state,
+  //     profile.vehicleType,
+  //     profile.vehicleMake,
+  //     profile.vehicleModel,
+  //     profile.year,
+  //     profile.licensePlate,
+  //   ];
 
-    const hasAllRequiredFields = requiredFields.every(
-      (field) => field !== null && field !== undefined && field !== '',
-    );
+  //   const hasAllRequiredFields = requiredFields.every(
+  //     (field) => field !== null && field !== undefined && field !== '',
+  //   );
 
-    if (!hasAllRequiredFields) {
-      throw new BadRequestException('Please complete all required fields');
-    }
+  //   if (!hasAllRequiredFields) {
+  //     throw new BadRequestException('Please complete all required fields');
+  //   }
 
-    // ✅ Validate required documents (FIXED)
-    const docs = profile.documents || [];
+  //   // ✅ Validate required documents (FIXED)
+  //   const docs = profile.documents || [];
 
-    const requiredDocTypes = [
-      'DRIVER_LICENSE',
-      'VEHICLE_INSURANCE',
-      'VEHICLE_REGISTRATION',
-    ];
+  //   const requiredDocTypes = [
+  //     'DRIVER_LICENSE',
+  //     'VEHICLE_INSURANCE',
+  //     'VEHICLE_REGISTRATION',
+  //   ];
 
-    const hasAllDocuments = requiredDocTypes.every((type) =>
-      docs.some((doc) => {
-        if (doc.documentType !== type) return false;
+  //   const hasAllDocuments = requiredDocTypes.every((type) =>
+  //     docs.some((doc) => {
+  //       if (doc.documentType !== type) return false;
 
-        // Works with your current schema
-        return (
-          doc.driverLicenseUrl ||
-          doc.vehicleInsuranceUrl ||
-          doc.vehicleRegistrationUrl
-        );
-      }),
-    );
+  //       // Works with your current schema
+  //       return (
+  //         doc.driverLicenseUrl ||
+  //         doc.vehicleInsuranceUrl ||
+  //         doc.vehicleRegistrationUrl
+  //       );
+  //     }),
+  //   );
 
-    if (!hasAllDocuments) {
-      throw new BadRequestException('Please upload all required documents');
-    }
+  //   if (!hasAllDocuments) {
+  //     throw new BadRequestException('Please upload all required documents');
+  //   }
 
-    // Update user status to under review
-    await this.prisma.user.update({
-      where: { id: driverId },
-      data: {
-        onboardingStep: 4,
-        onboardingStatus: OnBoardingStatus.COMPLETED,
-        status: UserStatus.UNDER_REVIEW,
-      },
-    });
+  //   // Update user status to under review
+  //   await this.prisma.user.update({
+  //     where: { id: driverId },
+  //     data: {
+  //       onboardingStep: 4,
+  //       onboardingStatus: OnBoardingStatus.COMPLETED,
+  //       status: UserStatus.UNDER_REVIEW,
+  //     },
+  //   });
 
-    return {
-      success: true,
-      message: 'Driver onboarding completed. Your application is under review.',
-      onboardingStep: 4,
-      onboardingStatus: OnBoardingStatus.COMPLETED,
-      status: UserStatus.UNDER_REVIEW,
-      nextSteps: [
-        'Application is being reviewed by admin',
-        'You will be notified once approved',
-        'Approval typically takes 2-3 business days',
-      ],
-    };
-  }
+  //   return {
+  //     success: true,
+  //     message: 'Driver onboarding completed. Your application is under review.',
+  //     onboardingStep: 4,
+  //     onboardingStatus: OnBoardingStatus.COMPLETED,
+  //     status: UserStatus.UNDER_REVIEW,
+  //     nextSteps: [
+  //       'Application is being reviewed by admin',
+  //       'You will be notified once approved',
+  //       'Approval typically takes 2-3 business days',
+  //     ],
+  //   };
+  // }
 
   /**
    * Get current onboarding state
    */
-  async getOnboardingState(driverId: string) {
-    const driver = await this.prisma.user.findUnique({
-      where: { id: driverId },
-      include: {
-        driverProfile: {
-          include: {
-            documents: true,
-          },
-        },
-      },
-    });
+  // async getOnboardingState(driverId: string) {
+  //   const driver = await this.prisma.user.findUnique({
+  //     where: { id: driverId },
+  //     include: {
+  //       driverProfile: {
+  //         include: {
+  //           documents: true,
+  //         },
+  //       },
+  //     },
+  //   });
 
-    if (!driver) {
-      throw new NotFoundException('Driver not found');
-    }
+  //   if (!driver) {
+  //     throw new NotFoundException('Driver not found');
+  //   }
 
-    // Determine completed steps based on data
-    const completedSteps: number[] = [];
+  //   // Determine completed steps based on data
+  //   const completedSteps: number[] = [];
 
-    if (driver.driverProfile?.fullName) completedSteps.push(1);
+  //   // ✅ Step 1: Use user's name instead of driverProfile.fullName
+  //   if (driver.firstName && driver.lastName) completedSteps.push(1);
 
-    if (driver.driverProfile?.vehicleType) completedSteps.push(2);
+  //   if (driver.driverProfile?.vehicleType) completedSteps.push(2);
 
-    // ✅ Step 3 fix
-    const docs = driver.driverProfile?.documents || [];
+  //   // Step 3: Check documents
+  //   const docs = driver.driverProfile?.documents || [];
 
-    const hasDriverLicense = docs.some(
-      (doc) => doc.documentType === 'DRIVER_LICENSE' && doc.driverLicenseUrl,
-    );
+  //   const hasDriverLicense = docs.some(
+  //     (doc) => doc.documentType === 'DRIVER_LICENSE' && doc.driverLicenseUrl,
+  //   );
 
-    if (hasDriverLicense) completedSteps.push(3);
+  //   if (hasDriverLicense) completedSteps.push(3);
 
-    if (driver.onboardingStatus === OnBoardingStatus.COMPLETED) {
-      completedSteps.push(4);
-    }
+  //   if (driver.onboardingStatus === OnBoardingStatus.COMPLETED) {
+  //     completedSteps.push(4);
+  //   }
 
-    // Determine next step
-    const nextStep = driver.onboardingStep ? driver.onboardingStep + 1 : 1;
+  //   // Determine next step
+  //   const nextStep = driver.onboardingStep ? driver.onboardingStep + 1 : 1;
 
-    return {
-      onboardingStatus: driver.onboardingStatus,
-      onboardingStep: driver.onboardingStep,
-      accountStatus: driver.status,
-      userRole: driver.role,
-      nextStep: nextStep <= 4 ? nextStep : null,
-      completedSteps,
-      redirectUrl: this.getRedirectUrl(driver.status, driver.onboardingStatus),
-      profile: {
-        fullName: driver.driverProfile?.fullName,
-        phoneNumber: driver.driverProfile?.phoneNumber,
-        email: driver.driverProfile?.email,
-        vehicleType: driver.driverProfile?.vehicleType,
-        licensePlate: driver.driverProfile?.licensePlate,
-        // hasDocuments: !!(
-        //   driver.driverProfile?.driverLicenseUrl &&
-        //   driver.driverProfile?.vehicleInsuranceUrl &&
-        //   driver.driverProfile?.vehicleRegistrationUrl
-        // ),
-        hasDocuments: !!(
-          driver.driverProfile?.documents?.some(
-            (doc) =>
-              doc.documentType === 'DRIVER_LICENSE' && doc.driverLicenseUrl,
-          ) &&
-          driver.driverProfile?.documents?.some(
-            (doc) =>
-              doc.documentType === 'VEHICLE_INSURANCE' &&
-              doc.vehicleInsuranceUrl,
-          ) &&
-          driver.driverProfile?.documents?.some(
-            (doc) =>
-              doc.documentType === 'VEHICLE_REGISTRATION' &&
-              doc.vehicleRegistrationUrl,
-          )
-        ),
-      },
-    };
-  }
+  //   return {
+  //     onboardingStatus: driver.onboardingStatus,
+  //     onboardingStep: driver.onboardingStep,
+  //     accountStatus: driver.status,
+  //     userRole: driver.role,
+  //     nextStep: nextStep <= 4 ? nextStep : null,
+  //     completedSteps,
+  //     redirectUrl: this.getRedirectUrl(driver.status, driver.onboardingStatus),
+  //     profile: {
+  //       // ✅ Use user fields instead
+  //       fullName: `${driver.firstName} ${driver.lastName}`,
+  //       phoneNumber: driver.phoneNumber, // From User model
+  //       email: driver.email, // From User model
+  //       vehicleType: driver.driverProfile?.vehicleType,
+  //       licensePlate: driver.driverProfile?.licensePlate,
+  //       hasDocuments: !!(
+  //         docs.some(
+  //           (doc) =>
+  //             doc.documentType === 'DRIVER_LICENSE' && doc.driverLicenseUrl,
+  //         ) &&
+  //         docs.some(
+  //           (doc) =>
+  //             doc.documentType === 'VEHICLE_INSURANCE' &&
+  //             doc.vehicleInsuranceUrl,
+  //         ) &&
+  //         docs.some(
+  //           (doc) =>
+  //             doc.documentType === 'VEHICLE_REGISTRATION' &&
+  //             doc.vehicleRegistrationUrl,
+  //         )
+  //       ),
+  //     },
+  //   };
+  // }
 
   /**
    * Get driver dashboard data after approval

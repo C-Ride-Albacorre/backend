@@ -10,11 +10,17 @@ import {
 } from 'class-validator';
 
 export class DriverStep1Dto {
-  @ApiProperty({ example: 'John Doe' })
+  @ApiProperty({ example: 'John' })
   @IsString()
   @MinLength(2)
   @MaxLength(100)
-  fullName: string;
+  firstName: string;
+
+  @ApiProperty({ example: 'Doe' })
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  lastName: string;
 
   @ApiProperty({ example: '+2348012345678' })
   @IsPhoneNumber()
