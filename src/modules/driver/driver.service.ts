@@ -5,6 +5,7 @@ import {
   ConflictException,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { DriverStep1Dto } from './dto/step1-driver.dto';
 import { DriverStep2Dto } from './dto/step2-driver.dto';
@@ -13,7 +14,15 @@ import { DriverStep4Dto } from './dto/step4-driver.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { UserRole, UserStatus } from '../../shared/enums';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
-import { OnBoardingStatus } from '@prisma/client';
+import { OnBoardingStatus, Prisma } from '@prisma/client';
+import { DriverOnboardingDto } from './dto/driver-onboarding.dto';
+import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
+
+export enum DriverDocumentType {
+  DRIVER_LICENSE = 'DRIVER_LICENSE',
+  VEHICLE_INSURANCE = 'VEHICLE_INSURANCE',
+  VEHICLE_REGISTRATION = 'VEHICLE_REGISTRATION',
+}
 
 @Injectable()
 export class DriverService {
@@ -22,7 +31,294 @@ export class DriverService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly userRepository: AbstractUserRepository,
   ) {}
+
+  // async saveDriverOnboardingStepbk(
+  //   driverId: string,
+  //   step: number,
+  //   dto: Partial<DriverOnboardingDto>,
+  // ) {
+  //   const driver = await this.validateDriverForOnboarding(driverId);
+
+  //   if (step > (driver.onboardingStep ?? 0) + 1) {
+  //     throw new ConflictException(
+  //       `Complete step ${(driver.onboardingStep ?? 0) + 1} first`,
+  //     );
+  //   }
+
+  //   const createData: Partial<Prisma.DriverProfileCreateWithoutUserInput> = {};
+  //   const updateData: Partial<Prisma.DriverProfileUpdateWithoutUserInput> = {};
+
+  //   switch (step) {
+  //     case 1:
+  //       Object.assign(createData, {
+  //         fullName: dto.fullName,
+  //         phoneNumber: dto.phoneNumber,
+  //         email: dto.email,
+  //         address: dto.address,
+  //         city: dto.city,
+  //         state: dto.state,
+  //       });
+
+  //       Object.assign(updateData, {
+  //         fullName: dto.fullName,
+  //         phoneNumber: dto.phoneNumber,
+  //         email: dto.email,
+  //         address: dto.address,
+  //         city: dto.city,
+  //         state: dto.state,
+  //       });
+  //       break;
+
+  //     case 2:
+  //       Object.assign(createData, {
+  //         vehicleType: dto.vehicleType,
+  //         vehicleMake: dto.vehicleMake,
+  //         vehicleModel: dto.vehicleModel,
+  //         year: dto.year,
+  //         licensePlate: dto.licensePlate,
+  //       });
+
+  //       Object.assign(updateData, {
+  //         vehicleType: dto.vehicleType,
+  //         vehicleMake: dto.vehicleMake,
+  //         vehicleModel: dto.vehicleModel,
+  //         year: dto.year,
+  //         licensePlate: dto.licensePlate,
+  //       });
+  //       break;
+  //   }
+
+  //   await this.userRepository.updateDriver(driverId, {
+  //     onboardingStatus: OnBoardingStatus.IN_PROGRESS,
+  //     onboardingStep: step,
+  //     status: UserStatus.PENDING_DOCUMENTS,
+  //     driverProfile: {
+  //       upsert: {
+  //         create: createData,
+  //         update: updateData,
+  //       },
+  //     },
+  //   });
+  //   return {
+  //     success: true,
+  //     message: `Step ${step} saved successfully`,
+  //     onboardingStep: step,
+  //     onboardingStatus: OnBoardingStatus.IN_PROGRESS,
+  //   };
+  // }
+
+  async saveDriverOnboardingStep(
+    driverId: string,
+    step: number,
+    dto: Partial<DriverOnboardingDto>,
+  ) {
+    // 1️⃣ Validate the driver exists and can continue onboarding
+    const driver = await this.validateDriverForOnboarding(driverId);
+
+    if (step > (driver.onboardingStep ?? 0) + 1) {
+      throw new ConflictException(
+        `Complete step ${(driver.onboardingStep ?? 0) + 1} first`,
+      );
+    }
+
+    // 2️⃣ Step-based logic
+    switch (step) {
+      case 1:
+        // Step 1: Personal Information → CREATE profile
+        await this.prisma.driverProfile.create({
+          data: {
+            userId: driverId,
+            fullName: dto.fullName!,
+            phoneNumber: dto.phoneNumber!,
+            email: dto.email!,
+            address: dto.address!,
+            city: dto.city!,
+            state: dto.state!,
+          },
+        });
+        break;
+
+      case 2:
+        // Step 2: Vehicle Information → UPDATE profile
+        await this.prisma.driverProfile.update({
+          where: { userId: driverId },
+          data: {
+            vehicleType: dto.vehicleType!,
+            vehicleMake: dto.vehicleMake!,
+            vehicleModel: dto.vehicleModel!,
+            year: dto.year!,
+            licensePlate: dto.licensePlate!,
+          },
+        });
+        break;
+
+      case 3:
+        // Step 3: Documents → must be uploaded via a separate service
+        // Here we just mark the step as complete
+        break;
+
+      default:
+        throw new BadRequestException('Invalid onboarding step');
+    }
+
+    // 3️⃣ Update the user's onboarding status and step
+    const newStatus =
+      step < 4 ? UserStatus.PENDING_DOCUMENTS : UserStatus.UNDER_REVIEW;
+
+    const newOnboardingStatus =
+      step < 4 ? OnBoardingStatus.IN_PROGRESS : OnBoardingStatus.COMPLETED;
+
+    await this.userRepository.updateDriver(driverId, {
+      onboardingStep: step,
+      onboardingStatus: newOnboardingStatus,
+      status: newStatus,
+    });
+
+    // 4️⃣ Return response
+    return {
+      success: true,
+      message: `Step ${step} saved successfully`,
+      onboardingStep: step,
+      onboardingStatus: newOnboardingStatus,
+      status: newStatus,
+    };
+  }
+
+  async submitDriverOnboarding(driverId: string, files: Express.Multer.File[]) {
+    const driver = await this.validateDriverForOnboarding(driverId);
+
+    if (driver.onboardingStep < 2) {
+      throw new ConflictException(
+        'Complete previous steps before uploading documents',
+      );
+    }
+
+    if (!files || files.length < 3) {
+      throw new BadRequestException(
+        'Driver license, insurance, and registration are required',
+      );
+    }
+
+    const uploadedDocs = await this.uploadDriverDocuments(driverId, files);
+
+    const updatedDriver = await this.userRepository.update(driverId, {
+      onboardingStatus: OnBoardingStatus.COMPLETED,
+      onboardingStep: 4,
+      onboardingCompletedAt: new Date(),
+      status: UserStatus.UNDER_REVIEW,
+    });
+
+    return {
+      success: true,
+      message: 'Driver onboarding submitted. Under review.',
+      driver: {
+        id: updatedDriver.id,
+        email: updatedDriver.email,
+        onboardingStep: updatedDriver.onboardingStep,
+        onboardingStatus: updatedDriver.onboardingStatus,
+        status: updatedDriver.status,
+      },
+      documents: uploadedDocs,
+    };
+  }
+
+  async getDriverOnboardingState(driverId: string) {
+    const driver = await this.userRepository.findById(driverId);
+
+    if (!driver) {
+      throw new NotFoundException('Driver not found');
+    }
+
+    if (driver.role !== UserRole.DISPATCHER) {
+      throw new ForbiddenException('User is not a driver');
+    }
+
+    return {
+      onboardingStatus: driver.onboardingStatus,
+      onboardingStep: driver.onboardingStep ?? 0,
+      status: driver.status,
+
+      // Helpful for frontend logic
+      isOnboardingComplete:
+        driver.onboardingStatus === OnBoardingStatus.COMPLETED,
+
+      nextStep: this.getNextDriverStep(driver.onboardingStep),
+    };
+  }
+
+  private getNextDriverStep(step?: number): number {
+    if (!step) return 1;
+
+    if (step >= 4) return 4;
+
+    return step + 1;
+  }
+
+  async uploadDriverDocuments(driverId: string, files: Express.Multer.File[]) {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No files uploaded');
+    }
+
+    if (files.length !== 3) {
+      throw new BadRequestException(
+        'Exactly 3 documents are required: license, insurance, registration',
+      );
+    }
+
+    // Map files by fieldname (recommended way)
+    const requiredFields = [
+      'driverLicense',
+      'vehicleInsurance',
+      'vehicleRegistration',
+    ];
+
+    const uploadedDocs = [];
+
+    for (const field of requiredFields) {
+      const file = files.find((f) => f.fieldname === field);
+
+      if (!file) {
+        throw new BadRequestException(`${field} is required`);
+      }
+
+      // Upload to cloud (Cloudinary / S3 etc.)
+      // const uploadResult = await this.cloudinaryService.uploadLogo(file, {
+      //   folder: `drivers/${driverId}`,
+      // });
+      const uploadResult = await this.cloudinaryService.uploadLogo(file);
+
+      let documentType: DriverDocumentType;
+
+      switch (field) {
+        case 'driverLicense':
+          documentType = DriverDocumentType.DRIVER_LICENSE;
+          break;
+        case 'vehicleInsurance':
+          documentType = DriverDocumentType.VEHICLE_INSURANCE;
+          break;
+        case 'vehicleRegistration':
+          documentType = DriverDocumentType.VEHICLE_REGISTRATION;
+          break;
+      }
+
+      // Save in DB
+      const savedDoc = await this.prisma.driverDocument.create({
+        data: {
+          driverId,
+          documentType,
+          documentUrl: uploadResult.secure_url,
+          publicId: uploadResult.public_id,
+        },
+      });
+
+      uploadedDocs.push(savedDoc);
+    }
+
+    return uploadedDocs;
+  }
+  /////////////////////////////////////////////////
 
   /**
    * Validate driver exists and is in correct state
@@ -283,13 +579,16 @@ export class DriverService {
     // Get full driver profile to validate all fields
     const profile = await this.prisma.driverProfile.findUnique({
       where: { userId: driverId },
+      include: {
+        documents: true,
+      },
     });
 
     if (!profile) {
       throw new BadRequestException('Driver profile not found');
     }
 
-    // Validate all required fields are present
+    // ✅ Validate required fields
     const requiredFields = [
       profile.fullName,
       profile.phoneNumber,
@@ -304,17 +603,37 @@ export class DriverService {
       profile.licensePlate,
     ];
 
-    const requiredDocuments = [
-      profile.driverLicenseUrl,
-      profile.vehicleInsuranceUrl,
-      profile.vehicleRegistrationUrl,
-    ];
+    const hasAllRequiredFields = requiredFields.every(
+      (field) => field !== null && field !== undefined && field !== '',
+    );
 
-    if (requiredFields.some((field) => !field)) {
+    if (!hasAllRequiredFields) {
       throw new BadRequestException('Please complete all required fields');
     }
 
-    if (requiredDocuments.some((doc) => !doc)) {
+    // ✅ Validate required documents (FIXED)
+    const docs = profile.documents || [];
+
+    const requiredDocTypes = [
+      'DRIVER_LICENSE',
+      'VEHICLE_INSURANCE',
+      'VEHICLE_REGISTRATION',
+    ];
+
+    const hasAllDocuments = requiredDocTypes.every((type) =>
+      docs.some((doc) => {
+        if (doc.documentType !== type) return false;
+
+        // Works with your current schema
+        return (
+          doc.driverLicenseUrl ||
+          doc.vehicleInsuranceUrl ||
+          doc.vehicleRegistrationUrl
+        );
+      }),
+    );
+
+    if (!hasAllDocuments) {
       throw new BadRequestException('Please upload all required documents');
     }
 
@@ -327,22 +646,6 @@ export class DriverService {
         status: UserStatus.UNDER_REVIEW,
       },
     });
-
-    // Create audit log for admin review
-    // await this.prisma.auditLog.create({
-    //   data: {
-    //     userId: driverId,
-    //     action: 'DRIVER_ONBOARDING_COMPLETED',
-    //     entityType: 'DRIVER',
-    //     entityIds: [driverId],
-    //     metadata: {
-    //       profileId: profile.id,
-    //       vehicleType: profile.vehicleType,
-    //       licensePlate: profile.licensePlate,
-    //       submittedAt: new Date().toISOString(),
-    //     },
-    //   },
-    // });
 
     return {
       success: true,
@@ -365,7 +668,11 @@ export class DriverService {
     const driver = await this.prisma.user.findUnique({
       where: { id: driverId },
       include: {
-        driverProfile: true,
+        driverProfile: {
+          include: {
+            documents: true,
+          },
+        },
       },
     });
 
@@ -377,10 +684,21 @@ export class DriverService {
     const completedSteps: number[] = [];
 
     if (driver.driverProfile?.fullName) completedSteps.push(1);
+
     if (driver.driverProfile?.vehicleType) completedSteps.push(2);
-    if (driver.driverProfile?.driverLicenseUrl) completedSteps.push(3);
-    if (driver.onboardingStatus === OnBoardingStatus.COMPLETED)
+
+    // ✅ Step 3 fix
+    const docs = driver.driverProfile?.documents || [];
+
+    const hasDriverLicense = docs.some(
+      (doc) => doc.documentType === 'DRIVER_LICENSE' && doc.driverLicenseUrl,
+    );
+
+    if (hasDriverLicense) completedSteps.push(3);
+
+    if (driver.onboardingStatus === OnBoardingStatus.COMPLETED) {
       completedSteps.push(4);
+    }
 
     // Determine next step
     const nextStep = driver.onboardingStep ? driver.onboardingStep + 1 : 1;
@@ -399,10 +717,26 @@ export class DriverService {
         email: driver.driverProfile?.email,
         vehicleType: driver.driverProfile?.vehicleType,
         licensePlate: driver.driverProfile?.licensePlate,
+        // hasDocuments: !!(
+        //   driver.driverProfile?.driverLicenseUrl &&
+        //   driver.driverProfile?.vehicleInsuranceUrl &&
+        //   driver.driverProfile?.vehicleRegistrationUrl
+        // ),
         hasDocuments: !!(
-          driver.driverProfile?.driverLicenseUrl &&
-          driver.driverProfile?.vehicleInsuranceUrl &&
-          driver.driverProfile?.vehicleRegistrationUrl
+          driver.driverProfile?.documents?.some(
+            (doc) =>
+              doc.documentType === 'DRIVER_LICENSE' && doc.driverLicenseUrl,
+          ) &&
+          driver.driverProfile?.documents?.some(
+            (doc) =>
+              doc.documentType === 'VEHICLE_INSURANCE' &&
+              doc.vehicleInsuranceUrl,
+          ) &&
+          driver.driverProfile?.documents?.some(
+            (doc) =>
+              doc.documentType === 'VEHICLE_REGISTRATION' &&
+              doc.vehicleRegistrationUrl,
+          )
         ),
       },
     };
@@ -428,7 +762,7 @@ export class DriverService {
       stats: {
         totalDeliveries: driver.driverProfile?.totalDeliveries || 0,
         rating: driver.driverProfile?.rating || 0,
-        isAvailable: driver.driverProfile?.isAvailable || false,
+        staus: driver.driverProfile?.status,
       },
     };
   }
