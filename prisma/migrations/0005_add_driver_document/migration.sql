@@ -4,9 +4,6 @@ CREATE TYPE "DriverStatus" AS ENUM ('OFFLINE', 'ONLINE', 'BUSY', 'SUSPENDED');
 -- CreateEnum
 CREATE TYPE "DriverDocumentType" AS ENUM ('DRIVER_LICENSE', 'VEHICLE_INSURANCE', 'VEHICLE_REGISTRATION');
 
--- CreateEnum
-CREATE TYPE "VehicleType" AS ENUM ('CAR', 'MOTORCYCLE', 'TRUCK', 'VAN', 'BICYCLE', 'OTHER');
-
 -- CreateTable
 CREATE TABLE "DriverProfile" (
     "id" TEXT NOT NULL,
