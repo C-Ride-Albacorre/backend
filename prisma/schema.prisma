@@ -469,12 +469,9 @@ model OrderItem {
 model DriverProfile {
   id                String           @id @default(uuid())
   userId            String           @unique
-  fullName          String
-  phoneNumber       String
-  email             String
-  address           String
-  city              String
-  state             String
+  address           String?
+  city              String?
+  state             String?
   country           String?          @default("NG")
   postalCode        String?
   vehicleType       VehicleType      @default(CAR)
@@ -483,9 +480,10 @@ model DriverProfile {
   year              Int?
   licensePlate      String?          @unique
   rating            Float?           @default(0)
-  ratingCount       Int              @default(0)
-  totalDeliveries   Int              @default(0)
+  ratingCount       Int?             @default(0)
+  totalDeliveries   Int?             @default(0)
   status            DriverStatus     @default(OFFLINE)
+  latitude          Float?
   longitude         Float?
   locationUpdatedAt DateTime?
   createdAt         DateTime         @default(now())
@@ -499,22 +497,18 @@ model DriverProfile {
 }
 
 model DriverDocument {
-  id                            String             @id @default(uuid())
-  driverId                      String
-  documentType                  DriverDocumentType
-  documentUrl                   String
-  driverLicenseUrl              String?
-  driverLicensePublicId         String?
-  vehicleInsuranceUrl           String?
-  vehicleInsurancePublicId      String?
-  vehicleRegistrationUrl        String?
-  vehicleRegistrationPublicId   String?
-  isDriverLicenseVerified       Boolean            @default(false)
-  isVehicleInsuranceVerified    Boolean            @default(false)
-  isVehicleRegistrationVerified Boolean            @default(false)
-  publicId                      String
-  createdAt                     DateTime           @default(now())
-  driver                        DriverProfile      @relation(fields: [driverId], references: [id])
+  id              String             @id @default(uuid())
+  driverId        String
+  documentType    DriverDocumentType
+  documentUrl     String
+  publicId        String?
+  isVerified      Boolean            @default(false)
+  createdAt       DateTime           @default(now())
+  status          DocumentStatus     @default(PENDING)
+  rejectionReason String?
+  verifiedAt      DateTime?
+  verifiedBy      String?
+  driver          DriverProfile      @relation(fields: [driverId], references: [id])
 
   @@unique([driverId, documentType])
 }

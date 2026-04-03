@@ -680,10 +680,10 @@ STEP 4 – Bank Details
   }
 
   // Google OAuth routes (frontend flow)
+
   // Initiates Google OAuth redirect
   @Get('google')
-  @UseGuards(GoogleAuthGuard) /* passport google */ // register passport route in module
-  @ApiOperation({ summary: 'Login with Google OAuth' })
+  @UseGuards(GoogleAuthGuard) // Passport Google strategy
   @ApiOperation({ summary: 'Login with Google OAuth' })
   @ApiQuery({
     name: 'role',
@@ -693,32 +693,81 @@ STEP 4 – Bank Details
   })
   async googleLogin() {
     this.logger.log('Google OAuth login initiated');
-    return; // return { msg: 'Redirect to Google' }; // passport will redirect
+    return; // Passport will handle the redirect automatically
   }
 
   @Get('google/callback')
-  // @Get('/api/auth/google/callback')
   @UseGuards(GoogleAuthGuard)
   @ApiOperation({ summary: 'Google OAuth callback handler' })
   async googleCallback(
     @OAuthUser() googleUser: OAuthUser,
-    @Res() res: Response, // ❗ remove passthrough
-    // @Res({ passthrough: true }) res: Response,
+    @Res() res: Response,
   ) {
     this.logger.debug(`OAuth callback - Role: ${googleUser.requestedRole}`);
 
+    // Handle user creation or retrieval
     const authResponse = await this.authService.handleOAuthCallback(
       googleUser,
       OAuthProviderType.GOOGLE,
-      googleUser.requestedRole as UserRole, // Cast if needed
+      googleUser.requestedRole as UserRole,
     );
 
-    this.setAuthCookies(res, authResponse);
-
-    // Redirect to frontend
+    // Redirect to frontend with tokens in URL
     const frontendUrl = this.getFrontendUrl();
-    return res.redirect(`${frontendUrl}/google/callback?success=true`);
+    const redirectUrl = new URL(`${frontendUrl}/google/callback`);
+    redirectUrl.searchParams.append('success', 'true');
+    redirectUrl.searchParams.append('accessToken', authResponse.accessToken);
+    if (authResponse.refreshToken) {
+      redirectUrl.searchParams.append(
+        'refreshToken',
+        authResponse.refreshToken,
+      );
+    }
+    redirectUrl.searchParams.append('userId', authResponse.user.id);
+
+    return res.redirect(redirectUrl.toString());
   }
+
+  // Google OAuth routes (frontend flow)
+  // Initiates Google OAuth redirect
+  // @Get('google')
+  // @UseGuards(GoogleAuthGuard) /* passport google */ // register passport route in module
+  // @ApiOperation({ summary: 'Login with Google OAuth' })
+  // @ApiOperation({ summary: 'Login with Google OAuth' })
+  // @ApiQuery({
+  //   name: 'role',
+  //   required: true,
+  //   description: 'Role of the user (e.g., VENDOR or CUSTOMER)',
+  //   example: 'VENDOR',
+  // })
+  // async googleLogin() {
+  //   this.logger.log('Google OAuth login initiated');
+  //   return; // return { msg: 'Redirect to Google' }; // passport will redirect
+  // }
+
+  // @Get('google/callback')
+  // // @Get('/api/auth/google/callback')
+  // @UseGuards(GoogleAuthGuard)
+  // @ApiOperation({ summary: 'Google OAuth callback handler' })
+  // async googleCallback(
+  //   @OAuthUser() googleUser: OAuthUser,
+  //   @Res() res: Response, // ❗ remove passthrough
+  //   // @Res({ passthrough: true }) res: Response,
+  // ) {
+  //   this.logger.debug(`OAuth callback - Role: ${googleUser.requestedRole}`);
+
+  //   const authResponse = await this.authService.handleOAuthCallback(
+  //     googleUser,
+  //     OAuthProviderType.GOOGLE,
+  //     googleUser.requestedRole as UserRole, // Cast if needed
+  //   );
+
+  //   this.setAuthCookies(res, authResponse);
+
+  //   // Redirect to frontend
+  //   const frontendUrl = this.getFrontendUrl();
+  //   return res.redirect(`${frontendUrl}/google/callback?success=true`);
+  // }
 
   /**
    * Handles Google OAuth callback

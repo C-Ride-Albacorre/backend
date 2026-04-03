@@ -64,7 +64,7 @@ export class VerifyEmailDto {
 export class VerifyPhoneDto {
   @ApiProperty({ example: '+1234567890' })
   @IsNotEmpty()
-  @IsPhoneNumber()
+  @IsString()
   phoneNumber: string;
 
   @ApiProperty({ example: '123456' })
