@@ -44,7 +44,7 @@ model User {
   orders                Order[]
   stores                Store[]
   documents             VendorDocument[]
-  driverProfile         DriverProfile?  
+  driverProfile         DriverProfile?
 
   @@index([email])
   @@index([phoneNumber])
@@ -466,55 +466,82 @@ model OrderItem {
   @@index([storeId])
 }
 
-
 // Add Driver-specific models
 model DriverProfile {
-  id               String          @id @default(uuid())
-  userId           String          @unique
-  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   // Personal Information (Step 1)
-  fullName         String
-  phoneNumber      String
-  email            String
-  address          String
-  city             String
-  state            String
-  country          String?         @default("NG")
-  postalCode       String?
-  
+  fullName    String
+  phoneNumber String
+  email       String
+  address     String
+  city        String
+  state       String
+  country     String? @default("NG")
+  postalCode  String?
+
   // Vehicle Information (Step 2)
-  vehicleType      VehicleType     @default(CAR)
-  vehicleMake      String?
-  vehicleModel     String?
-  year             Int?
-  licensePlate     String?          @unique
+  vehicleType  VehicleType @default(CAR)
+  vehicleMake  String?
+  vehicleModel String?
+  year         Int?
+  licensePlate String?     @unique
+
+  // Additional metadata
+  rating            Float?           @default(0)
+  ratingCount       Int              @default(0)
+  totalDeliveries   Int              @default(0)
+  status            DriverStatus     @default(OFFLINE)
+  longitude         Float?
+  locationUpdatedAt DateTime?
+  documents         DriverDocument[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([vehicleType])
+}
+
+model DriverDocument {
+  id           String             @id @default(uuid())
+  driverId     String
+  documentType DriverDocumentType
+  documentUrl  String
   
   // Documents (Step 3)
-  driverLicenseUrl     String?
-  driverLicensePublicId String?
-  vehicleInsuranceUrl  String?
-  vehicleInsurancePublicId String?
-  vehicleRegistrationUrl String?
+  driverLicenseUrl            String?
+  driverLicensePublicId       String?
+  vehicleInsuranceUrl         String?
+  vehicleInsurancePublicId    String?
+  vehicleRegistrationUrl      String?
   vehicleRegistrationPublicId String?
-  
+
   // Document verification statuses
-  isDriverLicenseVerified   Boolean @default(false)
-  isVehicleInsuranceVerified Boolean @default(false)
+  isDriverLicenseVerified       Boolean @default(false)
+  isVehicleInsuranceVerified    Boolean @default(false)
   isVehicleRegistrationVerified Boolean @default(false)
-  
-  // Additional metadata
-  rating           Float?          @default(0)
-  totalDeliveries  Int             @default(0)
-  isAvailable      Boolean         @default(true)
-  currentLocation  Json?           // { latitude, longitude, updatedAt }
-  
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  
-  @@index([userId])
-  @@index([isAvailable])
-  @@index([vehicleType])
+
+  publicId     String
+  createdAt    DateTime           @default(now())
+  driver       DriverProfile      @relation(fields: [driverId], references: [id])
+
+  @@unique([driverId, documentType])
+}
+
+enum DriverStatus {
+  OFFLINE
+  ONLINE
+  BUSY
+  SUSPENDED
+}
+
+enum DriverDocumentType {
+  DRIVER_LICENSE
+  VEHICLE_INSURANCE
+  VEHICLE_REGISTRATION
 }
 
 enum VehicleType {
@@ -525,7 +552,6 @@ enum VehicleType {
   BICYCLE
   OTHER
 }
-
 
 enum Role {
   CUSTOMER

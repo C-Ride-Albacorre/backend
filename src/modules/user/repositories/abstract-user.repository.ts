@@ -90,6 +90,11 @@ export abstract class AbstractUserRepository {
     }>,
   ): Promise<VendorDocument>;
 
+  abstract updateDriver(
+    id: string,
+    data: Prisma.UserUpdateInput,
+  ): Promise<User>;
+
   /**
    * Complete vendor onboarding with business info and documents
    */
