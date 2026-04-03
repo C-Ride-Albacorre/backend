@@ -374,6 +374,13 @@ export class PrismaUserRepository implements AbstractUserRepository {
     });
   }
 
+  async updateDriver(id: string, data: Prisma.UserUpdateInput): Promise<User> {
+    return this.prisma.user.update({
+      where: { id },
+      data,
+    });
+  }
+
   // Business Info Methods
   // async createBusinessInfo(
   //   businessInfo: Partial<BusinessInfo>,
