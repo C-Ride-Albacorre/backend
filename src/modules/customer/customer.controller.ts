@@ -382,7 +382,8 @@ export class CustomerController {
   @Post('payment/verify/:reference')
   @ApiOperation({ summary: 'Verify payment' })
   async verifyPayment(@Param('reference') reference: string) {
-    return this.monnifyService.verifyPayment(reference);
+    return this.monnifyService.verifyPaymentAndUpdate(reference);
+    // return this.monnifyService.verifyPayment(reference);
   }
 }
 

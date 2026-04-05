@@ -155,6 +155,26 @@ export class OrderService {
       where: { userId },
       include: {
         items: {
+          take: 1, // preview first item
+          include: {
+            product: {
+              select: {
+                productName: true, // ✅ include product name
+              },
+            },
+          },
+        },
+        deliveryOption: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getUserOrdersold(userId: string) {
+    return this.prisma.order.findMany({
+      where: { userId },
+      include: {
+        items: {
           take: 1, // Just preview first item
         },
         deliveryOption: true,
