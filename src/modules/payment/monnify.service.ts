@@ -1,4 +1,3 @@
-// src/payment/services/monnify.service.ts
 import {
   Injectable,
   Logger,
@@ -82,94 +81,6 @@ export class MonnifyService {
   /**
    * Initialize payment
    */
-  async initializePaymentold(
-    userId: string,
-    dto: InitializePaymentDto,
-  ): Promise<MonnifyPaymentResponse> {
-    this.logger.log(`Initializing payment for order: ${dto.orderId}`);
-
-    // Get order details
-    const order = await this.prisma.order.findFirst({
-      where: {
-        id: dto.orderId,
-        userId,
-      },
-    });
-
-    if (!order) {
-      throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
-    }
-
-    if (order.paymentStatus !== 'PENDING') {
-      throw new HttpException(
-        'Payment already processed',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    // Get user details for payment
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    const accessToken = await this.getAccessToken();
-
-    try {
-      const paymentReference = `PAY-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-
-      const payload: any = {
-        amount: order.totalAmount,
-        customerName: `${user.firstName} ${user.lastName}`.trim() || 'Customer',
-        customerEmail: user.email || 'customer@example.com',
-        paymentReference,
-        paymentDescription: `Order ${order.orderNumber}`,
-        currencyCode: 'NGN',
-        contractCode: this.contractCode,
-        redirectUrl:
-          dto.callbackUrl ||
-          this.configService.get('BACKEND_URI') + '/api/v1/payment/callback',
-        paymentMethods: [dto.paymentMethod],
-      };
-
-      // Add specific fields based on payment method
-      if (dto.paymentMethod === 'ACCOUNT_TRANSFER') {
-        payload.paymentMethods = ['ACCOUNT_TRANSFER'];
-      }
-
-      const response = await axios.post(
-        `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
-        payload,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        },
-      );
-
-      if (response.data.requestSuccessful) {
-        // Update order with payment reference
-        await this.prisma.order.update({
-          where: { id: order.id },
-          data: {
-            paymentReference,
-            monnifyReference: response.data.responseBody.transactionReference,
-          },
-        });
-
-        return response.data;
-      } else {
-        throw new Error(response.data.responseMessage);
-      }
-    } catch (error) {
-      this.logger.error(`Payment initialization failed: ${error.message}`);
-      throw new HttpException(
-        error.response?.data?.responseMessage ||
-          'Payment initialization failed',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-  }
-
   async initializePayment(
     userId: string,
     dto: InitializePaymentDto,
