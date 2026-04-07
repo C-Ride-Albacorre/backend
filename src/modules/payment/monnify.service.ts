@@ -243,7 +243,7 @@ export class MonnifyService {
       contractCode: this.contractCode,
       redirectUrl:
         dto.callbackUrl ||
-        `${this.configService.get('BACKEND_URI')}/api/v1//payment/callback`,
+        `${this.configService.get('BACKEND_URI')}/api/v1/payment/callback`,
       paymentMethods: [dto.paymentMethod],
     };
 
