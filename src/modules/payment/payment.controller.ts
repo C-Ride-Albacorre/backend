@@ -2,7 +2,15 @@ import { Controller, Get, Logger, Query, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { MonnifyService } from './monnify.service';
+import {
+  ApiOperation,
+  ApiProduces,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 
+@ApiTags('payment')
 @Controller('payment')
 export class PaymentController {
   private readonly logger = new Logger(PaymentController.name);
@@ -12,23 +20,33 @@ export class PaymentController {
     private readonly configService: ConfigService,
   ) {}
 
-  //@Get('/callback')
-  // async paymentCallback(@Query() query, @Res() res: Response) {
-  //   const { transactionReference } = query;
-
-  //   if (!transactionReference) {
-  //     return res.redirect(
-  //       `${this.configService.get('FRONTEND_URL')}/payment/error`,
-  //     );
-  //   }
-
-  //   // Redirect user to frontend with reference
-  //   return res.redirect(
-  //     `${this.configService.get('FRONTEND_URL')}/payment/result?ref=${transactionReference}`,
-  //   );
-  // }
-
-  @Get('callback')
+  @Get('/callback')
+  @ApiOperation({
+    summary: 'Monnify Payment Callback',
+    description:
+      'Handles payment callback from Monnify. Verifies transaction and redirects user to frontend with payment status.',
+  })
+  @ApiProduces('text/html')
+  @ApiQuery({
+    name: 'transactionReference',
+    required: true,
+    type: String,
+    description: 'Unique transaction reference from Monnify',
+    example: 'MNFY|85|20230920123456|000123',
+  })
+  @ApiResponse({
+    status: 302,
+    description:
+      'Redirects to frontend payment result page with status, orderId, and orderNumber',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Missing transaction reference',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error during verification',
+  })
   async paymentCallback(
     @Query('transactionReference') transactionReference: string,
     @Res() res: Response,
