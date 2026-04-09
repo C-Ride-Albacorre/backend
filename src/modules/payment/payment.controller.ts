@@ -108,6 +108,19 @@ export class PaymentController {
   }
 
   @Get('/status')
+  @ApiOperation({ summary: 'Get payment status by transaction reference' })
+  @ApiQuery({
+    name: 'transactionReference',
+    type: String,
+    description: 'Unique transaction reference for the payment',
+    required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Payment status retrieved successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Invalid transaction reference' })
+  @ApiResponse({ status: 404, description: 'Transaction not found' })
   async getPaymentStatus(@Query('transactionReference') ref: string) {
     return this.monnifyService.getPaymentStatus(ref);
   }
