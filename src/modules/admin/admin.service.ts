@@ -35,69 +35,70 @@ export class AdminService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-  /**
-   * Create a new admin (only super_admin can do this)
-   */
-  async createAdmin(superAdminId: string, dto: CreateAdminDto) {
-    this.logger.log(`Super admin ${superAdminId} creating new admin`);
+  // /**
+  //  * Create a new admin (only super_admin can do this)
+  //  */
+  // async createAdmin(superAdminId: string, dto: CreateAdminDto) {
+  //   this.logger.log(`Super admin ${superAdminId} creating new admin`);
 
-    // Verify super admin exists and has correct role
-    const superAdmin = await this.prisma.user.findUnique({
-      where: { id: superAdminId },
-    });
+  //   // Verify super admin exists and has correct role
+  //   const superAdmin = await this.prisma.user.findUnique({
+  //     where: { id: superAdminId },
+  //   });
 
-    if (!superAdmin || superAdmin.role !== UserRole.SUPER_ADMIN) {
-      throw new ForbiddenException('Only super admins can create admins');
-    }
+  //   if (!superAdmin || superAdmin.role !== UserRole.SUPER_ADMIN) {
+  //     throw new ForbiddenException('Only super admins can create admins');
+  //   }
 
-    // Check if user already exists
-    const existingUser = await this.prisma.user.findFirst({
-      where: {
-        email: dto.email,
-      },
-    });
+  //   // Check if user already exists
+  //   const existingUser = await this.prisma.user.findFirst({
+  //     where: {
+  //       email: dto.email,
+  //     },
+  //   });
 
-    if (existingUser) {
-      throw new BadRequestException(
-        'User with this email or phone already exists',
-      );
-    }
+  //   if (existingUser) {
+  //     throw new BadRequestException(
+  //       'User with this email or phone already exists',
+  //     );
+  //   }
 
-    // Hash password
-    const hashedPassword = await Helper.hashText(dto.password);
+  //   // Hash password
+  //   const hashedPassword = await Helper.hashText(dto.password);
 
-    // Create admin user
-    const admin = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        // phoneNumber: dto.phoneNumber,
-        firstName: dto.firstName,
-        lastName: dto.lastName,
-        password: hashedPassword,
-        role: UserRole.ADMIN,
-        isActive: true,
-        isVerified: true,
-        verifiedAt: new Date(),
-      },
-      select: {
-        id: true,
-        email: true,
-        phoneNumber: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        createdAt: true,
-      },
-    });
+  //   // Create admin user
+  //   const admin = await this.prisma.user.create({
+  //     data: {
+  //       email: dto.email,
+  //       // phoneNumber: dto.phoneNumber,
+  //       firstName: dto.firstName,
+  //       lastName: dto.lastName,
+  //       password: hashedPassword,
+  //       role: UserRole.ADMIN,
+  //       isActive: true,
+  //       isVerified: true,
+  //       verifiedAt: new Date(),
+  //     },
+  //     select: {
+  //       id: true,
+  //       email: true,
+  //       phoneNumber: true,
+  //       firstName: true,
+  //       lastName: true,
+  //       role: true,
+  //       createdAt: true,
+  //     },
+  //   });
 
-    this.logger.log(`Admin created: ${admin.email || admin.phoneNumber}`);
+  //   this.logger.log(`Admin created: ${admin.email || admin.phoneNumber}`);
 
-    return {
-      success: true,
-      message: 'Admin created successfully',
-      data: admin,
-    };
-  }
+
+  //   return {
+  //     success: true,
+  //     message: 'Admin created successfully',
+  //     data: admin,
+  //   };
+  // }
 
   /**
    * Get all vendors with filtering and pagination
