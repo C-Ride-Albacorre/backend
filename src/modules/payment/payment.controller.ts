@@ -57,47 +57,48 @@ export class PaymentController {
     status: 500,
     description: 'Internal server error during verification',
   })
+  //FOR WEBHOOK
+  // async paymentCallback(
+  //   @Query('transactionReference') transactionReference: string,
+  //   @Res() res: Response,
+  // ) {
+  //   if (!transactionReference) {
+  //     return res.redirect(
+  //       `${this.configService.get('FRONTEND_URL')}/payment/error`,
+  //     );
+  //   }
+
+  //   return res.redirect(
+  //     `${this.configService.get('FRONTEND_URL')}/payment/result?transactionReference=${transactionReference}`,
+  //   );
+  // }
   async paymentCallback(
     @Query('transactionReference') transactionReference: string,
     @Res() res: Response,
   ) {
     if (!transactionReference) {
+      // Redirect to frontend error page if no reference
       return res.redirect(
         `${this.configService.get('FRONTEND_URL')}/payment/error`,
       );
     }
 
-    return res.redirect(
-      `${this.configService.get('FRONTEND_URL')}/payment/result?transactionReference=${transactionReference}`,
-    );
+    try {
+      // Verify payment with Monnify and update DB
+      const result =
+        await this.monnifyService.verifyPaymentAndUpdate(transactionReference);
+
+      // Redirect to frontend result page with status info
+      return res.redirect(
+        `${this.configService.get('FRONTEND_URL')}/payment/result?status=${result.status}&orderId=${result.orderId}&orderNumber=${result.orderNumber}`,
+      );
+    } catch (error) {
+      // Redirect to frontend error page on failure
+      return res.redirect(
+        `${this.configService.get('FRONTEND_URL')}/payment/error`,
+      );
+    }
   }
-  // async paymentCallbackold(
-  //   @Query('transactionReference') transactionReference: string,
-  //   @Res() res: Response,
-  // ) {
-  //   if (!transactionReference) {
-  //     // Redirect to frontend error page if no reference
-  //     return res.redirect(
-  //       `${this.configService.get('FRONTEND_URL')}/payment/error`,
-  //     );
-  //   }
-
-  //   try {
-  //     // Verify payment with Monnify and update DB
-  //     const result =
-  //       await this.monnifyService.verifyPaymentAndUpdate(transactionReference);
-
-  //     // Redirect to frontend result page with status info
-  //     return res.redirect(
-  //       `${this.configService.get('FRONTEND_URL')}/payment/result?status=${result.status}&orderId=${result.orderId}&orderNumber=${result.orderNumber}`,
-  //     );
-  //   } catch (error) {
-  //     // Redirect to frontend error page on failure
-  //     return res.redirect(
-  //       `${this.configService.get('FRONTEND_URL')}/payment/error`,
-  //     );
-  //   }
-  // }
 
   @Post('/webhook')
   async webhook(
