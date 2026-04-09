@@ -1019,6 +1019,57 @@ export class AuthService {
     provider: OAuthProviderType,
     requestedRole?: UserRole,
   ) {
+    if (!profile?.email)
+      throw new BadRequestException('OAuth account has no email');
+
+    const allowedRoles: UserRole[] = [UserRole.CUSTOMER, UserRole.VENDOR];
+    if (requestedRole && !allowedRoles.includes(requestedRole)) {
+      throw new ForbiddenException('You cannot assign this role');
+    }
+
+    const user = await this.userService.createOrGetOAuthUser({
+      email: profile.email,
+      firstName: profile.firstName || profile.givenName,
+      lastName: profile.lastName || profile.familyName,
+      provider,
+      providerId: profile.providerId,
+      profilePicture: profile.picture,
+      role: requestedRole,
+    });
+
+    // Determine next action for UI guidance
+    let nextAction = 'Complete onboarding';
+    if (user.role === UserRole.VENDOR && !user.isPhoneVerified) {
+      nextAction = 'Verify your phone number to start onboarding';
+    } else if (!user.isEmailVerified) {
+      nextAction = 'Verify your email address';
+    }
+
+    // Issue JWT (reuse your existing method)
+    const auth = await this.generateAuthResponse(user);
+
+    return {
+      accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        status: user.status,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
+        onboardingStatus: user.onboardingStatus,
+        onboardingStep: user.onboardingStep,
+      },
+      nextAction,
+    };
+  }
+
+  async handleOAuthCallbackold(
+    profile: any,
+    provider: OAuthProviderType,
+    requestedRole?: UserRole,
+  ) {
     if (!profile?.email) {
       throw new BadRequestException('OAuth account has no email');
     }

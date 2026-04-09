@@ -16,6 +16,7 @@ import {
   RegistrationMethod,
   RegistrationStatus,
   UserRole,
+  UserStatus,
   VerificationPurpose,
 } from '../../shared/enums';
 import { AbstractUserRepository } from './repositories/abstract-user.repository';
@@ -598,33 +599,7 @@ export class UserService {
     return user;
   }
 
-  // async findByEmail(email: string) {
-  //   return this.prisma.user.findUnique({
-  //     where: { email: email.toLowerCase() },
-  //   });
-  // }
-
-  // async findById(id: string) {
-  //   const user = await this.prisma.user.findUnique({ where: { id } });
-  //   if (!user) throw new NotFoundException('User not found');
-  //   return user;
-  // }
-
-  async attachOAuthProviderbk(
-    userId: string,
-    provider: OAuthProviderType,
-    providerId: string,
-  ) {
-    return this.prisma.oAuthProvider.create({
-      data: {
-        provider,
-        providerId,
-        user: { connect: { id: userId } },
-      },
-    });
-  }
-
-  async createOrGetOAuthUser({
+  async createOrGetOAuthUserold({
     email,
     firstName,
     lastName,
@@ -796,14 +771,15 @@ export class UserService {
   /**
    * Create or get OAuth user with proper logging and error handling
    */
-  async createOrGetOAuthUserbk({
+
+  async createOrGetOAuthUser({
     email,
     firstName,
     lastName,
     provider,
     providerId,
     profilePicture,
-    role,
+    role, // already validated
   }: {
     email?: string;
     firstName?: string;
@@ -813,80 +789,58 @@ export class UserService {
     profilePicture?: string;
     role?: UserRole;
   }) {
-    this.logger.log(
-      `Processing OAuth user for ${provider}:${providerId} with email: ${email || 'N/A'}`,
-    );
+    this.logger.log(`Processing OAuth user for ${provider}:${providerId}`);
 
     try {
-      // 1️⃣ Check if OAuth provider already exists (return existing user)
-      this.logger.debug(
-        `Checking if OAuth provider exists: ${provider}:${providerId}`,
-      );
-
-      // FIX: Make sure to include both provider and providerId
+      // 1️⃣ Check if OAuth provider exists
       const existingProvider = await this.prisma.oAuthProvider.findUnique({
-        where: {
-          provider_providerId: {
-            provider,
-            providerId, // This was missing in your error
-          },
-        },
+        where: { provider_providerId: { provider, providerId } },
         include: { user: true },
       });
 
       if (existingProvider) {
-        this.logger.log(
-          `Existing OAuth provider found for user: ${existingProvider.user.id}`,
-        );
+        const user = existingProvider.user;
 
-        // Update user info if needed
+        // Update profile info if changed
         const needsUpdate =
-          (firstName && existingProvider.user.firstName !== firstName) ||
-          (lastName && existingProvider.user.lastName !== lastName) ||
-          (profilePicture &&
-            existingProvider.user.profilePicture !== profilePicture);
+          (firstName && user.firstName !== firstName) ||
+          (lastName && user.lastName !== lastName) ||
+          (profilePicture && user.profilePicture !== profilePicture);
 
         if (needsUpdate) {
-          this.logger.debug(
-            `Updating user profile information for: ${existingProvider.user.id}`,
-          );
           await this.prisma.user.update({
-            where: { id: existingProvider.user.id },
+            where: { id: user.id },
             data: {
-              firstName: firstName || existingProvider.user.firstName,
-              lastName: lastName || existingProvider.user.lastName,
-              profilePicture:
-                profilePicture || existingProvider.user.profilePicture,
-              updatedAt: new Date(),
+              firstName: firstName || user.firstName,
+              lastName: lastName || user.lastName,
+              profilePicture: profilePicture || user.profilePicture,
             },
           });
         }
 
-        // Update last login
         await this.prisma.user.update({
-          where: { id: existingProvider.user.id },
+          where: { id: user.id },
           data: { lastLoginAt: new Date() },
         });
 
-        return existingProvider.user;
+        return user;
       }
 
-      // 2️⃣ If no provider found but user exists by email, link provider to user
+      // 2️⃣ If provider not found but user exists by email → link provider
       if (email) {
-        this.logger.debug(`Checking if user exists by email: ${email}`);
         const userByEmail = await this.prisma.user.findUnique({
           where: { email },
         });
-
         if (userByEmail) {
-          this.logger.log(
-            `Existing user found by email: ${userByEmail.id}. Linking OAuth provider.`,
-          );
+          await this.prisma.oAuthProvider.create({
+            data: {
+              provider,
+              providerId,
+              userId: userByEmail.id,
+              profileData: { firstName, lastName, profilePicture },
+            },
+          });
 
-          // Ensure provider is attached
-          await this.attachOAuthProvider(userByEmail.id, provider, providerId);
-
-          // Update last login
           await this.prisma.user.update({
             where: { id: userByEmail.id },
             data: { lastLoginAt: new Date() },
@@ -896,11 +850,8 @@ export class UserService {
         }
       }
 
-      // 3️⃣ Create a new user (first-time OAuth signup)
-      this.logger.log(
-        `Creating new user from OAuth ${provider} with email: ${email || 'N/A'}`,
-      );
-
+      // 3️⃣ First-time OAuth signup → create new user
+      const isVendor = role === UserRole.VENDOR;
       const newUser = await this.prisma.user.create({
         data: {
           email: email || null,
@@ -909,52 +860,39 @@ export class UserService {
           profilePicture,
           role,
           isEmailVerified: !!email,
-          isPhoneVerified: false,
-          isVerified: !!email,
-          status: !!email ? 'ACTIVE' : 'PENDING_EMAIL_VERIFICATION',
+          isPhoneVerified: false, // always require phone verification for vendors
+          status: isVendor
+            ? UserStatus.PENDING_PHONE_VERIFICATION
+            : !!email
+              ? UserStatus.ACTIVE
+              : UserStatus.PENDING_EMAIL_VERIFICATION,
           lastLoginAt: new Date(),
           oauthProviders: {
             create: {
               provider,
               providerId,
-              //...(email && { email }), // Store email from provider if available
-              profileData: {
-                firstName,
-                lastName,
-                profilePicture,
-              },
+              profileData: { firstName, lastName, profilePicture },
             },
           },
         },
-        include: {
-          oauthProviders: true,
-        },
+        include: { oauthProviders: true },
       });
 
       this.logger.log(
-        `New user created successfully: ${newUser.id} (${newUser.email || 'no email'})`,
+        `New OAuth user created: ${newUser.id} (${newUser.email})`,
       );
-
       return newUser;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
-        `Error in createOrGetOAuthUser: ${error.message}`,
+        `createOrGetOAuthUser error: ${error.message}`,
         error.stack,
       );
-
-      // Handle specific Prisma errors
-      if (error.code === 'P2002') {
-        const target = error.meta?.target as string[];
-        if (target?.includes('email')) {
-          this.logger.error(`Email already exists: ${email}`);
-          throw new ConflictException('User with this email already exists');
-        }
+      if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
+        throw new ConflictException('User with this email already exists');
       }
-
       throw error;
     }
   }
-
   /**
    * Attach OAuth provider to existing user
    */
