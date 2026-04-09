@@ -16,6 +16,7 @@ import {
 import { PrismaService } from '../../shared/services/prisma.service';
 import { randomUUID } from 'crypto';
 import * as crypto from 'crypto';
+import { OrderStatus, PaymentStatus } from '@prisma/client';
 
 @Injectable()
 export class MonnifyService {
@@ -112,7 +113,7 @@ export class MonnifyService {
       );
     }
 
-    if (order.paymentStatus !== 'PENDING') {
+    if (order.paymentStatus !== PaymentStatus.PENDING) {
       throw new BadRequestException('Payment already processed');
     }
 
@@ -139,7 +140,7 @@ export class MonnifyService {
       where: { id: order.id },
       data: {
         paymentReference,
-        paymentStatus: 'INITIATING',
+        paymentStatus: PaymentStatus.INITIATING,
       },
     });
 
@@ -185,7 +186,7 @@ export class MonnifyService {
         where: { id: order.id },
         data: {
           monnifyReference: monnifyRef,
-          paymentStatus: 'PENDING', // revert from INITIATING → awaiting payment
+          paymentStatus: PaymentStatus.PENDING, // revert from INITIATING → awaiting payment
         },
       });
 
@@ -199,7 +200,7 @@ export class MonnifyService {
       await this.prisma.order.update({
         where: { id: order.id },
         data: {
-          paymentStatus: 'FAILED',
+          paymentStatus: PaymentStatus.FAILED,
         },
       });
 
@@ -227,6 +228,8 @@ export class MonnifyService {
       throw new HttpException('Missing signature', HttpStatus.FORBIDDEN);
     }
 
+    this.logger.log('Webhook headers:', JSON.stringify(signature));
+    this.logger.log('Webhook payload:', JSON.stringify(webhookData));
     // ✅ 1. Verify signature
     const isValid = this.verifyWebhookSignature(webhookData, signature);
 
@@ -251,7 +254,7 @@ export class MonnifyService {
       }
 
       // ✅ 3. Idempotency check
-      if (order.paymentStatus === 'PAID') {
+      if (order.paymentStatus === PaymentStatus.PAID) {
         this.logger.warn(`Webhook already processed for order ${order.id}`);
         return { success: true };
       }
@@ -279,7 +282,7 @@ export class MonnifyService {
       }
 
       statusHistory.push({
-        status: 'CONFIRMED',
+        status: OrderStatus.CONFIRMED,
         timestamp: new Date().toISOString(),
         note: 'Payment confirmed via webhook',
       });
@@ -288,8 +291,8 @@ export class MonnifyService {
       await this.prisma.order.update({
         where: { id: order.id },
         data: {
-          paymentStatus: 'PAID',
-          orderStatus: 'CONFIRMED',
+          paymentStatus: PaymentStatus.PAID,
+          orderStatus: OrderStatus.CONFIRMED,
           statusHistory: JSON.stringify(statusHistory),
         },
       });

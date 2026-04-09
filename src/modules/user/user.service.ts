@@ -23,7 +23,10 @@ import { AbstractUserRepository } from './repositories/abstract-user.repository'
 import { User } from './entities/user.entity';
 import { LoginCustomerDto } from '../auth/dto/login-customer.dto';
 import { VerificationService } from '../verification/verification.service';
-import { RegisterResponseDto } from '../auth/dto/registration-response.dto';
+import {
+  PendingVerificationDto,
+  RegisterResponseDto,
+} from '../auth/dto/registration-response.dto';
 import Helper from 'src/shared/utils/helpers';
 
 @Injectable()
@@ -44,59 +47,43 @@ export class UserService {
   /**
    * Create a new customer with automatic OTP verification
    */
-  async createCustomer(userData: Partial<User>): Promise<RegisterResponseDto> {
+  async createCustomer(
+    userData: Partial<User>,
+  ): Promise<PendingVerificationDto> {
     const { email, password, phoneNumber } = userData;
-
-    this.logger.log(
-      `Registration attempt for customer: ${email} || ${phoneNumber}`,
-    );
-
-    // Determine which input the user provided
     const registrationInput = email || phoneNumber;
-
-    // Detect registration method dynamically
-    const registrationMethod: RegistrationMethod =
-      Helper.getRegistrationMethod(registrationInput);
+    const registrationMethod = Helper.getRegistrationMethod(registrationInput);
 
     const existingUser = await this.userRepository.findExistingUser(
       email,
       phoneNumber,
     );
 
-    // -------------------------------------------------
-    // CASE 1: User Already Exists
-    // -------------------------------------------------
+    // Existing verified user
+    if (existingUser?.isVerified) {
+      return {
+        status: RegistrationStatus.ALREADY_VERIFIED,
+        requiresVerification: false,
+        registrationMethod,
+        verificationIdentifier: registrationInput,
+        user: existingUser,
+      };
+    }
+
+    // Existing unverified user → resend OTP
     if (existingUser) {
-      if (existingUser.isVerified) {
-        this.logger.warn(`Verified user tried to re-register: ${email}`);
-
-        return {
-          status: RegistrationStatus.ALREADY_VERIFIED,
-          requiresVerification: false,
-          registrationMethod,
-          verificationIdentifier: email || phoneNumber,
-        };
-      }
-
-      // User exists but not verified → resend OTP
       await this.sendVerificationOtp(existingUser);
-
-      this.logger.log(`Resent OTP to unverified user: ${email}`);
-
       return {
         status: RegistrationStatus.PENDING_VERIFICATION,
         requiresVerification: true,
         registrationMethod,
-        verificationIdentifier: email || phoneNumber,
+        verificationIdentifier: registrationInput,
+        user: existingUser,
       };
     }
 
-    // -------------------------------------------------
-    // CASE 2: New User Registration
-    // -------------------------------------------------
-
+    // New user
     const hashedPassword = await Helper.hashText(password);
-
     const user = await this.userRepository.create({
       ...userData,
       password: hashedPassword,
@@ -108,15 +95,89 @@ export class UserService {
 
     await this.sendVerificationOtp(user);
 
-    this.logger.log(`New user registered: ${email}`);
-
     return {
       status: RegistrationStatus.NEW,
       requiresVerification: true,
       registrationMethod,
-      verificationIdentifier: user.email || user.phoneNumber,
+      verificationIdentifier: registrationInput,
+      user,
     };
   }
+
+  // async createCustomerold(userData: Partial<User>): Promise<RegisterResponseDto> {
+  //   const { email, password, phoneNumber } = userData;
+
+  //   this.logger.log(
+  //     `Registration attempt for customer: ${email} || ${phoneNumber}`,
+  //   );
+
+  //   // Determine which input the user provided
+  //   const registrationInput = email || phoneNumber;
+
+  //   // Detect registration method dynamically
+  //   const registrationMethod: RegistrationMethod =
+  //     Helper.getRegistrationMethod(registrationInput);
+
+  //   const existingUser = await this.userRepository.findExistingUser(
+  //     email,
+  //     phoneNumber,
+  //   );
+
+  //   // -------------------------------------------------
+  //   // CASE 1: User Already Exists
+  //   // -------------------------------------------------
+  //   if (existingUser) {
+  //     if (existingUser.isVerified) {
+  //       this.logger.warn(`Verified user tried to re-register: ${email}`);
+
+  //       return {
+  //         status: RegistrationStatus.ALREADY_VERIFIED,
+  //         requiresVerification: false,
+  //         registrationMethod,
+  //         verificationIdentifier: email || phoneNumber,
+  //       };
+  //     }
+
+  //     // User exists but not verified → resend OTP
+  //     await this.sendVerificationOtp(existingUser);
+
+  //     this.logger.log(`Resent OTP to unverified user: ${email}`);
+
+  //     return {
+  //       status: RegistrationStatus.PENDING_VERIFICATION,
+  //       requiresVerification: true,
+  //       registrationMethod,
+  //       verificationIdentifier: email || phoneNumber,
+  //     };
+  //   }
+
+  //   // -------------------------------------------------
+  //   // CASE 2: New User Registration
+  //   // -------------------------------------------------
+
+  //   const hashedPassword = await Helper.hashText(password);
+
+  //   const user = await this.userRepository.create({
+  //     ...userData,
+  //     password: hashedPassword,
+  //     role: UserRole.CUSTOMER,
+  //     isActive: true,
+  //     isVerified: false,
+  //     lastLoginAt: new Date(),
+  //   });
+
+  //   await this.sendVerificationOtp(user);
+
+  //   this.logger.log(`New user registered: ${email}`);
+
+  //   return {
+  //     status: RegistrationStatus.NEW,
+  //     requiresVerification: true,
+  //     registrationMethod,
+  //     verificationIdentifier: user.email || user.phoneNumber,
+  //     user,
+  //   };
+  // }
 
   async createCustomerbk(
     userData: Partial<User>,
@@ -194,6 +255,91 @@ export class UserService {
    * Verify user with OTP
    */
   async verifyUser(
+    userId: string,
+    identifier: string,
+    otp: string,
+  ): Promise<{ success: boolean; user?: User }> {
+    // 1️⃣ Get authenticated user
+    const user = await this.userRepository.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // 2️⃣ Ensure identifier belongs to user (CRITICAL FIX)
+    const isEmailMatch = user.email && user.email === identifier;
+    const isPhoneMatch = user.phoneNumber && user.phoneNumber === identifier;
+
+    if (!isEmailMatch && !isPhoneMatch) {
+      throw new BadRequestException(
+        'Identifier does not belong to authenticated user',
+      );
+    }
+
+    // 3️⃣ Verify OTP (UNCHANGED)
+    const isValid = await this.verificationService.verifyOtp({
+      identifier,
+      otp,
+    });
+
+    if (isValid) {
+      // 4️⃣ Update verification state properly
+      if (isEmailMatch && !user.isEmailVerified) {
+        user.isEmailVerified = true;
+        user.emailVerifiedAt = new Date();
+      }
+
+      if (isPhoneMatch && !user.isPhoneVerified) {
+        user.isPhoneVerified = true;
+        user.phoneVerifiedAt = new Date();
+      }
+
+      // Maintain your legacy flag if needed
+      if (user.isEmailVerified || user.isPhoneVerified) {
+        user.isVerified = true;
+        user.verifiedAt = new Date();
+      }
+
+      // 5️⃣ Status transitions (important upgrade)
+      if (user.isEmailVerified && user.isPhoneVerified) {
+        user.status = UserStatus.PENDING_ONBOARDING;
+
+        if (!user.onboardingStatus) {
+          user.onboardingStatus = 'NOT_STARTED';
+          user.onboardingStep = 0;
+        }
+      } else if (!user.isEmailVerified) {
+        user.status = UserStatus.PENDING_EMAIL_VERIFICATION;
+      } else if (!user.isPhoneVerified) {
+        user.status = UserStatus.PENDING_PHONE_VERIFICATION;
+      }
+
+      const updatedUser = await this.userRepository.update(user.id, user);
+
+      // 6️⃣ Keep your existing behavior
+      await this.sendWelcomeMessage(updatedUser);
+
+      this.logger.log(`User ${updatedUser.id} verified successfully`);
+
+      return {
+        success: true,
+        user: updatedUser,
+      };
+    }
+
+    // ❌ Failure path (UNCHANGED)
+    const remainingAttempts =
+      await this.verificationService.getRemainingAttempts(identifier);
+
+    this.logger.warn(
+      `OTP verification failed for ${identifier}. Remaining attempts: ${remainingAttempts}`,
+    );
+
+    return {
+      success: false,
+    };
+  }
+
+  async verifyUserold(
     identifier: string,
     otp: string,
   ): Promise<{ success: boolean; user?: User }> {

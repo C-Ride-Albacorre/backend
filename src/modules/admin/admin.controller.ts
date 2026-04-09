@@ -58,18 +58,18 @@ import {
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  @Post('create-admin')
-  @Roles(UserRole.SUPER_ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new admin (Super Admin only)' })
-  @ApiResponse({ status: 201, description: 'Admin created successfully' })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - Requires Super Admin role',
-  })
-  async createAdmin(@GetUser() user: any, @Body() dto: CreateAdminDto) {
-    return this.adminService.createAdmin(user.id, dto);
-  }
+  // @Post('create-admin')
+  // @Roles(UserRole.SUPER_ADMIN)
+  // @HttpCode(HttpStatus.CREATED)
+  // @ApiOperation({ summary: 'Create a new admin (Super Admin only)' })
+  // @ApiResponse({ status: 201, description: 'Admin created successfully' })
+  // @ApiResponse({
+  //   status: 403,
+  //   description: 'Forbidden - Requires Super Admin role',
+  // })
+  // async createAdmin(@GetUser() user: any, @Body() dto: CreateAdminDto) {
+  //   return this.adminService.createAdmin(user.id, dto);
+  // }
 
   @Get('vendors')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
