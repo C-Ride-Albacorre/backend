@@ -1,6 +1,28 @@
+import { User } from 'src/modules/user/entities/user.entity';
 import { RegistrationMethod, RegistrationStatus } from '../../../shared/enums';
 
+// export class RegisterResponseDto {
+//   user?: string;
+//   accessToken?: string;
+//   status: RegistrationStatus;
+//   requiresVerification: boolean;
+//   registrationMethod: RegistrationMethod;
+//   verificationIdentifier: string;
+// }
+
+export class PendingVerificationDto {
+  status:
+    | RegistrationStatus.PENDING_VERIFICATION
+    | RegistrationStatus.NEW
+    | RegistrationStatus.ALREADY_VERIFIED;
+  requiresVerification: boolean;
+  registrationMethod: RegistrationMethod;
+  verificationIdentifier: string;
+  user?: User; // optional, internal use only
+}
+
 export class RegisterResponseDto {
+  accessToken: string; // only included after token generation
   status: RegistrationStatus;
   requiresVerification: boolean;
   registrationMethod: RegistrationMethod;
