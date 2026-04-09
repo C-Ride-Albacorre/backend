@@ -221,6 +221,12 @@ export class MonnifyService {
   ) {
     this.logger.log(`Webhook received: ${webhookData.transactionReference}`);
 
+    // ✅ Validate signature FIRST
+    if (!signature) {
+      this.logger.error('Missing webhook signature');
+      throw new HttpException('Missing signature', HttpStatus.FORBIDDEN);
+    }
+
     // ✅ 1. Verify signature
     const isValid = this.verifyWebhookSignature(webhookData, signature);
 
@@ -314,88 +320,88 @@ export class MonnifyService {
   /**
    * Verify payment status
    */
-  async verifyPaymentAndUpdate(transactionReference: string) {
-    const accessToken = await this.getAccessToken();
+  // async verifyPaymentAndUpdate(transactionReference: string) {
+  //   const accessToken = await this.getAccessToken();
 
-    try {
-      // 1️⃣ Query Monnify for payment status
-      const response = await axios.get(
-        `${this.baseUrl}/api/v1/merchant/transactions/query`,
-        {
-          params: { transactionReference },
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        },
-      );
+  //   try {
+  //     // 1️⃣ Query Monnify for payment status
+  //     const response = await axios.get(
+  //       `${this.baseUrl}/api/v1/merchant/transactions/query`,
+  //       {
+  //         params: { transactionReference },
+  //         headers: {
+  //           Authorization: `Bearer ${accessToken}`,
+  //         },
+  //       },
+  //     );
 
-      if (!response.data?.requestSuccessful) {
-        throw new Error(
-          response.data?.responseMessage || 'Verification failed',
-        );
-      }
+  //     if (!response.data?.requestSuccessful) {
+  //       throw new Error(
+  //         response.data?.responseMessage || 'Verification failed',
+  //       );
+  //     }
 
-      const paymentStatus = response.data.responseBody?.paymentStatus;
+  //     const paymentStatus = response.data.responseBody?.paymentStatus;
 
-      // 2️⃣ Find order in database
-      const order = await this.prisma.order.findFirst({
-        where: { monnifyReference: transactionReference },
-      });
+  //     // 2️⃣ Find order in database
+  //     const order = await this.prisma.order.findFirst({
+  //       where: { monnifyReference: transactionReference },
+  //     });
 
-      if (!order) {
-        throw new NotFoundException('Order not found for this transaction');
-      }
+  //     if (!order) {
+  //       throw new NotFoundException('Order not found for this transaction');
+  //     }
 
-      // 3️⃣ Idempotency check
-      if (order.paymentStatus === 'PAID') {
-        return {
-          status: 'PAID',
-          message: 'Payment already processed',
-          orderId: order.id,
-        };
-      }
+  //     // 3️⃣ Idempotency check
+  //     if (order.paymentStatus === 'PAID') {
+  //       return {
+  //         status: 'PAID',
+  //         message: 'Payment already processed',
+  //         orderId: order.id,
+  //       };
+  //     }
 
-      // 4️⃣ Update order if payment is confirmed
-      if (paymentStatus === 'PAID') {
-        let statusHistory = [];
-        try {
-          statusHistory = JSON.parse(order.statusHistory as string) || [];
-        } catch {
-          statusHistory = [];
-        }
+  //     // 4️⃣ Update order if payment is confirmed
+  //     if (paymentStatus === 'PAID') {
+  //       let statusHistory = [];
+  //       try {
+  //         statusHistory = JSON.parse(order.statusHistory as string) || [];
+  //       } catch {
+  //         statusHistory = [];
+  //       }
 
-        statusHistory.push({
-          status: 'CONFIRMED',
-          timestamp: new Date().toISOString(),
-          note: 'Payment verified via API',
-        });
+  //       statusHistory.push({
+  //         status: 'CONFIRMED',
+  //         timestamp: new Date().toISOString(),
+  //         note: 'Payment verified via API',
+  //       });
 
-        await this.prisma.order.update({
-          where: { id: order.id },
-          data: {
-            paymentStatus: 'PAID',
-            orderStatus: 'CONFIRMED',
-            statusHistory: JSON.stringify(statusHistory),
-          },
-        });
-      }
+  //       await this.prisma.order.update({
+  //         where: { id: order.id },
+  //         data: {
+  //           paymentStatus: 'PAID',
+  //           orderStatus: 'CONFIRMED',
+  //           statusHistory: JSON.stringify(statusHistory),
+  //         },
+  //       });
+  //     }
 
-      // 5️⃣ Return verification info
-      return {
-        status: paymentStatus,
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Payment verification failed (${transactionReference}): ${error.message}`,
-      );
-      throw new HttpException(
-        'Payment verification failed',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-  }
+  //     // 5️⃣ Return verification info
+  //     return {
+  //       status: paymentStatus,
+  //       orderId: order.id,
+  //       orderNumber: order.orderNumber,
+  //     };
+  //   } catch (error) {
+  //     this.logger.error(
+  //       `Payment verification failed (${transactionReference}): ${error.message}`,
+  //     );
+  //     throw new HttpException(
+  //       'Payment verification failed',
+  //       HttpStatus.BAD_REQUEST,
+  //     );
+  //   }
+  // }
 
   async verifyPayment(transactionReference: string) {
     const accessToken = await this.getAccessToken();
@@ -428,5 +434,25 @@ export class MonnifyService {
         HttpStatus.BAD_REQUEST,
       );
     }
+  }
+
+  async getPaymentStatus(transactionReference: string) {
+    if (!transactionReference) {
+      throw new BadRequestException('Transaction reference is required');
+    }
+
+    const order = await this.prisma.order.findFirst({
+      where: { monnifyReference: transactionReference },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return {
+      status: order.paymentStatus,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+    };
   }
 }

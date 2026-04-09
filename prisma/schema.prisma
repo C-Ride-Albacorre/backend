@@ -308,6 +308,7 @@ model Package {
   type        PackageType
   weight      Float?
   dimensions  Json?
+  //imageUrl    String?     // ✅ ADD THIS
   basePrice   Float
   isActive    Boolean     @default(true)
   createdAt   DateTime    @default(now())

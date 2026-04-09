@@ -100,13 +100,10 @@ export class CartService {
     }
 
     // Create cart item
-    const cartItem = await this.prisma.cartItem.create({
+    await this.prisma.cartItem.create({
       data: {
         cartId: cart.id,
         itemType: dto.itemType,
-        // productId: dto.productId,
-        // variantId: dto.variantId,
-        // packageId: dto.packageId,
         productId: dto.itemType === 'PRODUCT' ? dto.productId : null,
         variantId: dto.itemType === 'PRODUCT' ? dto.variantId : null,
         packageId:
@@ -194,6 +191,89 @@ export class CartService {
     const cart = await this.prisma.cart.findUnique({
       where: { id: cartId },
       include: {
+        items: {
+          include: {
+            product: {
+              include: {
+                store: true,
+                productImages: {
+                  orderBy: [{ isPrimary: 'desc' }, { displayOrder: 'asc' }],
+                  take: 1, // ✅ only best image
+                },
+              },
+            },
+            package: true,
+          },
+        },
+      },
+    });
+
+    if (!cart) {
+      throw new NotFoundException('Cart not found');
+    }
+
+    const items = cart.items.map((item) => {
+      if (item.itemType === 'PRODUCT') {
+        const product = item.product;
+        const imageUrl = product?.productImages?.[0]?.imageUrl || null;
+
+        return {
+          id: item.id,
+          itemType: item.itemType,
+          productId: item.productId,
+          packageId: item.packageId,
+          name: product?.productName || 'Product',
+          imageUrl, // ✅ included
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          selectedAddons: Array.isArray(item.selectedAddons)
+            ? item.selectedAddons
+            : [],
+          storeName: product?.store?.storeName,
+          specialInstructions: item.specialInstructions,
+        };
+      }
+
+      // PACKAGE
+      return {
+        id: item.id,
+        itemType: item.itemType,
+        productId: null,
+        packageId: item.packageId,
+        name: item.package?.name || 'Package',
+        //imageUrl: item.package?.imageUrl || null, // if exists
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        specialInstructions: item.specialInstructions,
+      };
+    });
+
+    // 💰 Calculations
+    const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+
+    const [deliveryFee, serviceFee, taxAmount] = await Promise.all([
+      this.calculateDeliveryFee(cartId),
+      this.calculateServiceFee(subtotal),
+      this.calculateTax(subtotal),
+    ]);
+
+    return {
+      cartId: cart.id,
+      items,
+      subtotal,
+      deliveryFee,
+      serviceFee,
+      taxAmount,
+      totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
+    };
+  }
+
+  async getCartSummaryOld(cartId: string): Promise<CartSummaryDto> {
+    const cart = await this.prisma.cart.findUnique({
+      where: { id: cartId },
+      include: {
         items: true,
       },
     });
@@ -213,11 +293,8 @@ export class CartService {
           return {
             id: item.id,
             itemType: item.itemType,
-            // ✅ MUST ADD THESE
-            // productId: item.packageId,
-            // packageId: item.packageId,
-            productId: item.productId, // ✅ CORRECT
-            packageId: item.packageId, // ✅ CORRECT
+            productId: item.productId,
+            packageId: item.packageId,
             name: product?.productName || 'Product',
             quantity: item.quantity,
             unitPrice: item.unitPrice,
@@ -235,8 +312,8 @@ export class CartService {
           return {
             id: item.id,
             itemType: item.itemType,
-            productId: null, // ✅ important
-            packageId: item.packageId, // ✅ MUST include
+            productId: null,
+            packageId: item.packageId,
             name: package_item?.name || 'Package',
             quantity: item.quantity,
             unitPrice: item.unitPrice,
