@@ -1,4 +1,13 @@
-import { Controller, Get, Logger, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Logger,
+  Post,
+  Query,
+  Res,
+  Headers,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { MonnifyService } from './monnify.service';
@@ -9,6 +18,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { MonnifyWebhookDto } from '../customer/dto/payment.dto';
 
 @ApiTags('payment')
 @Controller('payment')
@@ -52,26 +62,53 @@ export class PaymentController {
     @Res() res: Response,
   ) {
     if (!transactionReference) {
-      // Redirect to frontend error page if no reference
       return res.redirect(
         `${this.configService.get('FRONTEND_URL')}/payment/error`,
       );
     }
 
-    try {
-      // Verify payment with Monnify and update DB
-      const result =
-        await this.monnifyService.verifyPaymentAndUpdate(transactionReference);
+    return res.redirect(
+      `${this.configService.get('FRONTEND_URL')}/payment/result?transactionReference=${transactionReference}`,
+    );
+  }
+  // async paymentCallbackold(
+  //   @Query('transactionReference') transactionReference: string,
+  //   @Res() res: Response,
+  // ) {
+  //   if (!transactionReference) {
+  //     // Redirect to frontend error page if no reference
+  //     return res.redirect(
+  //       `${this.configService.get('FRONTEND_URL')}/payment/error`,
+  //     );
+  //   }
 
-      // Redirect to frontend result page with status info
-      return res.redirect(
-        `${this.configService.get('FRONTEND_URL')}/payment/result?status=${result.status}&orderId=${result.orderId}&orderNumber=${result.orderNumber}`,
-      );
-    } catch (error) {
-      // Redirect to frontend error page on failure
-      return res.redirect(
-        `${this.configService.get('FRONTEND_URL')}/payment/error`,
-      );
-    }
+  //   try {
+  //     // Verify payment with Monnify and update DB
+  //     const result =
+  //       await this.monnifyService.verifyPaymentAndUpdate(transactionReference);
+
+  //     // Redirect to frontend result page with status info
+  //     return res.redirect(
+  //       `${this.configService.get('FRONTEND_URL')}/payment/result?status=${result.status}&orderId=${result.orderId}&orderNumber=${result.orderNumber}`,
+  //     );
+  //   } catch (error) {
+  //     // Redirect to frontend error page on failure
+  //     return res.redirect(
+  //       `${this.configService.get('FRONTEND_URL')}/payment/error`,
+  //     );
+  //   }
+  // }
+
+  @Post('/webhook')
+  async webhook(
+    @Body() body: MonnifyWebhookDto,
+    @Headers('monnify-signature') signature: string,
+  ) {
+    return this.monnifyService.handleWebhook(body, signature);
+  }
+
+  @Get('/status')
+  async getPaymentStatus(@Query('transactionReference') ref: string) {
+    return this.monnifyService.getPaymentStatus(ref);
   }
 }
