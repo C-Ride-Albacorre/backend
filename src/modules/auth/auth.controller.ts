@@ -76,6 +76,7 @@ export class AuthController {
   ) {}
 
   @Post('create-admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SUPER_ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new admin (Super Admin only)' })
