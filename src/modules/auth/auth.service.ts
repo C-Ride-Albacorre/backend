@@ -256,7 +256,10 @@ export class AuthService {
 
     this.logger.log(`Admin OTP sent: ${admin.email}`);
 
+    const auth = await this.generateAuthResponse(admin);
+
     return {
+      accessToken: auth.accessToken,
       status: 'OTP_REQUIRED',
       requiresVerification: true,
       verificationIdentifier: admin.email,
