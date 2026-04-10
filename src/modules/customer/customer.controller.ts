@@ -31,15 +31,18 @@ import { CreateOrderDto } from './dto/order.dto';
 import { InitializePaymentDto } from './dto/payment.dto';
 import { MonnifyService } from '../payment/monnify.service';
 import { OrderService } from '../order/order.service';
-import { Roles } from 'src/common/decorators/role.decorator';
+import { Roles } from '../../common/decorators/role.decorator';
 import { UserRole } from 'src/shared/enums';
 import { GetStoresQueryDto } from './dto/get-store.dto';
 import { StoreResponseDto } from './dto/store-response.dto';
 import { GetNearbyStoresQueryDto } from './dto/near-by-store.dto';
+import { VerifiedUserGuard } from '../../common/guards/verified-user.guard';
+import { RolesGuard } from '../../common/guards/role.guard';
 
 @ApiTags('customer')
 @Controller('customer')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, VerifiedUserGuard, RolesGuard)
+@Roles(UserRole.CUSTOMER)
 @ApiBearerAuth()
 export class CustomerController {
   constructor(
