@@ -170,7 +170,7 @@ export class AuthService {
     };
   }
 
-  async login(dto: { email: string; password: string }) {
+  async loginWithoutVerification(dto: { email: string; password: string }) {
     // Find super admin by email
     const admin = await this.prisma.user.findFirst({
       where: {
@@ -216,7 +216,7 @@ export class AuthService {
     // };
   }
 
-  async loginWithVerification(dto: { email: string; password: string }) {
+  async login(dto: { email: string; password: string }) {
     // Find super admin by email
     const admin = await this.prisma.user.findFirst({
       where: {

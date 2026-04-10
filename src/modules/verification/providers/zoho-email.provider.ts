@@ -98,14 +98,11 @@ export class ZohoEmailProvider implements IEmailProvider {
         ),
       );
 
-        // this.logger.error(
-        //   `Failed to send email to ${to}`,
-        //   JSON.stringify(error?.response?.data || error, null, 2),
-        // );
+      // this.logger.error(
+      //   `Failed to send email to ${to}`,
+      //   JSON.stringify(error?.response?.data || error, null, 2),
+      // );
       throw new Error(`Email sending failed`);
-
-    
-
     }
   }
 
