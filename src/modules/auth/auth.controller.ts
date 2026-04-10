@@ -807,6 +807,18 @@ STEP 4 – Bank Details
       );
     }
     redirectUrl.searchParams.append('userId', authResponse.user.id);
+    redirectUrl.searchParams.append(
+      'isPhoneVerified',
+      authResponse.user.isPhoneVerified as any,
+    );
+    redirectUrl.searchParams.append(
+      'onboardingStatus',
+      authResponse.user.isEmailVerified as any,
+    );
+    redirectUrl.searchParams.append(
+      'onboardingStep',
+      authResponse.user.onboardingStep as any,
+    );
 
     return res.redirect(redirectUrl.toString());
   }
