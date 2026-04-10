@@ -19,7 +19,7 @@ export class TermiiSmsProvider implements ISmsProvider {
     );
     this.apiKey = this.configService.get<string>('TERMII_API_KEY');
     this.senderId = this.configService.get<string>('TERMII_SENDER_ID');
-    this.channel = this.configService.get<string>('TERMII_CHANNEL', 'generic');
+    this.channel = this.configService.get<string>('TERMII_CHANNEL', 'dnd');
   }
 
   async sendSms(to: string, message: string): Promise<any> {
