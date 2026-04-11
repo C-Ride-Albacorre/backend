@@ -11,7 +11,7 @@ export class VerifiedUserGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    if (!user.isEmailVerified || !user.isPhoneVerified) {
+    if (!user.isVerified || !user.isEmailVerified || !user.isPhoneVerified) {
       throw new ForbiddenException(
         'Complete verification before accessing this resource',
       );
