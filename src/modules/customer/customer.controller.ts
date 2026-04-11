@@ -41,7 +41,7 @@ import { RolesGuard } from '../../common/guards/role.guard';
 
 @ApiTags('customer')
 @Controller('customer')
-@UseGuards(JwtAuthGuard, VerifiedUserGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.CUSTOMER)
 @ApiBearerAuth()
 export class CustomerController {
