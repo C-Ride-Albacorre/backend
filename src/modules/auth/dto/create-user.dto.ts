@@ -28,8 +28,14 @@ export class CreateUserDto {
 
   @ApiProperty({ example: '+1234567890' })
   @IsNotEmpty()
-  @IsString()
+  //@IsString()
+  @IsPhoneNumber(null)
   phoneNumber: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(2, 2)
+  countryCode?: string;
 
   @ApiProperty({ example: 'StrongP@ssw0rd' })
   @IsString()
@@ -186,7 +192,9 @@ export class BusinessAddressDto {
   })
   @IsOptional()
   @IsString()
-  @MaxLength(200, { message: 'Additional details cannot exceed 200 characters' })
+  @MaxLength(200, {
+    message: 'Additional details cannot exceed 200 characters',
+  })
   additionalDetails?: string;
 }
 
@@ -473,7 +481,9 @@ export class CompleteOnboardingDtoFull {
     example: 'RC123456',
   })
   @IsString()
-  @MinLength(3, { message: 'Registration number must be at least 3 characters long' })
+  @MinLength(3, {
+    message: 'Registration number must be at least 3 characters long',
+  })
   @MaxLength(50, { message: 'Registration number cannot exceed 50 characters' })
   registrationNumber: string;
 

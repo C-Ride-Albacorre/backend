@@ -61,6 +61,7 @@ import { RegisterResponseDto } from './dto/registration-response.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { AddPhoneDto } from './dto/add-phone-number.dto';
 import { CreateAdminDto } from '../admin/dto/create-admin.dto';
+import { CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js';
 
 @Injectable()
 export class AuthService {
@@ -283,8 +284,10 @@ export class AuthService {
       requiresVerification: registrationResponse.requiresVerification,
       registrationMethod: registrationResponse.registrationMethod,
       verificationIdentifier: registrationResponse.verificationIdentifier,
+      role: registrationResponse.user?.role as any,
     };
   }
+
   // async registerCustomer(dto: CreateCustomerDto): Promise<RegisterResponseDto> {
   //   const { email, phoneNumber } = dto;
 
@@ -1313,6 +1316,63 @@ export class AuthService {
   async registerUser(dto: CreateUserDto, role: UserRole): Promise<any> {
     this.logger.log(`Registering ${role}: ${dto.email}`);
 
+    // ✅ Normalize phone FIRST
+    if (dto.phoneNumber) {
+      const phone = parsePhoneNumberFromString(
+        dto.phoneNumber,
+        (dto.countryCode || 'NG') as CountryCode,
+      );
+
+      if (!phone || !phone.isValid()) {
+        throw new BadRequestException('Invalid phone number');
+      }
+
+      dto.phoneNumber = phone.format('E.164');
+    }
+
+    // ✅ Use normalized phone for duplicate check
+    await this.checkExistingUser(dto.email, dto.phoneNumber);
+
+    const hashedPassword = await Helper.hashText(dto.password);
+
+    const user = await this.userRepository.create({
+      email: dto.email,
+      phoneNumber: dto.phoneNumber, // ✅ normalized
+      countryCode: dto.countryCode, // ✅ stored
+      password: hashedPassword,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      role,
+      status: UserStatus.PENDING_EMAIL_VERIFICATION,
+    });
+
+    await this.sendInitialUserVerificationOtps(user);
+
+    // ✅ Token generation stays unchanged
+    const auth = await this.generateAuthResponse(user);
+
+    return {
+      success: true,
+      message: `${role} registration successful. Please verify your email and phone.`,
+      accessToken: auth.accessToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        status: user.status,
+        role: user.role,
+      },
+      nextSteps: [
+        'Check your email for verification code',
+        'Check your phone for verification code',
+        'Verify phone first, then email',
+      ],
+    };
+  }
+
+  async registerUserold(dto: CreateUserDto, role: UserRole): Promise<any> {
+    this.logger.log(`Registering ${role}: ${dto.email}`);
+
     await this.checkExistingUser(dto.email, dto.phoneNumber);
 
     const hashedPassword = await Helper.hashText(dto.password);
@@ -2040,7 +2100,7 @@ export class AuthService {
         `${existingUser.role} already exists with email: ${email} or phone: ${phoneNumber}`,
       );
       throw new ConflictException(
-        'Use with this email or phone already exists',
+        'User with this email or phone already exists',
       );
     }
   }

@@ -2,6 +2,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 // import { UserStatus, StoreStatus } from '@prisma/client';
 import { StoreStatus, UserRole, UserStatus } from '../../../shared/enums';
+import { IsOptional, IsPhoneNumber, IsString, Length } from 'class-validator';
 
 export class AdminResponseDto {
   @ApiProperty()
@@ -10,7 +11,21 @@ export class AdminResponseDto {
   @ApiProperty()
   email?: string;
 
-  @ApiProperty()
+  // @ApiProperty()
+  // phoneNumber?: string;
+
+  @ApiProperty({ example: 'NG', required: false })
+  @IsOptional()
+  @IsString()
+  @Length(2, 2)
+  countryCode?: string;
+
+  @ApiProperty({
+    example: '+2347060875593',
+    description: 'Phone number in E.164 format',
+  })
+  @IsOptional()
+  @IsPhoneNumber(null) // supports ALL countries
   phoneNumber?: string;
 
   @ApiProperty()
