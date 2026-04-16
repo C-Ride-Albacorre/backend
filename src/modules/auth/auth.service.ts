@@ -1692,6 +1692,60 @@ export class AuthService {
   }
 
   async addPhoneNumber(userId: string, dto: AddPhoneDto) {
+
+    const user = await this.userRepository.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    if (user.isPhoneVerified) {
+      throw new ConflictException('Phone already verified');
+    }
+
+    // ✅ Normalize phone FIRST
+    if (dto.phoneNumber) {
+      const phone = parsePhoneNumberFromString(
+        dto.phoneNumber,
+        (dto.countryCode || 'NG') as CountryCode,
+      );
+
+      if (!phone || !phone.isValid()) {
+        throw new BadRequestException('Invalid phone number');
+      }
+
+      dto.phoneNumber = phone.format('E.164'); // ✅ +234...
+    }
+
+    // ✅ Prevent re-adding same number
+    if (user.phoneNumber === dto.phoneNumber) {
+      throw new ConflictException('Phone number already added');
+    }
+
+    // ✅ Ensure phone is not used by another user (normalized)
+    const existing = await this.userRepository.findByPhone(dto.phoneNumber);
+    if (existing && existing.id !== userId) {
+      throw new ConflictException('Phone number already in use');
+    }
+
+    // ✅ Save normalized phone
+    await this.userRepository.update(userId, {
+      phoneNumber: dto.phoneNumber,
+      countryCode: dto.countryCode, // ✅ store ISO code
+      isPhoneVerified: false,
+    });
+
+    // ✅ Send OTP to normalized number
+    await this.verificationService.sendOtp({
+      identifier: dto.phoneNumber,
+      purpose: VerificationPurpose.USER_PHONE_VERIFICATION,
+    });
+
+    return {
+      success: true,
+      message: 'OTP sent to phone number',
+      nextAction: 'Verify your phone number',
+    };
+  }
+
+  async addPhoneNumberold(userId: string, dto: AddPhoneDto) {
     const { phoneNumber } = dto;
 
     const user = await this.userRepository.findById(userId);
