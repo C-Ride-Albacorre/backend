@@ -1,13 +1,27 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsPhoneNumber,
+  IsString,
+  Length,
+} from 'class-validator';
 
 export class AddPhoneDto {
+  @ApiProperty({ example: 'NG', required: false })
+  @IsOptional()
+  @IsString()
+  @Length(2, 2)
+  countryCode?: string;
+
   @ApiProperty({
     example: '+2348012345678',
     description: 'User phone number in international format (E.164)',
   })
   @IsNotEmpty()
-  @IsString()
+  //@IsString()
   //@IsPhoneNumber(null) // automatically validates country format
-  phoneNumber: string;
+  @IsOptional()
+  @IsPhoneNumber(null)
+  phoneNumber?: string;
 }

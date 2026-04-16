@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Length,
   Matches,
   MinLength,
   ValidateIf,
@@ -25,6 +26,12 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsString()
   phoneNumber?: string;
+
+  @ApiProperty({ example: 'NG', required: false })
+  @IsOptional()
+  @IsString()
+  @Length(2, 2)
+  countryCode?: string;
 
   @ApiProperty({ example: 'tuser@example.com' })
   @IsOptional()

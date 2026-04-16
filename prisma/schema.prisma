@@ -11,6 +11,7 @@ model User {
   id                    String             @id @default(uuid())
   email                 String?            @unique
   phoneNumber           String?            @unique
+  countryCode           String?            // e.g. "NG", "US", "GB"
   password              String?
   firstName             String
   lastName              String

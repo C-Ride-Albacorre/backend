@@ -36,7 +36,7 @@ import { UserRole } from 'src/shared/enums';
 import { GetStoresQueryDto } from './dto/get-store.dto';
 import { StoreResponseDto } from './dto/store-response.dto';
 import { GetNearbyStoresQueryDto } from './dto/near-by-store.dto';
-import { VerifiedUserGuard } from '../../common/guards/verified-user.guard';
+// import { VerifiedUserGuard } from '../../common/guards/verified-user.guard';
 import { RolesGuard } from '../../common/guards/role.guard';
 
 @ApiTags('customer')
