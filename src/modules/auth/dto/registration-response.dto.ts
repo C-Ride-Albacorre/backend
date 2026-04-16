@@ -1,5 +1,5 @@
 import { User } from 'src/modules/user/entities/user.entity';
-import { RegistrationMethod, RegistrationStatus } from '../../../shared/enums';
+import { RegistrationMethod, RegistrationStatus, UserRole } from '../../../shared/enums';
 
 // export class RegisterResponseDto {
 //   user?: string;
@@ -27,4 +27,5 @@ export class RegisterResponseDto {
   requiresVerification: boolean;
   registrationMethod: RegistrationMethod;
   verificationIdentifier: string;
+  role: boolean;
 }

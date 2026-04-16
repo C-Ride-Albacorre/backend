@@ -27,7 +27,8 @@ import {
   PendingVerificationDto,
   RegisterResponseDto,
 } from '../auth/dto/registration-response.dto';
-import Helper from 'src/shared/utils/helpers';
+import Helper from '../../shared/utils/helpers';
+import { CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js';
 
 @Injectable()
 export class UserService {
@@ -47,7 +48,80 @@ export class UserService {
   /**
    * Create a new customer with automatic OTP verification
    */
-  async createCustomer(
+
+  async createCustomer(dto: Partial<User>): Promise<PendingVerificationDto> {
+    // ✅ Normalize phone FIRST
+    if (dto.phoneNumber) {
+      const phone = parsePhoneNumberFromString(
+        dto.phoneNumber,
+        (dto.countryCode || 'NG') as CountryCode,
+      );
+
+      if (!phone || !phone.isValid()) {
+        throw new BadRequestException('Invalid phone number');
+      }
+
+      dto.phoneNumber = phone.format('E.164'); // ✅ +234...
+    }
+
+    const registrationInput = dto.email || dto.phoneNumber;
+    const registrationMethod = Helper.getRegistrationMethod(registrationInput);
+
+    // ✅ Use normalized phone here
+    const existingUser = await this.userRepository.findExistingUser(
+      dto.email,
+      dto.phoneNumber,
+    );
+
+    // Existing verified user
+    if (existingUser?.isVerified) {
+      return {
+        status: RegistrationStatus.ALREADY_VERIFIED,
+        requiresVerification: false,
+        registrationMethod,
+        verificationIdentifier: registrationInput,
+        user: existingUser,
+      };
+    }
+
+    // Existing unverified user → resend OTP
+    if (existingUser) {
+      await this.sendVerificationOtp(existingUser);
+      return {
+        status: RegistrationStatus.PENDING_VERIFICATION,
+        requiresVerification: true,
+        registrationMethod,
+        verificationIdentifier: registrationInput,
+        user: existingUser,
+      };
+    }
+
+    // New user
+    const hashedPassword = await Helper.hashText(dto.password);
+
+    const user = await this.userRepository.create({
+      ...dto,
+      phoneNumber: dto.phoneNumber, // ✅ normalized
+      countryCode: dto.countryCode, // ✅ stored
+      password: hashedPassword,
+      role: UserRole.CUSTOMER,
+      isActive: true,
+      isVerified: false,
+      lastLoginAt: new Date(),
+    });
+
+    await this.sendVerificationOtp(user);
+
+    return {
+      status: RegistrationStatus.NEW,
+      requiresVerification: true,
+      registrationMethod,
+      verificationIdentifier: registrationInput,
+      user,
+    };
+  }
+
+  async createCustomerold(
     userData: Partial<User>,
   ): Promise<PendingVerificationDto> {
     const { email, password, phoneNumber } = userData;
@@ -101,126 +175,6 @@ export class UserService {
       registrationMethod,
       verificationIdentifier: registrationInput,
       user,
-    };
-  }
-
-  // async createCustomerold(userData: Partial<User>): Promise<RegisterResponseDto> {
-  //   const { email, password, phoneNumber } = userData;
-
-  //   this.logger.log(
-  //     `Registration attempt for customer: ${email} || ${phoneNumber}`,
-  //   );
-
-  //   // Determine which input the user provided
-  //   const registrationInput = email || phoneNumber;
-
-  //   // Detect registration method dynamically
-  //   const registrationMethod: RegistrationMethod =
-  //     Helper.getRegistrationMethod(registrationInput);
-
-  //   const existingUser = await this.userRepository.findExistingUser(
-  //     email,
-  //     phoneNumber,
-  //   );
-
-  //   // -------------------------------------------------
-  //   // CASE 1: User Already Exists
-  //   // -------------------------------------------------
-  //   if (existingUser) {
-  //     if (existingUser.isVerified) {
-  //       this.logger.warn(`Verified user tried to re-register: ${email}`);
-
-  //       return {
-  //         status: RegistrationStatus.ALREADY_VERIFIED,
-  //         requiresVerification: false,
-  //         registrationMethod,
-  //         verificationIdentifier: email || phoneNumber,
-  //       };
-  //     }
-
-  //     // User exists but not verified → resend OTP
-  //     await this.sendVerificationOtp(existingUser);
-
-  //     this.logger.log(`Resent OTP to unverified user: ${email}`);
-
-  //     return {
-  //       status: RegistrationStatus.PENDING_VERIFICATION,
-  //       requiresVerification: true,
-  //       registrationMethod,
-  //       verificationIdentifier: email || phoneNumber,
-  //     };
-  //   }
-
-  //   // -------------------------------------------------
-  //   // CASE 2: New User Registration
-  //   // -------------------------------------------------
-
-  //   const hashedPassword = await Helper.hashText(password);
-
-  //   const user = await this.userRepository.create({
-  //     ...userData,
-  //     password: hashedPassword,
-  //     role: UserRole.CUSTOMER,
-  //     isActive: true,
-  //     isVerified: false,
-  //     lastLoginAt: new Date(),
-  //   });
-
-  //   await this.sendVerificationOtp(user);
-
-  //   this.logger.log(`New user registered: ${email}`);
-
-  //   return {
-  //     status: RegistrationStatus.NEW,
-  //     requiresVerification: true,
-  //     registrationMethod,
-  //     verificationIdentifier: user.email || user.phoneNumber,
-  //     user,
-  //   };
-  // }
-
-  async createCustomerbk(
-    userData: Partial<User>,
-  ): Promise<{ user: User; requiresVerification: boolean }> {
-    const { email, password, phoneNumber } = userData;
-    this.logger.log(`Creating customer with email: ${email}`);
-
-    // Check if user already exists
-    const existingUser = await this.userRepository.findExistingUser(
-      email,
-      phoneNumber,
-    );
-
-    if (existingUser) {
-      this.logger.warn(
-        `User already exists with email: ${email} or phone: ${phoneNumber}`,
-      );
-      throw new ConflictException(
-        `User with this email or phone already exists`,
-      );
-    }
-
-    // Hash password
-    const hashedPassword = await Helper.hashText(password);
-
-    // // Create user with unverified status
-    const user = await this.userRepository.create({
-      ...userData,
-      password: hashedPassword,
-      role: UserRole.CUSTOMER,
-      isActive: true,
-      isVerified: false, // User starts as unverified
-      lastLoginAt: new Date(),
-    });
-
-    //const savedUser = await this.userRepository.create(user);
-
-    // Send OTP based on primary contact method
-    await this.sendVerificationOtp(user);
-
-    return {
-      user: user,
-      requiresVerification: true, // Frontend should show verification screen
     };
   }
 

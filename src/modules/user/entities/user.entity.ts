@@ -11,6 +11,7 @@ export class User {
   lastName: string;
   email?: string;
   phoneNumber?: string;
+  countryCode?: string;
   country?: string;
   password: string;
   role: Role;
