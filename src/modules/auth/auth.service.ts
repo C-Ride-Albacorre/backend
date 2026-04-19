@@ -161,10 +161,20 @@ export class AuthService {
     this.logger.log(`Admin created: ${admin.email || admin.phoneNumber}`);
 
     // Issue JWT (reuse your existing method)
-    const auth = await this.generateAuthResponse(user);
+    // const auth = await this.generateAuthResponse(user);
+    const identifier = null;
+    const verificationMethod = null;
+
+    // 8️⃣ Issue fresh token (optional but good)
+    const auth = await this.generateAuthResponse(
+      user,
+      identifier,
+      verificationMethod,
+    );
 
     return {
       accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
       success: true,
       message: 'Admin created successfully',
       data: admin,
@@ -203,7 +213,12 @@ export class AuthService {
     //   role: admin.role,
     // };
 
-    return this.generateAuthResponse(admin);
+    // return this.generateAuthResponse(admin);
+
+    const identifier = null;
+    const verificationMethod = null;
+
+    return this.generateAuthResponse(admin, identifier, verificationMethod);
 
     // const accessToken = this.jwtService.sign(payload);\
     // return {
@@ -257,7 +272,16 @@ export class AuthService {
 
     this.logger.log(`Admin OTP sent: ${admin.email}`);
 
-    const auth = await this.generateAuthResponse(admin);
+    // const auth = await this.generateAuthResponse(admin);
+
+    const identifier = null;
+    const verificationMethod = null;
+
+    const auth = await this.generateAuthResponse(
+      admin,
+      identifier,
+      verificationMethod,
+    );
 
     return {
       accessToken: auth.accessToken,
@@ -272,10 +296,17 @@ export class AuthService {
    */
   async registerCustomer(dto: CreateCustomerDto): Promise<RegisterResponseDto> {
     const registrationResponse = await this.userService.createCustomer(dto);
+    const identifier = null;
+    const verificationMethod = null;
 
     // Only generate token if user exists
     const auth = registrationResponse.user
-      ? await this.generateAuthResponse(registrationResponse.user)
+      ? //await this.generateAuthResponse(registrationResponse.user)
+        await this.generateAuthResponse(
+          registrationResponse.user,
+          identifier,
+          verificationMethod,
+        )
       : null;
 
     return {
@@ -321,7 +352,14 @@ export class AuthService {
       throw new UnauthorizedException('Invalid OTP');
     }
 
-    return this.generateAuthResponse(result.user);
+    //return this.generateAuthResponse(result.user);
+    const verificationMethod = null;
+
+    return this.generateAuthResponse(
+      result.user,
+      identifier,
+      verificationMethod,
+    );
   }
 
   // async verifyRegistrationold(dto: VerifyOtpDto) {
@@ -342,6 +380,25 @@ export class AuthService {
    */
   async loginCustomer(loginDto: LoginCustomerDto) {
     const { email, phoneNumber } = loginDto;
+
+    const identifier = email || phoneNumber;
+    const verificationMethod = email ? 'email' : 'phone';
+
+    this.logger.log(`Login attempt: ${identifier}`);
+
+    const user = await this.userService.authenticateUser(loginDto);
+
+    if (!user.isVerified) {
+      throw new UnauthorizedException(
+        'Account not verified. Please verify your account.',
+      );
+    }
+
+    return this.generateAuthResponse(user, identifier, verificationMethod);
+  }
+
+  async loginCustomerOld(loginDto: LoginCustomerDto) {
+    const { email, phoneNumber } = loginDto;
     const identifier = email || phoneNumber;
 
     this.logger.log(`Login attempt: ${identifier}`);
@@ -356,7 +413,10 @@ export class AuthService {
       );
     }
 
-    return this.generateAuthResponse(user);
+    //return this.generateAuthResponse(user);
+    const verificationMethod = null;
+
+    return this.generateAuthResponse(user, identifier, verificationMethod);
   }
 
   /**
@@ -371,7 +431,11 @@ export class AuthService {
     // Delegate authentication to UserService
     const user = await this.userService.authenticateUser(loginDto);
 
-    return this.generateAuthResponse(user);
+    // return this.generateAuthResponse(user);
+
+    const verificationMethod = null;
+
+    return this.generateAuthResponse(user, identifier, verificationMethod);
   }
 
   /**
@@ -471,7 +535,14 @@ export class AuthService {
       }
 
       // 5️⃣ Generate new tokens
-      const authResponse = await this.generateAuthResponse(user);
+      // const authResponse = await this.generateAuthResponse(user);
+      const verificationMethod = null;
+      const identifier = null;
+      const authResponse = await this.generateAuthResponse(
+        user,
+        identifier,
+        verificationMethod,
+      );
       this.logger.log(
         `Tokens refreshed for user: ${user.id} (role: ${user.role})`,
       );
@@ -488,7 +559,34 @@ export class AuthService {
     await this.userService.updateRefreshToken(userId, null);
   }
 
-  private async generateAuthResponse(user: User): Promise<AuthResponse> {
+  private async generateAuthResponse(
+    user: User,
+    identifier: string,
+    verificationMethod: 'email' | 'phone',
+  ): Promise<AuthResponse> {
+    const tokens = await this.generateTokens(user);
+
+    if (this.refreshTokenRotationEnabled) {
+      const refreshTokenHash = await bcrypt.hash(tokens.refreshToken, 12);
+      await this.userService.updateRefreshToken(user.id, refreshTokenHash);
+    }
+
+    const loginMeta = await this.userService.markUserLogin(user.id);
+
+    return {
+      ...tokens,
+      identifier,
+      verificationMethod,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        isNewUser: loginMeta.isFirstLogin,
+      },
+    };
+  }
+
+  private async generateAuthResponseOld(user: User): Promise<AuthResponse> {
     const tokens = await this.generateTokens(user);
 
     // Hash and store refresh token if rotation is enabled
@@ -502,6 +600,8 @@ export class AuthService {
 
     return {
       ...tokens,
+      identifier: null,
+      verificationMethod: null,
       user: {
         id: user.id,
         email: user.email,
@@ -1150,8 +1250,14 @@ export class AuthService {
     }
 
     // Issue JWT (reuse your existing method)
-    const auth = await this.generateAuthResponse(user);
-
+    //const auth = await this.generateAuthResponse(user);
+    const verificationMethod = null;
+    const identifier = null;
+    const auth = await this.generateAuthResponse(
+      user,
+      identifier,
+      verificationMethod,
+    );
     return {
       accessToken: auth.accessToken,
       refreshToken: auth.refreshToken,
@@ -1207,7 +1313,10 @@ export class AuthService {
       role: requestedRole,
     });
 
-    return this.generateAuthResponse(user);
+    // return this.generateAuthResponse(user);
+    const verificationMethod = null;
+    const identifier = null;
+    return this.generateAuthResponse(user, identifier, verificationMethod);
   }
 
   /**
@@ -1252,7 +1361,10 @@ export class AuthService {
       );
 
       // Sign JWT (same as manual signup)
-      return this.generateAuthResponse(user);
+      //  return this.generateAuthResponse(user);
+      const verificationMethod = null;
+      const identifier = null;
+      return this.generateAuthResponse(user, identifier, verificationMethod);
     } catch (error) {
       this.logger.error(
         `Failed to process OAuth callback: ${error.message}`,
@@ -1349,12 +1461,20 @@ export class AuthService {
     await this.sendInitialUserVerificationOtps(user);
 
     // ✅ Token generation stays unchanged
-    const auth = await this.generateAuthResponse(user);
+    // const auth = await this.generateAuthResponse(user);
+    const verificationMethod = null;
+    const identifier = null;
+    const auth = await this.generateAuthResponse(
+      user,
+      identifier,
+      verificationMethod,
+    );
 
     return {
       success: true,
       message: `${role} registration successful. Please verify your email and phone.`,
       accessToken: auth.accessToken,
+      refreshTken: auth.refreshToken,
       user: {
         id: user.id,
         email: user.email,
@@ -1390,25 +1510,25 @@ export class AuthService {
     await this.sendInitialUserVerificationOtps(user);
 
     // ✅ ISSUE TOKEN HERE
-    const auth = await this.generateAuthResponse(user);
+    // const auth = await this.generateAuthResponse(user);
 
-    return {
-      success: true,
-      message: `${role} registration successful. Please verify your email and phone.`,
-      accessToken: auth.accessToken, // 👈 NEW
-      user: {
-        id: user.id,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        status: user.status,
-        role: user.role,
-      },
-      nextSteps: [
-        'Check your email for verification code',
-        'Check your phone for verification code',
-        'Verify phone first, then email',
-      ],
-    };
+    // return {
+    //   success: true,
+    //   message: `${role} registration successful. Please verify your email and phone.`,
+    //   accessToken: auth.accessToken, // 👈 NEW
+    //   user: {
+    //     id: user.id,
+    //     email: user.email,
+    //     phoneNumber: user.phoneNumber,
+    //     status: user.status,
+    //     role: user.role,
+    //   },
+    //   nextSteps: [
+    //     'Check your email for verification code',
+    //     'Check your phone for verification code',
+    //     'Verify phone first, then email',
+    //   ],
+    // };
   }
 
   /**
@@ -1460,8 +1580,14 @@ export class AuthService {
     const updatedVendor = await this.userRepository.update(vendor.id, vendor);
 
     // Now fully verified → issue JWT
-    const auth = await this.generateAuthResponse(updatedVendor);
-
+    //const auth = await this.generateAuthResponse(updatedVendor);
+    const verificationMethod = null;
+    const identifier = null;
+    const auth = await this.generateAuthResponse(
+      updatedVendor,
+      identifier,
+      verificationMethod,
+    );
     return {
       success: true,
       message: 'Email verified successfully',
@@ -1543,8 +1669,16 @@ export class AuthService {
 
     const updatedUser = await this.userRepository.update(user.id, user);
 
+    const identifier = null;
+    const verificationMethod = null;
+
     // 8️⃣ Issue fresh token (optional but good)
-    const auth = await this.generateAuthResponse(updatedUser);
+    // const auth = await this.generateAuthResponse(updatedUser);
+    const auth = await this.generateAuthResponse(
+      updatedUser,
+      identifier,
+      verificationMethod,
+    );
 
     return {
       success: true,
@@ -1608,7 +1742,14 @@ export class AuthService {
     const updatedUser = await this.userRepository.update(user.id, user);
 
     // Now fully verified → issue JWT
-    const auth = await this.generateAuthResponse(updatedUser);
+    //   const auth = await this.generateAuthResponse(updatedUser);
+    const verificationMethod = null;
+    const identifier = null;
+    const auth = await this.generateAuthResponse(
+      updatedUser,
+      identifier,
+      verificationMethod,
+    );
 
     return {
       success: true,
@@ -1692,7 +1833,6 @@ export class AuthService {
   }
 
   async addPhoneNumber(userId: string, dto: AddPhoneDto) {
-
     const user = await this.userRepository.findById(userId);
     if (!user) throw new NotFoundException('User not found');
 
@@ -1742,6 +1882,7 @@ export class AuthService {
       success: true,
       message: 'OTP sent to phone number',
       nextAction: 'Verify your phone number',
+      identifier: dto.phoneNumber,
     };
   }
 
@@ -1976,8 +2117,14 @@ export class AuthService {
     });
 
     // Generate auth tokens
-    const auth = await this.generateAuthResponse(vendor);
-
+    //  const auth = await this.generateAuthResponse(vendor);
+    const verificationMethod = null;
+    const identifier = null;
+    const auth = await this.generateAuthResponse(
+      vendor,
+      identifier,
+      verificationMethod,
+    );
     return {
       ...auth,
       // Return onboarding + account state
@@ -2041,7 +2188,15 @@ export class AuthService {
     });
 
     // Generate auth tokens
-    const auth = await this.generateAuthResponse(user);
+    // const auth = await this.generateAuthResponse(user);
+
+    const verificationMethod = null;
+    const identifier = null;
+    const auth = await this.generateAuthResponse(
+      user,
+      identifier,
+      verificationMethod,
+    );
 
     return {
       ...auth,
@@ -2095,7 +2250,10 @@ export class AuthService {
     });
 
     // Generate auth tokens
-    return this.generateAuthResponse(vendor);
+    //return this.generateAuthResponse(vendor);
+    const verificationMethod = null;
+    const identifier = null;
+    return this.generateAuthResponse(vendor, identifier, verificationMethod);
   }
 
   /**

@@ -6,6 +6,8 @@ import { Role } from '@prisma/client';
 export interface AuthResponse {
   accessToken: string;
   refreshToken: string;
+  identifier: string;
+  verificationMethod: 'email' | 'phone';
   user: {
     id: string;
     email?: string;
