@@ -243,6 +243,75 @@ export class AuthService {
   }
 
   async login(dto: { email: string; password: string }) {
+    // Find admin
+    const admin = await this.prisma.user.findFirst({
+      where: {
+        email: dto.email,
+        role: {
+          in: [UserRole.SUPER_ADMIN, UserRole.ADMIN],
+        },
+      },
+    });
+
+    if (!admin) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (!admin.isActive) {
+      throw new ForbiddenException('Admin account is inactive');
+    }
+
+    // Check password
+    const isPasswordValid = await Helper.compareHashedText(
+      dto.password,
+      admin.password,
+    );
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    /**
+     * =========================
+     * 2FA FLOW (OTP + TOKEN)
+     * =========================
+     */
+
+    // 🔐 Generate verification token (session)
+    const verificationToken = this.jwtService.sign(
+      {
+        sub: admin.id,
+        type: 'admin-2fa',
+        purpose: VerificationPurpose.TWO_FACTOR,
+      },
+      {
+        expiresIn: '10m',
+      },
+    );
+
+    // 📩 Send OTP
+    await this.verificationService.sendOtp({
+      identifier: admin.email,
+      purpose: VerificationPurpose.TWO_FACTOR,
+    });
+
+    this.logger.log(`Admin OTP sent: ${admin.email}`);
+
+    return {
+      status: 'OTP_REQUIRED',
+      requiresVerification: true,
+
+      verificationIdentifier: admin.email,
+      verificationMethod: 'email',
+
+      verificationToken, // 🔐 IMPORTANT ADDITION
+
+      accessToken: null,
+      refreshToken: null,
+    };
+  }
+
+  async loginOld(dto: { email: string; password: string }) {
     // Find super admin by email
     const admin = await this.prisma.user.findFirst({
       where: {
@@ -295,6 +364,7 @@ export class AuthService {
 
     return {
       accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
       status: 'OTP_REQUIRED',
       requiresVerification: true,
       verificationIdentifier: admin.email,
@@ -1643,6 +1713,7 @@ export class AuthService {
       lastName: dto.lastName,
       role,
       status: UserStatus.PENDING_EMAIL_VERIFICATION,
+      isNewUser: true,
     });
 
     // ✅ Send OTPs (email + phone)
@@ -2650,78 +2721,111 @@ export class AuthService {
     };
   }
 
-  // async loginUser(loginDto: LoginDto) {
-  //   const { email, password } = loginDto;
-  //   this.logger.log(`Vendor login attempt: ${email}`);
-
-  //   const vendor = await this.userRepository.findByEmail(email);
-
-  //   if (!vendor) {
-  //     throw new UnauthorizedException('Invalid credentials');
-  //   }
-
-  //   // Verify password
-  //   const isPasswordValid = await bcrypt.compare(password, vendor.password);
-
-  //   if (!isPasswordValid) {
-  //     throw new UnauthorizedException('Invalid credentials');
-  //   }
-
-  //   /**
-  //    * Enforce verification order
-  //    * Phone → Email → Onboarding
-  //    */
-
-  //   // ❌ Phone not verified
-  //   if (!vendor.isPhoneVerified) {
-  //     return {
-  //       success: false,
-  //       status: 'UNVERIFIED',
-  //       message: 'Please verify your phone number before logging in',
-
-  //       // ✅ IMPORTANT
-  //       identifier: vendor.phoneNumber,
-  //       verificationMethod: 'phone',
-
-  //       onboardingStep: vendor.onboardingStep ?? 0,
-  //     };
-  //   }
-
-  //   // ❌ Email not verified
-  //   if (!vendor.isEmailVerified) {
-  //     return {
-  //       success: false,
-  //       status: 'UNVERIFIED',
-  //       message: 'Please verify your email address before logging in',
-
-  //       // ✅ IMPORTANT
-  //       identifier: vendor.email,
-  //       verificationMethod: 'email',
-  //       onboardingStep: vendor.onboardingStep ?? 0,
-  //     };
-  //   }
-
-  //   // ✅ Verified → proceed with login
-
-  //   const lastLoginAt = new Date();
-
-  //   await this.userRepository.update(vendor.id, {
-  //     lastLoginAt,
-  //   });
-
-  //   const auth = await this.generateAuthResponse(vendor, email, 'email');
-
-  //   return {
-  //     success: true,
-  //     ...auth,
-
-  //     onboardingStatus: vendor.onboardingStatus,
-  //     onboardingStep: vendor.onboardingStep,
-  //     status: vendor.status,
-  //   };
-  // }
-
   async loginUser(loginDto: LoginDto, role: UserRole) {
+    const { email, password } = loginDto;
+    this.logger.log(`user login attempt: ${email}`);
+
+    const user = await this.userRepository.findByEmail(email);
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (user.role !== role) {
+      throw new UnauthorizedException('Invalid role');
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    /**
+     * =========================
+     * VERIFICATION FLOW
+     * =========================
+     */
+
+    // ❌ Phone not verified
+    if (!user.isPhoneVerified) {
+      const verificationResponse = await this.resendVerificationToken({
+        identifier: user.phoneNumber,
+      });
+
+      await this.verificationService.sendOtp({
+        identifier: user.phoneNumber,
+      });
+
+      return {
+        success: false,
+        status: 'UNVERIFIED',
+        message: 'Please verify your phone number before logging in',
+
+        identifier: user.phoneNumber,
+        verificationMethod: 'phone',
+
+        verificationToken: verificationResponse.verificationToken,
+
+        onboardingStep: user.onboardingStep ?? 0,
+        onboardingStatus: user.onboardingStatus,
+      };
+    }
+
+    // ❌ Email not verified
+    if (!user.isEmailVerified) {
+      const verificationResponse = await this.resendVerificationToken({
+        identifier: user.email,
+      });
+
+      await this.verificationService.sendOtp({
+        identifier: user.email,
+      });
+
+      return {
+        success: false,
+        status: 'UNVERIFIED',
+        message: 'Please verify your email address before logging in',
+
+        identifier: user.email,
+        verificationMethod: 'email',
+
+        verificationToken: verificationResponse.verificationToken,
+
+        onboardingStep: user.onboardingStep ?? 0,
+        onboardingStatus: user.onboardingStatus,
+      };
+    }
+
+    /**
+     * =========================
+     * LOGIN SUCCESS FLOW
+     * =========================
+     */
+
+    await this.userRepository.update(user.id, {
+      lastLoginAt: new Date(),
+    });
+
+    const verificationMethod = null;
+    const identifier = null;
+
+    const auth = await this.generateAuthResponse(
+      user,
+      identifier,
+      verificationMethod,
+    );
+
+    return {
+      ...auth,
+      onboardingStatus: user.onboardingStatus,
+      onboardingStep: user.onboardingStep,
+      status: user.status,
+    };
+  }
+
+  async loginUserold(loginDto: LoginDto, role: UserRole) {
     const { email, password } = loginDto;
     this.logger.log(`user login attempt: ${email}`);
 
@@ -2784,10 +2888,9 @@ export class AuthService {
         identifier: user.email,
         verificationMethod: 'email',
         onboardingStep: user.onboardingStep ?? 0,
-        onboardingStatus: user.onboardingStatus
+        onboardingStatus: user.onboardingStatus,
       };
     }
-
 
     // ✅ DO NOT block login for:
     // - PENDING_ONBOARDING

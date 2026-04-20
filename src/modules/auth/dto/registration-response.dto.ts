@@ -19,6 +19,7 @@ export class PendingVerificationDto {
   registrationMethod: RegistrationMethod;
   verificationIdentifier: string;
   user?: User; // optional, internal use only
+  isNewUser?: boolean
 }
 
 export class RegisterResponseDto {
