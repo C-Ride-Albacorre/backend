@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UserController } from './user.controller';
 import { PrismaService } from '../../shared/services/prisma.service';
@@ -12,8 +12,13 @@ import {
 } from '../verification/providers/console.provider';
 import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
 import { TermiiSmsProvider } from '../verification/providers/termii-sms.provider';
+import { AuthModule } from '../auth/auth.module';
+import { AuthService } from '../auth/auth.service';
 
 @Module({
+  imports: [
+    forwardRef(() => AuthModule), // 👈 REQUIRED
+  ],
   controllers: [UserController],
   providers: [
     UserService,
@@ -24,12 +29,17 @@ import { TermiiSmsProvider } from '../verification/providers/termii-sms.provider
     TermiiSmsProvider,
     ConsoleEmailProvider,
     ConsoleSmsProvider,
-
+    AuthService,
     {
       provide: AbstractUserRepository,
       useClass: PrismaUserRepository,
     },
   ],
-  exports: [UserService, VerificationService, AbstractUserRepository],
+  exports: [
+    UserService,
+    VerificationService,
+    AbstractUserRepository,
+    AuthService,
+  ],
 })
 export class UserModule {}

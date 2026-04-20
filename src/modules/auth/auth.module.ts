@@ -34,6 +34,6 @@ import { VerificationCacheService } from '../verification/verification-cache.ser
     GoogleStrategy,
     VerificationCacheService,
   ],
-  exports: [AuthService],
+  exports: [AuthService, JwtModule],
 })
 export class AuthModule {}
