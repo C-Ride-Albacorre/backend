@@ -8,10 +8,11 @@ import { UserService } from '../user/user.service';
 import { VerificationService } from '../verification/verification.service';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { VerificationModule } from '../verification/verification.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   controllers: [AdminController],
-  imports: [VerificationModule],
+  imports: [VerificationModule, AuthModule],
   providers: [
     AdminService,
     PrismaService,

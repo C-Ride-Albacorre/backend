@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -44,7 +46,8 @@ export class UserService {
     private readonly cloudinary: CloudinaryService,
     private readonly userRepository: AbstractUserRepository,
     private readonly verificationService: VerificationService,
-    private readonly authService: AuthService, // Inject verification service
+    @Inject(forwardRef(() => AuthService))
+    private readonly authService: AuthService,
   ) {}
 
   /**
