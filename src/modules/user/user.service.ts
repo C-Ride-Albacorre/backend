@@ -48,8 +48,82 @@ export class UserService {
   /**
    * Create a new customer with automatic OTP verification
    */
-
   async createCustomer(dto: Partial<User>): Promise<PendingVerificationDto> {
+    if (dto.referralCode) {
+      const existing = await this.prisma.user.findUnique({
+        where: { referralCode: dto.referralCode },
+      });
+      if (existing) {
+        throw new BadRequestException('Referral code already exists');
+      }
+    }
+
+    // Normalize phone
+    if (dto.phoneNumber) {
+      const phone = parsePhoneNumberFromString(
+        dto.phoneNumber,
+        (dto.countryCode || 'NG') as CountryCode,
+      );
+
+      if (!phone || !phone.isValid()) {
+        throw new BadRequestException('Invalid phone number');
+      }
+
+      dto.phoneNumber = phone.format('E.164');
+    }
+
+    const registrationInput = dto.email || dto.phoneNumber;
+    const registrationMethod = Helper.getRegistrationMethod(registrationInput);
+
+    const existingUser = await this.userRepository.findExistingUser(
+      dto.email,
+      dto.phoneNumber,
+    );
+
+    // ❌ BLOCK verified users completely
+    if (existingUser || existingUser?.isVerified) {
+      throw new ConflictException('User already exists. Please log in.');
+    }
+
+    // 🔁 Existing unverified → resend OTP
+    if (existingUser) {
+      await this.sendVerificationOtp(existingUser);
+
+      return {
+        status: RegistrationStatus.PENDING_VERIFICATION,
+        requiresVerification: true,
+        registrationMethod,
+        verificationIdentifier: registrationInput,
+        user: existingUser,
+      };
+    }
+
+    // 🆕 New user
+    const hashedPassword = await Helper.hashText(dto.password);
+
+    const user = await this.userRepository.create({
+      ...dto,
+      phoneNumber: dto.phoneNumber,
+      countryCode: dto.countryCode,
+      password: hashedPassword,
+      role: UserRole.CUSTOMER,
+      isActive: true,
+      isVerified: false,
+      lastLoginAt: new Date(),
+    });
+
+    await this.sendVerificationOtp(user);
+
+    return {
+      status: RegistrationStatus.NEW,
+      requiresVerification: true,
+      registrationMethod,
+      verificationIdentifier: registrationInput,
+      user,
+    };
+  }
+
+  async createCustomerbk(dto: Partial<User>): Promise<PendingVerificationDto> {
     // ✅ Normalize phone FIRST
     if (dto.phoneNumber) {
       const phone = parsePhoneNumberFromString(
@@ -397,7 +471,20 @@ export class UserService {
   /**
    * Authenticate user with credentials (only verified users can login)
    */
-  async authenticateUser(loginDto: LoginCustomerDto): Promise<User> {
+  async authenticateUser(
+    loginDto: LoginCustomerDto,
+    identifier: string,
+    verificationMethod: string,
+  ): Promise<
+    | { success: true; user: User }
+    | {
+        success: false;
+        status: 'UNVERIFIED';
+        verificationMethod: string;
+        identifier: string;
+        message: string;
+      }
+  > {
     const { email, phoneNumber, password } = loginDto;
 
     const user = await this.userRepository.findExistingUser(email, phoneNumber);
@@ -406,18 +493,21 @@ export class UserService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Check if user is active
     if (!user.isActive) {
       this.logger.warn(`Login attempt for inactive user: ${user.id}`);
       throw new UnauthorizedException('Account is deactivated');
     }
 
-    // Check if user is verified
     if (!user.isVerified) {
       this.logger.warn(`Login attempt for unverified user: ${user.id}`);
-      throw new UnauthorizedException(
-        'Account not verified. Please verify your email/phone.',
-      );
+
+      return {
+        success: false,
+        status: 'UNVERIFIED',
+        message: 'Account not verified. Please verify your email/phone.',
+        identifier,
+        verificationMethod,
+      };
     }
 
     if (!password) {
@@ -430,7 +520,6 @@ export class UserService {
       );
     }
 
-    // Verify password
     const isPasswordValid = await Helper.compareHashedText(
       password,
       user.password,
@@ -441,17 +530,89 @@ export class UserService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Update last login
     const updatedUser = await this.prisma.user.update({
       where: { id: user.id },
       data: {
         lastLoginAt: new Date(),
-        //loginCount: { increment: 1 },
       },
     });
 
-    return updatedUser;
+    return {
+      success: true,
+      user: updatedUser,
+    };
   }
+  // async authenticateUser(
+  //   loginDto: LoginCustomerDto,
+  //   identifier,
+  //   verificationMethod,
+  // ): Promise<
+  //   | User
+  //   | {
+  //       verificationMethod: string;
+  //       identifier: string;
+  //       message: string;
+  //     }
+  // > {
+  //   const { email, phoneNumber, password } = loginDto;
+
+  //   const user = await this.userRepository.findExistingUser(email, phoneNumber);
+
+  //   if (!user) {
+  //     throw new UnauthorizedException('Invalid credentials');
+  //   }
+
+  //   // Check if user is active
+  //   if (!user.isActive) {
+  //     this.logger.warn(`Login attempt for inactive user: ${user.id}`);
+  //     throw new UnauthorizedException('Account is deactivated');
+  //   }
+
+  //   // Check if user is verified
+  //   if (!user.isVerified) {
+  //     this.logger.warn(`Login attempt for unverified user: ${user.id}`);
+  //     // throw new UnauthorizedException(
+  //     //   'Account not verified. Please verify your email/phone.',
+  //     // );
+  //     return {
+  //       message: 'Account not verified. Please verify your email/phone.',
+  //       identifier: identifier,
+  //       verificationMethod: verificationMethod,
+  //     };
+  //   }
+
+  //   if (!password) {
+  //     throw new BadRequestException('Password is required');
+  //   }
+
+  //   if (!user.password) {
+  //     throw new BadRequestException(
+  //       'This account was created using Google. Please login with Google.',
+  //     );
+  //   }
+
+  //   // Verify password
+  //   const isPasswordValid = await Helper.compareHashedText(
+  //     password,
+  //     user.password,
+  //   );
+
+  //   if (!isPasswordValid) {
+  //     this.logger.warn(`Invalid password for user: ${user.id}`);
+  //     throw new UnauthorizedException('Invalid credentials');
+  //   }
+
+  //   // Update last login
+  //   const updatedUser = await this.prisma.user.update({
+  //     where: { id: user.id },
+  //     data: {
+  //       lastLoginAt: new Date(),
+  //       //loginCount: { increment: 1 },
+  //     },
+  //   });
+
+  //   return updatedUser;
+  // }
 
   /**
    * Send welcome message after verification
@@ -479,7 +640,7 @@ export class UserService {
   /**
    * Find user by identifier (email or phone)
    */
-  private async findUserByIdentifier(identifier: string): Promise<User | null> {
+  public async findUserByIdentifier(identifier: string): Promise<User | null> {
     // Check if identifier is email or phone
     const isEmail = identifier.includes('@');
 
