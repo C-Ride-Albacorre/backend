@@ -808,4 +808,29 @@ export default class Helper {
   static toRad(value: number): number {
     return (value * Math.PI) / 180;
   }
+
+  // static async findUserByIdentifier(identifier: string): Promise<User | null> {
+  //   // Check if identifier is email or phone
+  //   const isEmail = identifier.includes('@');
+
+  //   if (isEmail) {
+  //     // return this.userRepository.findOne({
+  //     //   where: { email: identifier }
+  //     // });
+  //     return await this.findByEmail(identifier);
+  //   } else {
+  //     // return this.userRepository.findOne({
+  //     //   where: { phoneNumber: identifier }
+  //     // });
+  //     return await this.findByPhoneNumber(identifier);
+  //   }
+  // }
+
+  // async findByEmail(email: string): Promise<User | null> {
+  //   return this.userRepository.findByEmail(email);
+  // }
+
+  // async findByPhoneNumber(phoneNumber: string): Promise<User | null> {
+  //   return this.userRepository.findByPhone(phoneNumber);
+  // }
 }

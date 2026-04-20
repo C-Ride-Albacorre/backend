@@ -23,6 +23,7 @@ export class PendingVerificationDto {
 
 export class RegisterResponseDto {
   accessToken: string; // only included after token generation
+  verificationToken: string;
   status: RegistrationStatus;
   requiresVerification: boolean;
   registrationMethod: RegistrationMethod;

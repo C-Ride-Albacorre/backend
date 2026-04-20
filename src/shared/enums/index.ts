@@ -26,6 +26,7 @@ export enum VerificationPurpose {
   VENDOR_PHONE_VERIFICATION = 'vendor_phone_verification',
   USER_EMAIL_VERIFICATION = 'user_email_verification',
   USER_PHONE_VERIFICATION = 'user_phone_verification',
+  REGISTRATION_TOKEN_VERIFICATION = 'registration_token_verification'
 }
 
 export enum DocumentType {

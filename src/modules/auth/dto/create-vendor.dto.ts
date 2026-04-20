@@ -59,6 +59,14 @@ export class VerifyEmailDto {
   @IsString()
   @Length(6, 6)
   otp: string;
+
+  @ApiProperty({
+    description: 'Verification Token',
+    example: 'aeHgeggfgjj4u595jjjjtr94444',
+  })
+  @IsOptional()
+  @IsString()
+  verificationToken?: string;
 }
 
 export class VerifyPhoneDto {
@@ -72,6 +80,14 @@ export class VerifyPhoneDto {
   @IsString()
   @Length(6, 6)
   otp: string;
+
+  @ApiProperty({
+    description: 'Verifiction Token',
+    //example: '123456',
+  })
+  @IsOptional()
+  @IsString()
+  verificationToken?: string;
 }
 // src/users/dtos/complete-onboarding.dto.ts
 

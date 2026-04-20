@@ -62,6 +62,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { AddPhoneDto } from './dto/add-phone-number.dto';
 import { CreateAdminDto } from '../admin/dto/create-admin.dto';
 import { CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js';
+import { ResendVerificationTokenDto } from './dto/resend-token-expiry.dto';
 
 @Injectable()
 export class AuthService {
@@ -147,15 +148,15 @@ export class AuthService {
         isVerified: true,
         verifiedAt: new Date(),
       },
-      select: {
-        id: true,
-        email: true,
-        phoneNumber: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        createdAt: true,
-      },
+      // select: {
+      //   id: true,
+      //   email: true,
+      //   phoneNumber: true,
+      //   firstName: true,
+      //   lastName: true,
+      //   role: true,
+      //   createdAt: true,
+      // },
     });
 
     this.logger.log(`Admin created: ${admin.email || admin.phoneNumber}`);
@@ -167,17 +168,26 @@ export class AuthService {
 
     // 8️⃣ Issue fresh token (optional but good)
     const auth = await this.generateAuthResponse(
-      user,
+      admin,
       identifier,
       verificationMethod,
     );
+
+    const safeUser = {
+      id: admin.id,
+      email: admin.email,
+      firstName: admin.firstName,
+      lastName: admin.lastName,
+      role: admin.role,
+      createdAt: admin.createdAt,
+    };
 
     return {
       accessToken: auth.accessToken,
       refreshToken: auth.refreshToken,
       success: true,
       message: 'Admin created successfully',
-      data: admin,
+      data: safeUser,
     };
   }
 
@@ -296,28 +306,56 @@ export class AuthService {
    */
   async registerCustomer(dto: CreateCustomerDto): Promise<RegisterResponseDto> {
     const registrationResponse = await this.userService.createCustomer(dto);
-    const identifier = null;
-    const verificationMethod = null;
 
-    // Only generate token if user exists
-    const auth = registrationResponse.user
-      ? //await this.generateAuthResponse(registrationResponse.user)
-        await this.generateAuthResponse(
-          registrationResponse.user,
-          identifier,
-          verificationMethod,
-        )
-      : null;
+    const { user, requiresVerification } = registrationResponse;
+
+    let verificationToken: string | null = null;
+
+    if (user && requiresVerification) {
+      verificationToken = this.jwtService.sign(
+        { sub: user.id, type: 'verify' },
+        { expiresIn: '10m' },
+      );
+    }
 
     return {
-      accessToken: auth?.accessToken ?? '', // only available if user exists
+      accessToken: '', // ❌ NEVER issue here
+      verificationToken,
       status: registrationResponse.status,
-      requiresVerification: registrationResponse.requiresVerification,
+      requiresVerification,
       registrationMethod: registrationResponse.registrationMethod,
       verificationIdentifier: registrationResponse.verificationIdentifier,
+      //role: user?.role ?? null,
       role: registrationResponse.user?.role as any,
     };
   }
+
+  // async registerCustomerold(
+  //   dto: CreateCustomerDto,
+  // ): Promise<RegisterResponseDto> {
+  //   const registrationResponse = await this.userService.createCustomer(dto);
+  //   const identifier = null;
+  //   const verificationMethod = null;
+
+  //   // Only generate token if user exists
+  //   const auth = registrationResponse.user
+  //     ? //await this.generateAuthResponse(registrationResponse.user)
+  //       await this.generateAuthResponse(
+  //         registrationResponse.user,
+  //         identifier,
+  //         verificationMethod,
+  //       )
+  //     : null;
+
+  //   return {
+  //     accessToken: auth?.accessToken ?? '', // only available if user exists
+  //     status: registrationResponse.status,
+  //     requiresVerification: registrationResponse.requiresVerification,
+  //     registrationMethod: registrationResponse.registrationMethod,
+  //     verificationIdentifier: registrationResponse.verificationIdentifier,
+  //     role: registrationResponse.user?.role as any,
+  //   };
+  // }
 
   // async registerCustomer(dto: CreateCustomerDto): Promise<RegisterResponseDto> {
   //   const { email, phoneNumber } = dto;
@@ -343,8 +381,78 @@ export class AuthService {
   /**
    * Verify OTP during registration
    */
-  async verifyRegistration(userId: string, dto: VerifyOtpDto) {
-    const { identifier, otp } = dto;
+  async verifyRegistration(dto: VerifyOtpDto): Promise<AuthResponse> {
+    const { identifier, verificationToken, otp } = dto;
+
+    const isEmail = identifier.includes('@');
+
+    const verificationMethod = isEmail ? 'email' : 'phone';
+
+    // 1. Find user first
+    //const user = await this.userService.findUserForPasswordReset(identifier);
+    const user = await this.userService.findUserByIdentifier(identifier);
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    let userId: string;
+
+    // 2. If NOT SUPER_ADMIN → require token
+    if (user.role !== 'SUPER_ADMIN') {
+      if (!verificationToken) {
+        throw new UnauthorizedException('Verification token is required');
+      }
+
+      let payload: any;
+
+      try {
+        payload = this.jwtService.verify(verificationToken);
+      } catch (err) {
+        throw new UnauthorizedException(
+          'Invalid or expired verification token',
+        );
+      }
+
+      if (payload.type !== 'verify') {
+        throw new UnauthorizedException('Invalid token type');
+      }
+
+      userId = payload.sub;
+    } else {
+      // 3. SUPER_ADMIN bypass
+      userId = user.id;
+    }
+
+    // 4. Verify OTP
+    const result = await this.userService.verifyUser(userId, identifier, otp);
+
+    if (!result.success || !result.user) {
+      throw new UnauthorizedException('Invalid OTP');
+    }
+
+    return this.generateAuthResponse(
+      result.user,
+      identifier,
+      verificationMethod,
+    );
+  }
+
+  async verifyRegistrationWorking(dto: VerifyOtpDto): Promise<AuthResponse> {
+    const { identifier, verificationToken, otp } = dto;
+
+    let payload: any;
+
+    try {
+      payload = this.jwtService.verify(verificationToken);
+    } catch (err) {
+      throw new UnauthorizedException('Invalid or expired verification token');
+    }
+
+    if (payload.type !== 'verify') {
+      throw new UnauthorizedException('Invalid token type');
+    }
+
+    const userId = payload.sub;
 
     const result = await this.userService.verifyUser(userId, identifier, otp);
 
@@ -352,7 +460,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid OTP');
     }
 
-    //return this.generateAuthResponse(result.user);
+    // ✅ ONLY NOW issue access token
+    // return this.generateAuthResponse(result.user);
     const verificationMethod = null;
 
     return this.generateAuthResponse(
@@ -361,6 +470,24 @@ export class AuthService {
       verificationMethod,
     );
   }
+  // async verifyRegistration(userId: string, dto: VerifyOtpDto) {
+  //   const { identifier, otp } = dto;
+
+  //   const result = await this.userService.verifyUser(userId, identifier, otp);
+
+  //   if (!result.success || !result.user) {
+  //     throw new UnauthorizedException('Invalid OTP');
+  //   }
+
+  //   //return this.generateAuthResponse(result.user);
+  //   const verificationMethod = null;
+
+  //   return this.generateAuthResponse(
+  //     result.user,
+  //     identifier,
+  //     verificationMethod,
+  //   );
+  // }
 
   // async verifyRegistrationold(dto: VerifyOtpDto) {
   //   const { identifier, otp } = dto;
@@ -375,6 +502,54 @@ export class AuthService {
   //   return this.generateAuthResponse(result.user);
   // }
 
+  async resendVerificationToken(dto: ResendVerificationTokenDto) {
+    const { identifier } = dto;
+
+    // 1. Find user (must allow unverified users)
+    const user = await this.userService.findUserByIdentifier(identifier);
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedException('User account is inactive');
+    }
+
+    // 2. If already verified → no need to resend
+    if (user.isVerified) {
+      return {
+        message: 'User already verified',
+        requiresVerification: false,
+      };
+    }
+
+    // 3. Resend OTP (reuse your verification service)
+    const otpResult = await this.verificationService.sendOtp({
+      identifier,
+    });
+
+    // 4. Generate NEW verification token
+    const verificationToken = this.jwtService.sign(
+      {
+        sub: user.id,
+        type: 'verify',
+        iat: Date.now(),
+      },
+      {
+        expiresIn: '10m',
+      },
+    );
+
+    return {
+      message: 'Verification token resent successfully',
+      verificationToken,
+      verificationIdentifier: identifier,
+      requiresVerification: true,
+      otpExpiresAt: otpResult.expiresAt,
+    };
+  }
+
   /**
    * Login - user with email/phone and password - only works for verified users
    */
@@ -386,57 +561,64 @@ export class AuthService {
 
     this.logger.log(`Login attempt: ${identifier}`);
 
-    const user = await this.userService.authenticateUser(loginDto);
+    const result = await this.userService.authenticateUser(
+      loginDto,
+      identifier,
+      verificationMethod,
+    );
 
-    if (!user.isVerified) {
-      throw new UnauthorizedException(
-        'Account not verified. Please verify your account.',
-      );
+    // 👇 Proper type narrowing
+    if (!result.success) {
+      return result;
     }
 
-    return this.generateAuthResponse(user, identifier, verificationMethod);
+    // 👇 Now result is { success: true; user: User }
+    return this.generateAuthResponse(
+      result.user,
+      identifier,
+      verificationMethod,
+    );
   }
+  // async loginCustomerOld(loginDto: LoginCustomerDto) {
+  //   const { email, phoneNumber } = loginDto;
+  //   const identifier = email || phoneNumber;
 
-  async loginCustomerOld(loginDto: LoginCustomerDto) {
-    const { email, phoneNumber } = loginDto;
-    const identifier = email || phoneNumber;
+  //   this.logger.log(`Login attempt: ${identifier}`);
 
-    this.logger.log(`Login attempt: ${identifier}`);
+  //   // This will throw if user is not verified
+  //   const user = await this.userService.authenticateUser(loginDto);
 
-    // This will throw if user is not verified
-    const user = await this.userService.authenticateUser(loginDto);
+  //   // Check if user is verified (redundant but safe)
+  //   if (!user.isVerified) {
+  //     throw new UnauthorizedException(
+  //       'Account not verified. Please verify your account.',
+  //     );
+  //   }
 
-    // Check if user is verified (redundant but safe)
-    if (!user.isVerified) {
-      throw new UnauthorizedException(
-        'Account not verified. Please verify your account.',
-      );
-    }
+  //   //return this.generateAuthResponse(user);
+  //   const verificationMethod = null;
 
-    //return this.generateAuthResponse(user);
-    const verificationMethod = null;
-
-    return this.generateAuthResponse(user, identifier, verificationMethod);
-  }
+  //   return this.generateAuthResponse(user, identifier, verificationMethod);
+  // }
 
   /**
    * Login user with email/phone and password
    */
-  async loginCustomer2(loginDto: LoginCustomerDto): Promise<AuthResponse> {
-    const { email, phoneNumber } = loginDto;
-    const identifier = email || phoneNumber;
+  // async loginCustomer2(loginDto: LoginCustomerDto): Promise<AuthResponse> {
+  //   const { email, phoneNumber } = loginDto;
+  //   const identifier = email || phoneNumber;
 
-    this.logger.log(`Login attempt: ${identifier}`);
+  //   this.logger.log(`Login attempt: ${identifier}`);
 
-    // Delegate authentication to UserService
-    const user = await this.userService.authenticateUser(loginDto);
+  //   // Delegate authentication to UserService
+  //   const user = await this.userService.authenticateUser(loginDto);
 
-    // return this.generateAuthResponse(user);
+  //   // return this.generateAuthResponse(user);
 
-    const verificationMethod = null;
+  //   const verificationMethod = null;
 
-    return this.generateAuthResponse(user, identifier, verificationMethod);
-  }
+  //   return this.generateAuthResponse(user, identifier, verificationMethod);
+  // }
 
   /**
    * Resend OTP for registration
@@ -1249,6 +1431,102 @@ export class AuthService {
       nextAction = 'Verify your email address';
     }
 
+    // ✅ If NOT vendor → return normal auth tokens
+    if (user.role !== UserRole.VENDOR) {
+      const verificationMethod = null;
+      const identifier = null;
+
+      const auth = await this.generateAuthResponse(
+        user,
+        identifier,
+        verificationMethod,
+      );
+
+      return {
+        accessToken: auth.accessToken,
+        refreshToken: auth.refreshToken,
+        user: {
+          id: user.id,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          status: user.status,
+          isEmailVerified: user.isEmailVerified,
+          isPhoneVerified: user.isPhoneVerified,
+          onboardingStatus: user.onboardingStatus,
+          onboardingStep: user.onboardingStep,
+        },
+        nextAction,
+      };
+    }
+
+    // ✅ If VENDOR → return verificationToken instead
+    let verificationToken: string | null = null;
+
+    if (!user.isEmailVerified || !user.isPhoneVerified) {
+      verificationToken = this.jwtService.sign(
+        { sub: user.id, type: 'verify' },
+        { expiresIn: '10m' },
+      );
+    }
+
+    return {
+      success: true,
+      message:
+        'Vendor authentication successful. Please complete verification.',
+      verificationToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        status: user.status,
+        role: user.role,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
+        onboardingStatus: user.onboardingStatus,
+        onboardingStep: user.onboardingStep,
+      },
+
+      nextSteps: [
+        'Verify your phone number',
+        'Verify your email address',
+        'Complete onboarding',
+      ],
+
+      nextAction,
+    };
+  }
+
+  async handleOAuthCallbackOldWorking(
+    profile: any,
+    provider: OAuthProviderType,
+    requestedRole?: UserRole,
+  ) {
+    if (!profile?.email)
+      throw new BadRequestException('OAuth account has no email');
+
+    const allowedRoles: UserRole[] = [UserRole.CUSTOMER, UserRole.VENDOR];
+    if (requestedRole && !allowedRoles.includes(requestedRole)) {
+      throw new ForbiddenException('You cannot assign this role');
+    }
+
+    const user = await this.userService.createOrGetOAuthUser({
+      email: profile.email,
+      firstName: profile.firstName || profile.givenName,
+      lastName: profile.lastName || profile.familyName,
+      provider,
+      providerId: profile.providerId,
+      profilePicture: profile.picture,
+      role: requestedRole,
+    });
+
+    // Determine next action for UI guidance
+    let nextAction = 'Complete onboarding';
+    if (user.role === UserRole.VENDOR && !user.isPhoneVerified) {
+      nextAction = 'Verify your phone number to start onboarding';
+    } else if (!user.isEmailVerified) {
+      nextAction = 'Verify your email address';
+    }
+
     // Issue JWT (reuse your existing method)
     //const auth = await this.generateAuthResponse(user);
     const verificationMethod = null;
@@ -1273,50 +1551,6 @@ export class AuthService {
       },
       nextAction,
     };
-  }
-
-  async handleOAuthCallbackold(
-    profile: any,
-    provider: OAuthProviderType,
-    requestedRole?: UserRole,
-  ) {
-    if (!profile?.email) {
-      throw new BadRequestException('OAuth account has no email');
-    }
-
-    const allowedSelfAssignableRoles: UserRole[] = [
-      UserRole.CUSTOMER,
-      UserRole.VENDOR,
-    ];
-
-    // let finalRole: UserRole = UserRole.CUSTOMER;
-
-    if (requestedRole) {
-      if (!Object.values(UserRole).includes(requestedRole)) {
-        throw new BadRequestException('Invalid role selected');
-      }
-
-      if (!allowedSelfAssignableRoles.includes(requestedRole)) {
-        throw new ForbiddenException('You cannot assign this role');
-      }
-
-      //finalRole = requestedRole;
-    }
-
-    const user = await this.userService.createOrGetOAuthUser({
-      email: profile.email,
-      firstName: profile.firstName || profile.givenName,
-      lastName: profile.lastName || profile.familyName,
-      provider,
-      providerId: profile.providerId,
-      profilePicture: profile.picture,
-      role: requestedRole,
-    });
-
-    // return this.generateAuthResponse(user);
-    const verificationMethod = null;
-    const identifier = null;
-    return this.generateAuthResponse(user, identifier, verificationMethod);
   }
 
   /**
@@ -1378,7 +1612,79 @@ export class AuthService {
   /**
    * Vendor Registration - Step 1
    */
-  async registerVendor(dto: CreateVendorDto): Promise<{
+  async registerUser(dto: CreateUserDto, role: UserRole): Promise<any> {
+    this.logger.log(`Registering ${role}: ${dto.email}`);
+
+    // ✅ Normalize phone FIRST
+    if (dto.phoneNumber) {
+      const phone = parsePhoneNumberFromString(
+        dto.phoneNumber,
+        (dto.countryCode || 'NG') as CountryCode,
+      );
+
+      if (!phone || !phone.isValid()) {
+        throw new BadRequestException('Invalid phone number');
+      }
+
+      dto.phoneNumber = phone.format('E.164');
+    }
+
+    // ✅ Use normalized phone for duplicate check
+    await this.checkExistingUser(dto.email, dto.phoneNumber);
+
+    const hashedPassword = await Helper.hashText(dto.password);
+
+    const user = await this.userRepository.create({
+      email: dto.email,
+      phoneNumber: dto.phoneNumber,
+      countryCode: dto.countryCode,
+      password: hashedPassword,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      role,
+      status: UserStatus.PENDING_EMAIL_VERIFICATION,
+    });
+
+    // ✅ Send OTPs (email + phone)
+    await this.sendInitialUserVerificationOtps(user);
+
+    // ✅ Generate verification token (LIKE CUSTOMER FLOW)
+    let verificationToken: string | null = null;
+
+    if (user && user.status === UserStatus.PENDING_EMAIL_VERIFICATION) {
+      verificationToken = this.jwtService.sign(
+        { sub: user.id, type: 'verify' },
+        { expiresIn: '10m' },
+      );
+    }
+
+    // ❌ DO NOT generate auth tokens here
+    // const auth = await this.generateAuthResponse(...); ← removed
+
+    return {
+      success: true,
+      message: `${role} registration successful. Please verify your email and phone.`,
+
+      // ✅ ONLY verification token
+      verificationToken,
+
+      user: {
+        id: user.id,
+        email: user.email,
+        phoneNumber: user.phoneNumber,
+        status: user.status,
+        role: user.role,
+      },
+
+      nextSteps: [
+        'Check your email for verification code',
+        'Check your phone for verification code',
+        'Verify phone first, then email',
+      ],
+    };
+  }
+
+  async registerVendorold(dto: CreateVendorDto): Promise<{
     success: boolean;
     message: string;
     vendor: Partial<User>;
@@ -1425,7 +1731,7 @@ export class AuthService {
     };
   }
 
-  async registerUser(dto: CreateUserDto, role: UserRole): Promise<any> {
+  async registerUserold2(dto: CreateUserDto, role: UserRole): Promise<any> {
     this.logger.log(`Registering ${role}: ${dto.email}`);
 
     // ✅ Normalize phone FIRST
@@ -1604,7 +1910,108 @@ export class AuthService {
     };
   }
 
-  async verifyUserEmail(
+  async verifyUserEmail(dto: VerifyEmailDto): Promise<{
+    success: boolean;
+    message: string;
+    nextAction: string;
+    accessToken?: string;
+    refreshToken?: string;
+    user: Partial<User>;
+  }> {
+    const { email, otp, verificationToken } = dto;
+
+    this.logger.log(`Verifying email for: ${email}`);
+
+    // 1️⃣ Require verification token
+    if (!verificationToken) {
+      throw new UnauthorizedException('Verification token is required');
+    }
+
+    let payload: any;
+
+    // 2️⃣ Verify token
+    try {
+      payload = this.jwtService.verify(verificationToken);
+    } catch (err) {
+      throw new UnauthorizedException('Invalid or expired verification token');
+    }
+
+    if (payload.type !== 'verify') {
+      throw new UnauthorizedException('Invalid token type');
+    }
+
+    const userId = payload.sub;
+
+    // 3️⃣ Get user from token
+    const user = await this.userRepository.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // 4️⃣ Ensure email exists
+    if (!user.email) {
+      throw new BadRequestException('No email found for this user');
+    }
+
+    // 5️⃣ Ensure email matches
+    if (user.email !== email) {
+      throw new BadRequestException('Email mismatch');
+    }
+
+    // 6️⃣ Prevent re-verification
+    if (user.isEmailVerified) {
+      throw new ConflictException('Email already verified');
+    }
+
+    // 7️⃣ Enforce phone-first flow
+    if (!user.isPhoneVerified) {
+      throw new BadRequestException('Please verify your phone number first');
+    }
+
+    // 8️⃣ Verify OTP
+    const isValid = await this.verificationService.verifyOtp({
+      identifier: email,
+      otp,
+      purpose: VerificationPurpose.USER_EMAIL_VERIFICATION,
+    });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    // 9️⃣ Update user
+    user.isEmailVerified = true;
+    user.emailVerifiedAt = new Date();
+    user.status = UserStatus.PENDING_ONBOARDING;
+
+    if (!user.onboardingStatus) {
+      user.onboardingStatus = 'NOT_STARTED';
+      user.onboardingStep = 0;
+    }
+
+    const updatedUser = await this.userRepository.update(user.id, user);
+
+    // 🔟 Issue access token AFTER verification
+    const auth = await this.generateAuthResponse(updatedUser, email, 'email');
+
+    return {
+      success: true,
+      message: 'Email verified successfully',
+      nextAction: 'Complete business onboarding',
+      accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        phoneNumber: updatedUser.phoneNumber,
+        status: updatedUser.status,
+        onboardingStatus: updatedUser.onboardingStatus,
+        onboardingStep: updatedUser.onboardingStep,
+      },
+    };
+  }
+
+  async verifyUserEmailold2(
     userId: string,
     dto: VerifyEmailDto,
   ): Promise<{
@@ -1921,7 +2328,116 @@ export class AuthService {
     };
   }
 
-  async verifyUserPhone(
+  async verifyUserPhone(dto: VerifyPhoneDto): Promise<{
+    success: boolean;
+    message: string;
+    accessToken: string;
+    refreshToken: string;
+    nextAction: string;
+    user: Partial<User>;
+  }> {
+    const { phoneNumber, otp, verificationToken } = dto;
+
+    this.logger.log(`Verifying phone for: ${phoneNumber}`);
+
+    // 1️⃣ Require verification token
+    if (!verificationToken) {
+      throw new UnauthorizedException('Verification token is required');
+    }
+
+    let payload: any;
+
+    // 2️⃣ Verify token
+    try {
+      payload = this.jwtService.verify(verificationToken);
+    } catch (err) {
+      throw new UnauthorizedException('Invalid or expired verification token');
+    }
+
+    if (payload.type !== 'verify') {
+      throw new UnauthorizedException('Invalid token type');
+    }
+
+    const userId = payload.sub;
+
+    // 3️⃣ Get user from token
+    const user = await this.userRepository.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // 4️⃣ Ensure phone exists
+    if (!user.phoneNumber) {
+      throw new BadRequestException(
+        'No phone number found. Please add phone number first',
+      );
+    }
+
+    // 5️⃣ Ensure phone matches request
+    if (user.phoneNumber !== phoneNumber) {
+      throw new BadRequestException('Phone number mismatch');
+    }
+
+    // 6️⃣ Prevent re-verification
+    if (user.isPhoneVerified) {
+      throw new ConflictException('Phone already verified');
+    }
+
+    // 7️⃣ Verify OTP
+    const isValid = await this.verificationService.verifyOtp({
+      identifier: phoneNumber,
+      otp,
+      purpose: VerificationPurpose.USER_PHONE_VERIFICATION,
+    });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired verification code');
+    }
+
+    // 8️⃣ Update user
+    user.isPhoneVerified = true;
+    user.phoneVerifiedAt = new Date();
+
+    // 9️⃣ Status transitions
+    if (!user.isEmailVerified) {
+      user.status = UserStatus.PENDING_EMAIL_VERIFICATION;
+    } else {
+      user.status = UserStatus.PENDING_ONBOARDING;
+
+      if (!user.onboardingStatus) {
+        user.onboardingStatus = 'NOT_STARTED';
+        user.onboardingStep = 0;
+      }
+    }
+
+    const updatedUser = await this.userRepository.update(user.id, user);
+
+    const auth = await this.generateAuthResponse(
+      updatedUser,
+      phoneNumber,
+      'phone',
+    );
+
+    return {
+      success: true,
+      message: 'Phone verified successfully',
+      accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
+      nextAction: updatedUser.isEmailVerified
+        ? 'Complete business onboarding'
+        : 'Verify your email address',
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        phoneNumber: updatedUser.phoneNumber,
+        status: updatedUser.status,
+        isPhoneVerified: updatedUser.isPhoneVerified,
+        isEmailVerified: updatedUser.isEmailVerified,
+      },
+    };
+  }
+
+  async verifyUserPhoneold2(
     userId: string,
     dto: VerifyPhoneDto,
   ): Promise<{
@@ -2134,6 +2650,77 @@ export class AuthService {
     };
   }
 
+  // async loginUser(loginDto: LoginDto) {
+  //   const { email, password } = loginDto;
+  //   this.logger.log(`Vendor login attempt: ${email}`);
+
+  //   const vendor = await this.userRepository.findByEmail(email);
+
+  //   if (!vendor) {
+  //     throw new UnauthorizedException('Invalid credentials');
+  //   }
+
+  //   // Verify password
+  //   const isPasswordValid = await bcrypt.compare(password, vendor.password);
+
+  //   if (!isPasswordValid) {
+  //     throw new UnauthorizedException('Invalid credentials');
+  //   }
+
+  //   /**
+  //    * Enforce verification order
+  //    * Phone → Email → Onboarding
+  //    */
+
+  //   // ❌ Phone not verified
+  //   if (!vendor.isPhoneVerified) {
+  //     return {
+  //       success: false,
+  //       status: 'UNVERIFIED',
+  //       message: 'Please verify your phone number before logging in',
+
+  //       // ✅ IMPORTANT
+  //       identifier: vendor.phoneNumber,
+  //       verificationMethod: 'phone',
+
+  //       onboardingStep: vendor.onboardingStep ?? 0,
+  //     };
+  //   }
+
+  //   // ❌ Email not verified
+  //   if (!vendor.isEmailVerified) {
+  //     return {
+  //       success: false,
+  //       status: 'UNVERIFIED',
+  //       message: 'Please verify your email address before logging in',
+
+  //       // ✅ IMPORTANT
+  //       identifier: vendor.email,
+  //       verificationMethod: 'email',
+  //       onboardingStep: vendor.onboardingStep ?? 0,
+  //     };
+  //   }
+
+  //   // ✅ Verified → proceed with login
+
+  //   const lastLoginAt = new Date();
+
+  //   await this.userRepository.update(vendor.id, {
+  //     lastLoginAt,
+  //   });
+
+  //   const auth = await this.generateAuthResponse(vendor, email, 'email');
+
+  //   return {
+  //     success: true,
+  //     ...auth,
+
+  //     onboardingStatus: vendor.onboardingStatus,
+  //     onboardingStep: vendor.onboardingStep,
+  //     status: vendor.status,
+  //   };
+  // }
+
   async loginUser(loginDto: LoginDto, role: UserRole) {
     const { email, password } = loginDto;
     this.logger.log(`user login attempt: ${email}`);
@@ -2160,17 +2747,47 @@ export class AuthService {
      * Phone → Email → Onboarding
      */
 
+    // if (!user.isPhoneVerified) {
+    //   throw new UnauthorizedException(
+    //     'Please verify your phone number before logging in',
+    //   );
+    // }
+
+    // if (!user.isEmailVerified) {
+    //   throw new UnauthorizedException(
+    //     'Please verify your email address before logging in',
+    //   );
+    // }
+
     if (!user.isPhoneVerified) {
-      throw new UnauthorizedException(
-        'Please verify your phone number before logging in',
-      );
+      return {
+        success: false,
+        status: 'UNVERIFIED',
+        message: 'Please verify your phone number before logging in',
+
+        // ✅ IMPORTANT
+        identifier: user.phoneNumber,
+        verificationMethod: 'phone',
+        onboardingStep: user.onboardingStep ?? 0,
+        onboardingStatus: user.onboardingStatus,
+      };
     }
 
+    // ❌ Email not verified
     if (!user.isEmailVerified) {
-      throw new UnauthorizedException(
-        'Please verify your email address before logging in',
-      );
+      return {
+        success: false,
+        status: 'UNVERIFIED',
+        message: 'Please verify your email address before logging in',
+
+        // ✅ IMPORTANT
+        identifier: user.email,
+        verificationMethod: 'email',
+        onboardingStep: user.onboardingStep ?? 0,
+        onboardingStatus: user.onboardingStatus
+      };
     }
+
 
     // ✅ DO NOT block login for:
     // - PENDING_ONBOARDING
