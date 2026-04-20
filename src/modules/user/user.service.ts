@@ -29,6 +29,7 @@ import {
 } from '../auth/dto/registration-response.dto';
 import Helper from '../../shared/utils/helpers';
 import { CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js';
+import { AuthService } from '../auth/auth.service';
 
 @Injectable()
 export class UserService {
@@ -42,7 +43,8 @@ export class UserService {
     private readonly prisma: PrismaService,
     private readonly cloudinary: CloudinaryService,
     private readonly userRepository: AbstractUserRepository,
-    private readonly verificationService: VerificationService, // Inject verification service
+    private readonly verificationService: VerificationService,
+    private readonly authService: AuthService, // Inject verification service
   ) {}
 
   /**
@@ -95,6 +97,7 @@ export class UserService {
         registrationMethod,
         verificationIdentifier: registrationInput,
         user: existingUser,
+        isNewUser: true,
       };
     }
 
@@ -472,6 +475,92 @@ export class UserService {
    * Authenticate user with credentials (only verified users can login)
    */
   async authenticateUser(
+    loginDto: LoginCustomerDto,
+    identifier: string,
+    verificationMethod: string,
+  ): Promise<
+    | { success: true; user: User }
+    | {
+        success: false;
+        status: 'UNVERIFIED';
+        verificationMethod: string;
+        identifier: string;
+        verificationToken: string;
+        message: string;
+      }
+  > {
+    const { email, phoneNumber, password } = loginDto;
+
+    const user = await this.userRepository.findExistingUser(email, phoneNumber);
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (!user.isActive) {
+      this.logger.warn(`Login attempt for inactive user: ${user.id}`);
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
+    // ✅ REUSE EXISTING VERIFICATION FLOW
+    if (!user.isVerified) {
+      this.logger.warn(`Login attempt for unverified user: ${user.id}`);
+
+      const verificationResponse =
+        await this.authService.resendVerificationToken({
+          identifier,
+        });
+
+      // send OTP (this should internally generate + persist the code)
+      // 2. explicitly send OTP (email/sms)
+      await this.verificationService.sendOtp({
+        identifier,
+      });
+
+      return {
+        success: false,
+        status: 'UNVERIFIED',
+        message: verificationResponse.message,
+        identifier,
+        verificationMethod,
+        verificationToken: verificationResponse.verificationToken,
+      };
+    }
+
+    if (!password) {
+      throw new BadRequestException('Password is required');
+    }
+
+    if (!user.password) {
+      throw new BadRequestException(
+        'This account was created using Google. Please login with Google.',
+      );
+    }
+
+    const isPasswordValid = await Helper.compareHashedText(
+      password,
+      user.password,
+    );
+
+    if (!isPasswordValid) {
+      this.logger.warn(`Invalid password for user: ${user.id}`);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        lastLoginAt: new Date(),
+      },
+    });
+
+    return {
+      success: true,
+      user: updatedUser,
+    };
+  }
+
+  async authenticateUserOld(
     loginDto: LoginCustomerDto,
     identifier: string,
     verificationMethod: string,
