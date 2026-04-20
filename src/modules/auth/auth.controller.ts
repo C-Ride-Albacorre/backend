@@ -64,6 +64,7 @@ import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { AddPhoneDto } from './dto/add-phone-number.dto';
 import { CreateAdminDto } from '../admin/dto/create-admin.dto';
+import { ResendVerificationTokenDto } from './dto/resend-token-expiry.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -77,6 +78,7 @@ export class AuthController {
 
   @Post('create-admin')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   @Roles(UserRole.SUPER_ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new admin (Super Admin only)' })
@@ -86,6 +88,7 @@ export class AuthController {
     description: 'Forbidden - Requires Super Admin role',
   })
   async createAdmin(@GetUser() user: any, @Body() dto: CreateAdminDto) {
+    console.log('User', user);
     return this.authService.createAdmin(user.id, dto);
   }
 
@@ -106,29 +109,29 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
-  // @Post('/admin/verify')
-  // @ApiOperation({ summary: 'Verify Admin login OTP' })
-  // @ApiResponse({
-  //   status: 200,
-  //   description: 'Verification successful',
-  //   type: AuthResponseDto,
-  // })
-  // @ApiResponse({ status: 401, description: 'Invalid OTP' })
-  // async verifyAdminLogin(@Body() dto: VerifyOtpDto) {
-  //   return this.authService.verifyRegistration(dto);
-  // }
   @Post('/admin/verify')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Verify Admin login OTP' })
   @ApiResponse({
     status: 200,
     description: 'Verification successful',
     type: AuthResponseDto,
   })
   @ApiResponse({ status: 401, description: 'Invalid OTP' })
-  async verifyAdminLogin(@Req() req, @Body() dto: VerifyOtpDto) {
-    return this.authService.verifyRegistration(req.user.id, dto);
+  async verifyAdminLogin(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyRegistration(dto);
   }
+  // @Post('/admin/verify')
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'Verification successful',
+  //   type: AuthResponseDto,
+  // })
+  // @ApiResponse({ status: 401, description: 'Invalid OTP' })
+  // async verifyAdminLogin(@Req() req, @Body() dto: VerifyOtpDto) {
+  //   return this.authService.verifyRegistration(req.user.id, dto);
+  // }
 
   //CUSTOMER
   @Post('/customer/signup')
@@ -155,20 +158,7 @@ export class AuthController {
     return this.authService.registerCustomer(dto);
   }
 
-  // @Post('/customer/verify')
-  // @ApiOperation({ summary: 'Verify registration OTP' })
-  // @ApiResponse({
-  //   status: 200,
-  //   description: 'Verification successful',
-  //   type: AuthResponseDto,
-  // })
-  // @ApiResponse({ status: 401, description: 'Invalid OTP' })
-  // async verifyRegistration(@Body() verifyOtpDto: VerifyOtpDto) {
-  //   return this.authService.verifyRegistration(verifyOtpDto);
-  // }
   @Post('/customer/verify')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Verify registration OTP' })
   @ApiResponse({
     status: 200,
@@ -176,8 +166,51 @@ export class AuthController {
     type: AuthResponseDto,
   })
   @ApiResponse({ status: 401, description: 'Invalid OTP' })
-  async verifyRegistration(@Req() req, @Body() dto: VerifyOtpDto) {
-    return this.authService.verifyRegistration(req.user.id, dto);
+  async verifyRegistration(@Body() verifyOtpDto: VerifyOtpDto) {
+    return this.authService.verifyRegistration(verifyOtpDto);
+  }
+  // @Post('/customer/verify')
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
+  // @ApiOperation({ summary: 'Verify registration OTP' })
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'Verification successful',
+  //   type: AuthResponseDto,
+  // })
+  // @ApiResponse({ status: 401, description: 'Invalid OTP' })
+  // async verifyRegistration(@Req() req, @Body() dto: VerifyOtpDto) {
+  //   return this.authService.verifyRegistration(req.user.id, dto);
+  // }
+
+  @Post('resend-verification-token')
+  @ApiOperation({
+    summary: 'Resend verification token and OTP',
+    description:
+      'Reissues a new verification token and resends OTP for unverified users.',
+  })
+  @ApiBody({
+    type: ResendVerificationTokenDto,
+    description: 'User identifier (email or phone number)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Verification token and OTP resent successfully',
+    schema: {
+      example: {
+        message: 'Verification token resent successfully',
+        verificationToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        verificationIdentifier: 'user@example.com',
+        requiresVerification: true,
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'User not found or inactive',
+  })
+  async resendVerificationToken(@Body() dto: ResendVerificationTokenDto) {
+    return this.authService.resendVerificationToken(dto);
   }
 
   @Post('/customer/login')
@@ -234,25 +267,25 @@ export class AuthController {
   //   return this.authService.verifyVendorEmail(dto);
   // }
 
-  // @Post('/user/verify/email')
-  // @HttpCode(HttpStatus.OK)
-  // @ApiOperation({ summary: 'Verify user email' })
-  // @ApiResponse({ status: 200, description: 'Email verified successfully' })
-  // @ApiResponse({ status: 401, description: 'Invalid verification code' })
-  // async verifyUserEmail(@Body() dto: VerifyEmailDto) {
-  //   return this.authService.verifyUserEmail(dto);
-  // }
-
   @Post('/user/verify/email')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
   @ApiOperation({ summary: 'Verify user email' })
   @ApiResponse({ status: 200, description: 'Email verified successfully' })
   @ApiResponse({ status: 401, description: 'Invalid verification code' })
-  async verifyUserEmail(@Req() req, @Body() dto: VerifyEmailDto) {
-    return this.authService.verifyUserEmail(req.user.id, dto);
+  async verifyUserEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyUserEmail(dto);
   }
+
+  // @Post('/user/verify/email')
+  // @HttpCode(HttpStatus.OK)
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
+  // @ApiOperation({ summary: 'Verify user email' })
+  // @ApiResponse({ status: 200, description: 'Email verified successfully' })
+  // @ApiResponse({ status: 401, description: 'Invalid verification code' })
+  // async verifyUserEmail(@Req() req, @Body() dto: VerifyEmailDto) {
+  //   return this.authService.verifyUserEmail(req.user.id, dto);
+  // }
 
   // @Post('/vendor/verify/phone')
   // @HttpCode(HttpStatus.OK)
@@ -283,25 +316,25 @@ export class AuthController {
     return this.authService.addPhoneNumber(req.user.id, dto);
   }
 
-  @Post('/user/verify/phone')
-  @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Verify user phone' })
-  @ApiResponse({ status: 200, description: 'Phone verified successfully' })
-  @ApiResponse({ status: 401, description: 'Invalid verification code' })
-  async verifyUserPhone(@Req() req, @Body() dto: VerifyPhoneDto) {
-    return this.authService.verifyUserPhone(req.user.id, dto);
-  }
-
   // @Post('/user/verify/phone')
   // @HttpCode(HttpStatus.OK)
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   // @ApiOperation({ summary: 'Verify user phone' })
   // @ApiResponse({ status: 200, description: 'Phone verified successfully' })
   // @ApiResponse({ status: 401, description: 'Invalid verification code' })
-  // async verifyUserPhone(@Body() dto: VerifyPhoneDto) {
-  //   return this.authService.verifyUserPhone(dto);
+  // async verifyUserPhone(@Req() req, @Body() dto: VerifyPhoneDto) {
+  //   return this.authService.verifyUserPhone(req.user.id, dto);
   // }
+
+  @Post('/user/verify/phone')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify user phone' })
+  @ApiResponse({ status: 200, description: 'Phone verified successfully' })
+  @ApiResponse({ status: 401, description: 'Invalid verification code' })
+  async verifyUserPhone(@Body() dto: VerifyPhoneDto) {
+    return this.authService.verifyUserPhone(dto);
+  }
 
   // @Post('/vendor/login')
   // @HttpCode(HttpStatus.OK)
@@ -806,6 +839,10 @@ STEP 4 – Bank Details
         authResponse.refreshToken,
       );
     }
+    redirectUrl.searchParams.append(
+      'verificationToken',
+      authResponse.verificationToken,
+    );
     redirectUrl.searchParams.append('userId', authResponse.user.id);
     redirectUrl.searchParams.append(
       'isPhoneVerified',

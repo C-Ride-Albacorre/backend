@@ -27,6 +27,14 @@ export class VerifyOtpDto {
   @Length(6, 6)
   otp: string;
 
+  @ApiProperty({
+    description: 'Verifiction Token',
+    //example: '123456',
+  })
+  @IsOptional()
+  @IsString()
+  verificationToken?: string;
+
   @IsOptional()
   @IsEnum(VerificationPurpose)
   purpose?: VerificationPurpose;
