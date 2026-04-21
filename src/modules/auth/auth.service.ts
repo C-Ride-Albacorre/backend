@@ -2077,7 +2077,7 @@ export class AuthService {
         phoneNumber: updatedUser.phoneNumber,
         status: updatedUser.status,
         onboardingStatus: updatedUser.onboardingStatus,
-        onboardingStep: updatedUser.onboardingStep,
+        onboardingStep: updatedUser.onboardingStep ?? 0,
       },
     };
   }
