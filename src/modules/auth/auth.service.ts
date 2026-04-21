@@ -2753,6 +2753,33 @@ export class AuthService {
      * VERIFICATION FLOW
      * =========================
      */
+    
+    if (!user.isPhoneVerified && !user.isEmailVerified) {
+      // prioritize phone first (you can change this if needed)
+      const identifier = user.phoneNumber;
+
+      const verificationResponse = await this.resendVerificationToken({
+        identifier,
+      });
+
+      await this.verificationService.sendOtp({
+        identifier,
+      });
+
+      return {
+        success: false,
+        status: 'UNVERIFIED',
+        message:
+          'Please verify your phone number and email address before logging in. Start with phone verification.',
+        phoneNumber: user.phoneNumber,
+        email: user.email,
+        verificationToken: verificationResponse.verificationToken,
+        onboardingStep: user.onboardingStep ?? 0,
+        onboardingStatus: user.onboardingStatus,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
+      };
+    }
 
     // ❌ Phone not verified
     if (!user.isPhoneVerified) {
@@ -2776,6 +2803,8 @@ export class AuthService {
 
         onboardingStep: user.onboardingStep ?? 0,
         onboardingStatus: user.onboardingStatus,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
       };
     }
 
@@ -2801,34 +2830,10 @@ export class AuthService {
 
         onboardingStep: user.onboardingStep ?? 0,
         onboardingStatus: user.onboardingStatus,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
       };
     }
-
-    if (!user.isPhoneVerified && !user.isEmailVerified) {
-      // prioritize phone first (you can change this if needed)
-      const identifier = user.phoneNumber;
-
-      const verificationResponse = await this.resendVerificationToken({
-        identifier,
-      });
-
-      await this.verificationService.sendOtp({
-        identifier,
-      });
-
-      return {
-        success: false,
-        status: 'UNVERIFIED',
-        message:
-          'Please verify your phone number and email address before logging in. Start with phone verification.',
-        phoneNumber: user.phoneNumber,
-        email: user.email,
-        verificationToken: verificationResponse.verificationToken,
-        onboardingStep: user.onboardingStep ?? 0,
-        onboardingStatus: user.onboardingStatus,
-      };
-    }
-
     /**
      * =========================
      * LOGIN SUCCESS FLOW
