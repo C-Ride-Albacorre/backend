@@ -2806,7 +2806,7 @@ export class AuthService {
 
     if (!user.isPhoneVerified && !user.isEmailVerified) {
       // prioritize phone first (you can change this if needed)
-      const identifier = user.email;
+      const identifier = user.phoneNumber;
 
       const verificationResponse = await this.resendVerificationToken({
         identifier,
