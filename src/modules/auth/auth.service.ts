@@ -2409,6 +2409,9 @@ export class AuthService {
   }> {
     const { phoneNumber, otp, verificationToken } = dto;
 
+    let accessToken;
+    let refreshToken;
+
     this.logger.log(`Verifying phone for: ${phoneNumber}`);
 
     // 1️⃣ Require verification token
@@ -2472,8 +2475,11 @@ export class AuthService {
     // 9️⃣ Status transitions
     if (!user.isEmailVerified) {
       user.status = UserStatus.PENDING_EMAIL_VERIFICATION;
+      ((accessToken = null), (refreshToken = null));
     } else {
       user.status = UserStatus.PENDING_ONBOARDING;
+      const auth = await this.generateAuthResponse(user, phoneNumber, 'phone');
+      ((accessToken = auth.accessToken), (refreshToken = auth.refreshToken));
 
       if (!user.onboardingStatus) {
         user.onboardingStatus = 'NOT_STARTED';
@@ -2483,17 +2489,17 @@ export class AuthService {
 
     const updatedUser = await this.userRepository.update(user.id, user);
 
-    const auth = await this.generateAuthResponse(
-      updatedUser,
-      phoneNumber,
-      'phone',
-    );
+    // const auth = await this.generateAuthResponse(
+    //   updatedUser,
+    //   phoneNumber,
+    //   'phone',
+    // );
 
     return {
       success: true,
       message: 'Phone verified successfully',
-      accessToken: auth.accessToken,
-      refreshToken: auth.refreshToken,
+      accessToken: accessToken,
+      refreshToken: refreshToken,
       nextAction: updatedUser.isEmailVerified
         ? 'Complete business onboarding'
         : 'Verify your email address',
@@ -2798,6 +2804,31 @@ export class AuthService {
       };
     }
 
+    if (!user.isPhoneVerified && !user.isEmailVerified) {
+      // prioritize phone first (you can change this if needed)
+      const identifier = user.email;
+
+      const verificationResponse = await this.resendVerificationToken({
+        identifier,
+      });
+
+      await this.verificationService.sendOtp({
+        identifier,
+      });
+
+      return {
+        success: false,
+        status: 'UNVERIFIED',
+        message:
+          'Please verify your phone number and email address before logging in. Start with phone verification.',
+        phoneNumber: user.phoneNumber,
+        email: user.email,
+        verificationToken: verificationResponse.verificationToken,
+        onboardingStep: user.onboardingStep ?? 0,
+        onboardingStatus: user.onboardingStatus,
+      };
+    }
+
     /**
      * =========================
      * LOGIN SUCCESS FLOW
@@ -2822,6 +2853,8 @@ export class AuthService {
       onboardingStatus: user.onboardingStatus,
       onboardingStep: user.onboardingStep,
       status: user.status,
+      isEmailVerified: user.isEmailVerified,
+      isPhoneVerified: user.isPhoneVerified,
     };
   }
 
