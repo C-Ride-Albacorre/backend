@@ -28,8 +28,8 @@ export class VerifyOtpDto {
   otp: string;
 
   @ApiProperty({
-    description: 'Verifiction Token',
-    //example: '123456',
+    description: 'Verification Token',
+    example: 'abTheherbf^YhHDhddjdOkdkfhffdnfmffmaj^jklnnn',
   })
   @IsOptional()
   @IsString()
