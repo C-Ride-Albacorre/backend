@@ -24,4 +24,12 @@ export class AddPhoneDto {
   @IsOptional()
   @IsPhoneNumber(null)
   phoneNumber?: string;
+
+  @ApiProperty({
+    description: 'Verification Token',
+    example: 'abTheherbf^YhHDhddjdOkdkfhffdnfmffmaj^jklnnn',
+  })
+  @IsOptional()
+  @IsString()
+  verificationToken?: string;
 }

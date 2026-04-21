@@ -82,7 +82,7 @@ export class VerifyPhoneDto {
   otp: string;
 
   @ApiProperty({
-    description: 'Verifiction Token',
+    description: 'Verification Token',
     //example: '123456',
   })
   @IsOptional()
