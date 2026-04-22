@@ -848,9 +848,13 @@ STEP 4 – Bank Details
       'isPhoneVerified',
       authResponse.user.isPhoneVerified as any,
     );
+     redirectUrl.searchParams.append(
+      'isEmailVerified',
+      authResponse.user.isEmailVerified as any,
+    );
     redirectUrl.searchParams.append(
       'onboardingStatus',
-      authResponse.user.isEmailVerified as any,
+      authResponse.user.onboardingStatus as any,
     );
     redirectUrl.searchParams.append(
       'onboardingStep',

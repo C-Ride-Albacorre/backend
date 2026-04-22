@@ -281,8 +281,8 @@ export class AuthService {
     const verificationToken = this.jwtService.sign(
       {
         sub: admin.id,
-        type: 'admin-2fa',
-        purpose: VerificationPurpose.TWO_FACTOR,
+        type: 'verify',   //'admin-2fa',
+        //purpose: VerificationPurpose.TWO_FACTOR,
       },
       {
         expiresIn: '10m',
@@ -1553,7 +1553,7 @@ export class AuthService {
         isEmailVerified: user.isEmailVerified,
         isPhoneVerified: user.isPhoneVerified,
         onboardingStatus: user.onboardingStatus,
-        onboardingStep: user.onboardingStep,
+        onboardingStep: user.onboardingStep ?? 0,
       },
 
       nextSteps: [
