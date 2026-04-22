@@ -296,8 +296,8 @@ export class AuthController {
   //   return this.authService.verifyVendorPhone(dto);
   // }
   @Post('/user/add/phone')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard, RolesGuard)
+  // @ApiBearerAuth()
   @Roles(UserRole.VENDOR)
   @ApiOperation({ summary: 'Add phone number for authenticated user' })
   @ApiResponse({
@@ -313,7 +313,7 @@ export class AuthController {
     description: 'User not found',
   })
   async addPhoneNumber(@Req() req, @Body() dto: AddPhoneDto) {
-    return this.authService.addPhoneNumber(req.user.id, dto);
+    return this.authService.addPhoneNumber(dto);
   }
 
   // @Post('/user/verify/phone')
@@ -848,9 +848,13 @@ STEP 4 – Bank Details
       'isPhoneVerified',
       authResponse.user.isPhoneVerified as any,
     );
+     redirectUrl.searchParams.append(
+      'isEmailVerified',
+      authResponse.user.isEmailVerified as any,
+    );
     redirectUrl.searchParams.append(
       'onboardingStatus',
-      authResponse.user.isEmailVerified as any,
+      authResponse.user.onboardingStatus as any,
     );
     redirectUrl.searchParams.append(
       'onboardingStep',

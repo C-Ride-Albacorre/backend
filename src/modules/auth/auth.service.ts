@@ -281,8 +281,8 @@ export class AuthService {
     const verificationToken = this.jwtService.sign(
       {
         sub: admin.id,
-        type: 'admin-2fa',
-        purpose: VerificationPurpose.TWO_FACTOR,
+        type: 'verify',   //'admin-2fa',
+        //purpose: VerificationPurpose.TWO_FACTOR,
       },
       {
         expiresIn: '10m',
@@ -1553,7 +1553,7 @@ export class AuthService {
         isEmailVerified: user.isEmailVerified,
         isPhoneVerified: user.isPhoneVerified,
         onboardingStatus: user.onboardingStatus,
-        onboardingStep: user.onboardingStep,
+        onboardingStep: user.onboardingStep ?? 0,
       },
 
       nextSteps: [
@@ -2310,7 +2310,84 @@ export class AuthService {
     };
   }
 
-  async addPhoneNumber(userId: string, dto: AddPhoneDto) {
+  async addPhoneNumber(dto: AddPhoneDto) {
+  const { verificationToken } = dto;
+
+  if (!verificationToken) {
+    throw new UnauthorizedException('Verification token is required');
+  }
+
+  let payload: any;
+
+  // 1️⃣ Verify token
+  try {
+    payload = this.jwtService.verify(verificationToken);
+  } catch (err) {
+    throw new UnauthorizedException('Invalid or expired verification token');
+  }
+
+  if (payload.type !== 'verify') {
+    throw new UnauthorizedException('Invalid token type');
+  }
+
+  // ✅ TRUST TOKEN — NOT CLIENT INPUT
+  const userId = payload.sub;
+console.log("UserId", userId)
+  // 2️⃣ Find user
+  const user = await this.userRepository.findById(userId);
+  if (!user) throw new NotFoundException('User not found');
+
+  if (user.isPhoneVerified) {
+    throw new ConflictException('Phone already verified');
+  }
+
+  // 3️⃣ Normalize phone
+  if (dto.phoneNumber) {
+    const phone = parsePhoneNumberFromString(
+      dto.phoneNumber,
+      (dto.countryCode || 'NG') as CountryCode,
+    );
+
+    if (!phone || !phone.isValid()) {
+      throw new BadRequestException('Invalid phone number');
+    }
+
+    dto.phoneNumber = phone.format('E.164');
+  }
+
+  // 4️⃣ Prevent re-adding same number
+  if (user.phoneNumber === dto.phoneNumber) {
+    throw new ConflictException('Phone number already added');
+  }
+
+  // 5️⃣ Ensure phone is unique
+  const existing = await this.userRepository.findByPhone(dto.phoneNumber);
+  if (existing && existing.id !== userId) {
+    throw new ConflictException('Phone number already in use');
+  }
+
+  // 6️⃣ Save phone
+  await this.userRepository.update(userId, {
+    phoneNumber: dto.phoneNumber,
+    countryCode: dto.countryCode,
+    isPhoneVerified: false,
+  });
+
+  // 7️⃣ Send OTP
+  await this.verificationService.sendOtp({
+    identifier: dto.phoneNumber,
+    purpose: VerificationPurpose.USER_PHONE_VERIFICATION,
+  });
+
+  return {
+    success: true,
+    message: 'OTP sent to phone number',
+    nextAction: 'Verify your phone number',
+    identifier: dto.phoneNumber,
+  };
+}
+
+  async addPhoneNumberold2(userId: string, dto: AddPhoneDto) {
     const { verificationToken } = dto;
 
     // 1️⃣ Require verification token
