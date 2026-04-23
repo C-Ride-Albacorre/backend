@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import Helper from '../../shared/utils/helpers';
+import { StoreStatus } from 'src/shared/enums';
 
 @Injectable()
 export class StoreDiscoveryService {
@@ -12,6 +13,175 @@ export class StoreDiscoveryService {
    * Get stores by category
    */
   async getStores(params: {
+    categoryId: string;
+    subcategoryId?: string;
+    lat?: number;
+    lng?: number;
+    radiusKm?: number;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const {
+      categoryId,
+      subcategoryId,
+      lat,
+      lng,
+      radiusKm,
+      search,
+      page,
+      limit,
+    } = params;
+
+    const safePage = Number(page) || 1;
+    const safeLimit = Number(limit) || 20;
+    const safeRadiusKm = radiusKm !== undefined ? Number(radiusKm) : null;
+
+    const skip = (safePage - 1) * safeLimit;
+
+    // ✅ Only use location if user explicitly provides it
+    let userLocation: { lat: number; lng: number } | null = null;
+
+    if (lat != null && lng != null) {
+      userLocation = {
+        lat: Number(lat),
+        lng: Number(lng),
+      };
+    }
+
+    const where: any = {
+      categoryId,
+      status: 'ACTIVE',
+      // latitude: { not: null },
+      // longitude: { not: null },
+    };
+
+    const cleanSearch = search?.trim();
+
+    if (cleanSearch) {
+      where.OR = [
+        { storeName: { startsWith: cleanSearch, mode: 'insensitive' } },
+        { storeName: { contains: cleanSearch, mode: 'insensitive' } },
+        { storeAddress: { contains: cleanSearch, mode: 'insensitive' } },
+        { storeDescription: { contains: cleanSearch, mode: 'insensitive' } },
+        {
+          products: {
+            some: {
+              productStatus: 'ACTIVE',
+              OR: [
+                { productName: { contains: cleanSearch, mode: 'insensitive' } },
+                { description: { contains: cleanSearch, mode: 'insensitive' } },
+                {
+                  subcategory: {
+                    name: { contains: cleanSearch, mode: 'insensitive' },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ];
+    }
+
+    if (subcategoryId) {
+      where.products = {
+        some: {
+          subcategoryId,
+          productStatus: 'ACTIVE',
+        },
+      };
+    }
+
+    const stores = await this.prisma.store.findMany({
+      where,
+      skip,
+      take: safeLimit,
+      include: {
+        category: true,
+        operatingHours: true,
+        products: {
+          take: 4,
+          where: { productStatus: 'ACTIVE' },
+          include: {
+            productImages: {
+              take: 1,
+              where: { isPrimary: true },
+            },
+            subcategory: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    const total = await this.prisma.store.count({ where });
+
+    let results = stores.map((store) => {
+      let distance: number | null = null;
+
+      if (userLocation) {
+        const storeLat = Number(store.latitude);
+        const storeLng = Number(store.longitude);
+
+        if (!isNaN(storeLat) && !isNaN(storeLng)) {
+          distance = Helper.calculateHaversineDistance(userLocation, {
+            lat: storeLat,
+            lng: storeLng,
+          });
+        }
+      }
+
+      return {
+        id: store.id,
+        storeName: store.storeName,
+        categoryId: store.categoryId,
+        storeCategory: store.category?.name,
+        storeDescription: store.storeDescription,
+        storeAddress: store.storeAddress,
+        phoneNumber: store.phoneNumber,
+        minimumOrder: store.minimumOrder,
+        preparationTime: store.preparationTime,
+        storeLogo: store.storeLogo,
+        isOpen: Helper.isStoreOpen(store.operatingHours),
+        distance: userLocation ? distance : null,
+        subcategories: [
+          ...new Set(
+            store.products.map((p) => p.subcategory?.name).filter(Boolean),
+          ),
+        ],
+
+        products: store.products,
+      };
+    });
+
+    // ✅ Only apply radius filter if location exists
+    if (userLocation && safeRadiusKm != null) {
+      results = results.filter(
+        (s) => s.distance != null && s.distance <= safeRadiusKm,
+      );
+    }
+
+    // ✅ Only sort if location exists
+    if (userLocation) {
+      results.sort(
+        (a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity),
+      );
+    }
+
+    return {
+      data: results,
+      meta: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  }
+
+  async getStoresWithAuth(params: {
     categoryId: string;
     subcategoryId?: string;
     customerId?: string;
@@ -237,7 +407,7 @@ export class StoreDiscoveryService {
 
     // ✅ Base WHERE clause: only active stores with coordinates
     const where: any = {
-      status: 'ACTIVE',
+      status: StoreStatus.ACTIVE,
       latitude: { not: null },
       longitude: { not: null },
     };

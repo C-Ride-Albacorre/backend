@@ -92,7 +92,6 @@ export class AdminService {
 
   //   this.logger.log(`Admin created: ${admin.email || admin.phoneNumber}`);
 
-
   //   return {
   //     success: true,
   //     message: 'Admin created successfully',
@@ -104,6 +103,129 @@ export class AdminService {
    * Get all vendors with filtering and pagination
    */
   async getAllVendors(filterDto: VendorFilterDto) {
+    const { status, search, hasStores, page = 1, limit = 10 } = filterDto;
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      role: UserRole.VENDOR,
+    };
+
+    // Status filter
+    if (status) {
+      where.status = status;
+    }
+
+    // Search filter
+    if (search) {
+      where.OR = [
+        {
+          businessInfo: {
+            businessName: { contains: search, mode: 'insensitive' },
+          },
+        },
+        {
+          businessInfo: {
+            businessEmail: { contains: search, mode: 'insensitive' },
+          },
+        },
+        {
+          email: { contains: search, mode: 'insensitive' },
+        },
+      ];
+    }
+
+    // Store filter
+    if (hasStores !== undefined) {
+      where.stores = hasStores ? { some: {} } : { none: {} };
+    }
+
+    const [vendors, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          businessInfo: true,
+
+          stores: {
+            select: {
+              id: true,
+              storeName: true,
+              status: true,
+            },
+          },
+
+          documents: {
+            select: {
+              id: true,
+              documentType: true,
+              documentUrl: true,
+              //publicId: true,
+              createdAt: true,
+            },
+            orderBy: {
+              createdAt: 'desc',
+            },
+          },
+
+          _count: {
+            select: { stores: true },
+          },
+        },
+      }),
+
+      this.prisma.user.count({ where }),
+    ]);
+
+    // Optional: group documents by type (very useful for admin UI)
+    const groupDocumentsByType = (documents: any[]) => {
+      return documents.reduce((acc, doc) => {
+        if (!acc[doc.documentType]) {
+          acc[doc.documentType] = [];
+        }
+        acc[doc.documentType].push(doc);
+        return acc;
+      }, {});
+    };
+
+    const formattedVendors = vendors.map((vendor) => ({
+      id: vendor.id,
+      email: vendor.email,
+      phoneNumber: vendor.phoneNumber,
+      firstName: vendor.firstName,
+      lastName: vendor.lastName,
+      status: vendor.status,
+      createdAt: vendor.createdAt,
+
+      businessInfo: vendor.businessInfo,
+
+      stores: vendor.stores,
+      storeCount: vendor._count.stores,
+
+      // Raw documents
+      documents: vendor.documents,
+
+      // Grouped documents (better for frontend)
+      documentsByType: groupDocumentsByType(vendor.documents),
+
+      // Helpful flag for admin
+      hasDocuments: vendor.documents.length > 0,
+    }));
+
+    return {
+      success: true,
+      data: formattedVendors,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getAllVendorsWithoutDoc(filterDto: VendorFilterDto) {
     const { status, search, hasStores, page = 1, limit = 10 } = filterDto;
     const skip = (page - 1) * limit;
 
