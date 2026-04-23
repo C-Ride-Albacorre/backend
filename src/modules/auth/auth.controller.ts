@@ -848,7 +848,7 @@ STEP 4 – Bank Details
       'isPhoneVerified',
       authResponse.user.isPhoneVerified as any,
     );
-     redirectUrl.searchParams.append(
+    redirectUrl.searchParams.append(
       'isEmailVerified',
       authResponse.user.isEmailVerified as any,
     );
@@ -860,6 +860,9 @@ STEP 4 – Bank Details
       'onboardingStep',
       authResponse.user.onboardingStep as any,
     );
+    redirectUrl.searchParams.append('userRole', authResponse.user.role as any);
+    redirectUrl.searchParams.append('error', authResponse.error as any);
+    redirectUrl.searchParams.append('message', authResponse.message as any);
 
     return res.redirect(redirectUrl.toString());
   }

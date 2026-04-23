@@ -1500,14 +1500,36 @@ export class AuthService {
 
     // 🚫 Block restricted users
     if (user.status === 'SUSPENDED' || user.status === 'REJECTED') {
-      throw new ForbiddenException('Your account is not allowed to login');
+      // throw new ForbiddenException('Your account is not allowed to login');
+      return {
+        message: 'Your account is not allowed to login',
+        error: 'USER_SUSPENDED',
+        user: {
+          id: user.id,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          status: user.status,
+          role: user.role,
+        },
+      };
     }
 
     // 🚫 Prevent role switching
     if (requestedRole && user.role !== requestedRole) {
-      throw new ForbiddenException(
-        'This account is already registered with a different role',
-      );
+      // throw new ForbiddenException(
+      //   'This account is already registered with a different role',
+      // );
+      return {
+        message: 'This account is already registered with a different role',
+        error: 'ROLE_CONFLICT',
+        user: {
+          id: user.id,
+          email: user.email,
+          phoneNumber: user.phoneNumber,
+          status: user.status,
+          role: user.role,
+        },
+      };
     }
 
     // ===============================
@@ -1591,8 +1613,6 @@ export class AuthService {
       nextAction: 'Complete onboarding',
     };
   }
-
- 
 
   async handleOAuthCallbackOldWorking(
     profile: any,
@@ -3469,6 +3489,71 @@ export class AuthService {
       );
     }
 
+    if (!documentsMetadata || documentsMetadata.length === 0) {
+      throw new BadRequestException('documentsMetadata is required');
+    }
+
+    // 🔒 Strict validation (prevents your crash completely)
+    if (files.length !== documentsMetadata.length) {
+      throw new BadRequestException(
+        'Each uploaded file must have corresponding metadata',
+      );
+    }
+
+    const uploadedDocuments = await this.uploadVendorDocuments(
+      vendorId,
+      files,
+      documentsMetadata,
+    );
+
+    const updatedVendor = await this.userRepository.update(vendorId, {
+      onboardingStatus: OnBoardingStatus.COMPLETED,
+      onboardingStep: 5,
+      onboardingCompletedAt: new Date(),
+      status: UserStatus.UNDER_REVIEW,
+    });
+
+    return {
+      success: true,
+      message:
+        'Onboarding submitted successfully. Your account is under review.',
+      vendor: {
+        id: updatedVendor.id,
+        email: updatedVendor.email,
+        status: updatedVendor.status,
+        onboardingStatus: updatedVendor.onboardingStatus,
+        onboardingStep: updatedVendor.onboardingStep,
+      },
+      uploadedDocuments,
+    };
+  }
+
+  async submitVendorOnboardingold(
+    vendorId: string,
+    files: Express.Multer.File[],
+    documentsMetadata: VendorDocumentMetadataDto[],
+  ): Promise<{
+    success: boolean;
+    message: string;
+    vendor: Partial<User>;
+    uploadedDocuments: any[];
+  }> {
+    this.logger.log(`Submitting final onboarding for vendor ${vendorId}`);
+
+    const vendor = await this.validateVendorForOnboarding(vendorId);
+
+    if (vendor.onboardingStep < 4) {
+      throw new ConflictException(
+        'Complete all previous steps before submitting documents',
+      );
+    }
+
+    if (!files || files.length === 0) {
+      throw new BadRequestException(
+        'At least one document file must be uploaded',
+      );
+    }
+
     const uploadedDocuments = await this.uploadVendorDocuments(
       vendorId,
       files,
@@ -3641,6 +3726,103 @@ export class AuthService {
    * Upload multiple vendor documents to Cloudinary
    */
   private async uploadVendorDocuments(
+    vendorId: string,
+    files: Express.Multer.File[],
+    documentsMetadata: VendorDocumentMetadataDto[],
+  ): Promise<any[]> {
+    this.logger.log(`Preparing to upload vendor ${vendorId} documents`);
+
+    const uploadedDocuments: any[] = [];
+    const uploadPromises: Promise<any>[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const metadata = documentsMetadata[i];
+
+      // ✅ FIX 1: Guard BEFORE async execution
+      if (!metadata) {
+        this.logger.error(
+          `Missing metadata for file index ${i} (vendor: ${vendorId})`,
+        );
+        continue;
+      }
+
+      const { documentType, description } = metadata;
+
+      // ✅ FIX 2: Validate documentType early
+      if (!documentType) {
+        this.logger.error(
+          `Missing documentType for file index ${i} (vendor: ${vendorId})`,
+        );
+        continue;
+      }
+
+      const uploadPromise = this.cloudinary
+        .uploadDocument(file, {
+          folder: `vendors/${vendorId}/documents`,
+          resource_type: 'auto',
+          tags: [documentType, vendorId, file.originalname], // ✅ safe now
+        })
+        .then(async (uploadResult) => {
+          // 🔍 Check if document already exists
+          const existingDocument = await this.userRepository.findVendorDocument(
+            {
+              vendorId,
+              documentType,
+            },
+          );
+
+          if (existingDocument) {
+            this.logger.log(
+              `Skipping upload: ${documentType} already exists for vendor ${vendorId}`,
+            );
+            return existingDocument;
+          }
+
+          // 💾 Create new document
+          const document = await this.userRepository.createVendorDocument({
+            vendorId,
+            documentType,
+            documentUrl: uploadResult.secure_url,
+            publicId: uploadResult.public_id,
+            originalName: file.originalname,
+            mimeType: file.mimetype,
+            size: file.size,
+            description,
+            isVerified: false,
+          });
+
+          this.logger.log(
+            `Uploaded ${documentType} for vendor ${vendorId}: ${uploadResult.secure_url}`,
+          );
+
+          return document;
+        })
+        .catch((error) => {
+          this.logger.error(
+            `Failed to upload document ${file.originalname}: ${error.message}`,
+          );
+
+          // ✅ FIX 3: don't reference metadata directly here
+          throw new InternalServerErrorException(
+            `Failed to upload ${documentType}: ${error.message}`,
+          );
+        });
+
+      uploadPromises.push(uploadPromise);
+    }
+
+    const results = await Promise.all(uploadPromises);
+    uploadedDocuments.push(...results);
+
+    this.logger.log(
+      `Successfully processed ${uploadedDocuments.length} documents for vendor ${vendorId}`,
+    );
+
+    return uploadedDocuments;
+  }
+
+  private async uploadVendorDocumentsold(
     vendorId: string,
     files: Express.Multer.File[],
     documentsMetadata: VendorDocumentMetadataDto[],
