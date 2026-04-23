@@ -635,6 +635,7 @@ export class CompleteOnboardingDtobk {
 }
 
 export class VendorDocumentMetadataDto {
+
   @ApiProperty({
     description: 'Type of document',
     enum: DocumentType,
