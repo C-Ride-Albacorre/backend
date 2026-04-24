@@ -242,6 +242,7 @@ export class CustomerController {
     return this.customerService.getDeliveryOptions();
   }
 
+  @Public()
   @Get('vendor-address/:storeId')
   @Roles(UserRole.CUSTOMER)
   @HttpCode(HttpStatus.OK)
