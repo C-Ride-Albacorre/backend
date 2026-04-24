@@ -408,8 +408,8 @@ export class StoreDiscoveryService {
     // ✅ Base WHERE clause: only active stores with coordinates
     const where: any = {
       status: StoreStatus.ACTIVE,
-      latitude: { not: null },
-      longitude: { not: null },
+      // latitude: { not: null },
+      // longitude: { not: null },
     };
 
     // ✅ Optional search filter
@@ -908,6 +908,62 @@ export class StoreDiscoveryService {
    * Get store details with products
    */
   async getStoreWithProducts(storeId: string) {
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      include: {
+        category: true,
+        operatingHours: true,
+        products: {
+          where: { productStatus: 'ACTIVE' },
+          include: {
+            subcategory: true,
+            productImages: {
+              orderBy: { displayOrder: 'asc' },
+            },
+            variants: {
+              where: { stockStatus: { not: 'OUT_OF_STOCK' } },
+            },
+            addons: {
+              where: { isAvailable: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!store) {
+      throw new NotFoundException('Store not found');
+    }
+
+    // ✅ Explicitly include storeLogo in a clean response
+    return {
+      id: store.id,
+      storeName: store.storeName,
+      storeDescription: store.storeDescription,
+      storeAddress: store.storeAddress,
+      phoneNumber: store.phoneNumber,
+      email: store.email,
+
+      // 👇 IMAGE INCLUDED HERE
+      storeLogo: store.storeLogo ?? null,
+
+      minimumOrder: store.minimumOrder,
+      preparationTime: store.preparationTime,
+      deliveryFee: store.deliveryFee,
+      status: store.status,
+
+      category: store.category,
+      operatingHours: store.operatingHours,
+
+      products: store.products,
+
+      createdAt: store.createdAt,
+      updatedAt: store.updatedAt,
+    };
+  }
+  
+  async getStoreWithProductsold(storeId: string) {
     const store = await this.prisma.store.findUnique({
       where: { id: storeId },
       include: {
