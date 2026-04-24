@@ -46,4 +46,8 @@ export class GetStoresQueryDto {
   @IsOptional()
   @IsString()
   subcategoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
 }
