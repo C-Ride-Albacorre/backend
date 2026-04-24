@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsNumber, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsOptional, IsNumber, IsString, IsInt, Min, Max } from 'class-validator';
 
 export class GetNearbyStoresQueryDto {
   @ApiPropertyOptional({ description: 'User latitude', type: Number })
@@ -24,4 +25,11 @@ export class GetNearbyStoresQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
 }
