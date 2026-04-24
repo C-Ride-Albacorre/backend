@@ -84,32 +84,23 @@ export class CustomerController {
     return this.customerService.getCategories();
   }
 
+  // @Public()
   // @Get('stores/category/:categoryId')
   // @ApiOperation({
   //   summary: 'Get stores by category (optionally filter by subcategory)',
   //   description:
-  //     'Fetch stores by category. Optionally filter by subcategory, location, radius, search, and pagination. Uses user location if provided, otherwise falls back to saved address.',
+  //     'Fetch stores by category. Optionally filter by subcategory, location, radius, search, and pagination.',
   // })
   // @ApiParam({
   //   name: 'categoryId',
   //   description: 'ID of the store category',
   //   type: 'string',
   // })
-  // @ApiQuery({
-  //   name: 'subcategoryId',
-  //   required: false,
-  //   type: String,
-  //   description: 'Optional subcategory filter',
-  // })
+  // @ApiQuery({ name: 'subcategoryId', required: false, type: String })
   // @ApiQuery({ name: 'lat', required: false, type: Number })
   // @ApiQuery({ name: 'lng', required: false, type: Number })
   // @ApiQuery({ name: 'radiusKm', required: false, type: Number })
-  // @ApiQuery({
-  //   name: 'search',
-  //   required: false,
-  //   type: String,
-  //   description: 'Search by store name, address, or product',
-  // })
+  // @ApiQuery({ name: 'search', required: false, type: String })
   // @ApiQuery({ name: 'page', required: false, type: Number })
   // @ApiQuery({ name: 'limit', required: false, type: Number })
   // @ApiOkResponse({
@@ -119,28 +110,21 @@ export class CustomerController {
   // async getStores(
   //   @Param('categoryId') categoryId: string,
   //   @Query() query: GetStoresQueryDto,
-  //   @Request() req,
   // ): Promise<PaginatedStoreResponse> {
-  //   const customerId = req.user?.id;
-
   //   return this.storeDiscoveryService.getStores({
   //     categoryId,
-  //     customerId,
   //     ...query,
   //   });
   // }
+
   @Public()
-  @Get('stores/category/:categoryId')
+  @Get('stores')
   @ApiOperation({
-    summary: 'Get stores by category (optionally filter by subcategory)',
+    summary: 'Get stores (optionally filter by category & subcategory)',
     description:
-      'Fetch stores by category. Optionally filter by subcategory, location, radius, search, and pagination.',
+      'Fetch stores. Optionally filter by category, subcategory, location, radius, search, and pagination.',
   })
-  @ApiParam({
-    name: 'categoryId',
-    description: 'ID of the store category',
-    type: 'string',
-  })
+  @ApiQuery({ name: 'categoryId', required: false, type: String })
   @ApiQuery({ name: 'subcategoryId', required: false, type: String })
   @ApiQuery({ name: 'lat', required: false, type: Number })
   @ApiQuery({ name: 'lng', required: false, type: Number })
@@ -153,13 +137,9 @@ export class CustomerController {
     type: [StoreResponseDto],
   })
   async getStores(
-    @Param('categoryId') categoryId: string,
     @Query() query: GetStoresQueryDto,
   ): Promise<PaginatedStoreResponse> {
-    return this.storeDiscoveryService.getStores({
-      categoryId,
-      ...query,
-    });
+    return this.storeDiscoveryService.getStores(query);
   }
 
   @Public()
