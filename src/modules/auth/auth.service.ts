@@ -504,6 +504,9 @@ export class AuthService {
       result.user,
       identifier,
       verificationMethod,
+      {
+        isNewUser: !result.user.lastLoginAt, // ✅ important
+      },
     );
   }
 
@@ -647,6 +650,9 @@ export class AuthService {
       result.user,
       identifier,
       verificationMethod,
+      {
+        isNewUser: !result.user.lastLoginAt, // ✅ key logic
+      },
     );
   }
   // async loginCustomerOld(loginDto: LoginCustomerDto) {
@@ -815,6 +821,7 @@ export class AuthService {
     user: User,
     identifier: string,
     verificationMethod: 'email' | 'phone',
+    meta?: { isNewUser?: boolean },
   ): Promise<AuthResponse> {
     const tokens = await this.generateTokens(user);
 
@@ -833,7 +840,7 @@ export class AuthService {
         id: user.id,
         email: user.email,
         role: user.role,
-        isNewUser: loginMeta.isFirstLogin,
+        isNewUser: meta?.isNewUser ?? false,
       },
     };
   }
