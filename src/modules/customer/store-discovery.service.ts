@@ -470,6 +470,7 @@ export class StoreDiscoveryService {
         id: store.id,
         storeName: store.storeName,
         storeCategory: store.category?.name || null,
+        categoryId: store.categoryId, // required by StoreResponseDto
         storeDescription: store.storeDescription,
         storeAddress: store.storeAddress,
         phoneNumber: store.phoneNumber,
