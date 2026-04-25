@@ -973,6 +973,74 @@ export class AdminService {
         id: vendorId,
         role: UserRole.VENDOR,
       },
+      select: {
+        id: true,
+        email: true,
+        phoneNumber: true,
+        countryCode: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        lastLoginAt: true,
+        isVerified: true,
+        verifiedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        emailVerifiedAt: true,
+        isEmailVerified: true,
+        isPhoneVerified: true,
+        onboardingCompletedAt: true,
+        phoneVerifiedAt: true,
+        status: true,
+        profilePicture: true,
+        onboardingStatus: true,
+        onboardingStep: true,
+        approvedAt: true,
+        approvedBy: true,
+        rejectionReason: true,
+        isNewUser: true,
+
+        businessInfo: true,
+
+        stores: {
+          include: {
+            _count: {
+              select: { products: true },
+            },
+          },
+        },
+
+        documents: {
+          select: {
+            id: true,
+            documentType: true,
+            documentUrl: true,
+            createdAt: true,
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+      },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    return {
+      success: true,
+      data: vendor,
+    };
+  }
+
+  async getVendorDetails2(vendorId: string) {
+    const vendor = await this.prisma.user.findFirst({
+      where: {
+        id: vendorId,
+        role: UserRole.VENDOR,
+      },
       include: {
         businessInfo: true,
         stores: {
