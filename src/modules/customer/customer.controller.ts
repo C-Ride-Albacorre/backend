@@ -10,6 +10,7 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  Headers,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -186,13 +187,15 @@ export class CustomerController {
     return this.storeDiscoveryService.getNearbyStores(query);
   }
 
-  // @Get('subcategories/category/:categoryId')
-  // @ApiOperation({ summary: 'Get subcategories by category with store counts' })
-  // async getSubcategoriesByCategory(@Param('categoryId') categoryId: string) {
-  //   return this.storeDiscoveryService.getSubcategoriesWithStoreCount(
-  //     categoryId,
-  //   );
-  // }
+  @Public()
+  @Get('subcategories/category/:categoryId')
+  @ApiOperation({ summary: 'Get subcategories by category with store counts' })
+  async getSubcategoriesByCategory(@Param('categoryId') categoryId: string) {
+    return this.storeDiscoveryService.getSubcategoriesWithStoreCount(
+      categoryId,
+    );
+  }
+
   @Public()
   @Get('stores/:storeId')
   @ApiOperation({ summary: 'Get store details with products' })
@@ -248,19 +251,40 @@ export class CustomerController {
 
   // ==================== CART ====================
 
+  // @Get('cart')
+  // @ApiOperation({ summary: 'Get current cart' })
+  // async getCart(@Request() req) {
+  //   const cart = await this.cartService.getOrCreateCart(req.user.id);
+  //   return this.cartService.getCartSummary(cart.id);
+  // }
+  @Public()
   @Get('cart')
-  @ApiOperation({ summary: 'Get current cart' })
-  async getCart(@Request() req) {
-    const cart = await this.cartService.getOrCreateCart(req.user.id);
+  async getCart(@Request() req, @Headers('x-session-id') sessionId: string) {
+    const userId = req.user?.id || null;
+
+    const cart = await this.cartService.getOrCreateCart(userId, sessionId);
     return this.cartService.getCartSummary(cart.id);
   }
 
+  // @Post('cart/add')
+  // @ApiOperation({ summary: 'Add item to cart' })
+  // async addToCart(@Request() req, @Body() dto: AddToCartDto) {
+  //   return this.cartService.addToCart(req.user.id, dto);
+  // }
+  @Public()
   @Post('cart/add')
   @ApiOperation({ summary: 'Add item to cart' })
-  async addToCart(@Request() req, @Body() dto: AddToCartDto) {
-    return this.cartService.addToCart(req.user.id, dto);
+  async addToCart(
+    @Request() req,
+    @Body() dto: AddToCartDto,
+    @Headers('x-session-id') sessionId: string,
+  ) {
+    const userId = req.user?.id || null;
+
+    return this.cartService.addToCart(userId, dto, sessionId);
   }
 
+  @Public()
   @Post('cart/item/:itemId/quantity')
   @ApiOperation({ summary: 'Update cart item quantity' })
   async updateCartItemQuantity(
@@ -270,6 +294,7 @@ export class CustomerController {
     return this.cartService.updateCartItemQuantity(itemId, quantity);
   }
 
+  @Public()
   @Post('cart/item/:itemId/remove')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove item from cart' })
@@ -277,12 +302,23 @@ export class CustomerController {
     return this.cartService.removeCartItem(itemId);
   }
 
+  // @Post('cart/clear')
+  // @HttpCode(HttpStatus.OK)
+  // @ApiOperation({ summary: 'Clear cart' })
+  // async clearCart(@Request() req) {
+  //   const cart = await this.cartService.getOrCreateCart(req.user.id);
+  //   await this.cartService.clearCart(cart.id);
+  //   return { success: true, message: 'Cart cleared' };
+  // }
+  @Public()
   @Post('cart/clear')
-  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Clear cart' })
-  async clearCart(@Request() req) {
-    const cart = await this.cartService.getOrCreateCart(req.user.id);
+  async clearCart(@Request() req, @Headers('x-session-id') sessionId: string) {
+    const userId = req.user?.id || null;
+
+    const cart = await this.cartService.getOrCreateCart(userId, sessionId);
     await this.cartService.clearCart(cart.id);
+
     return { success: true, message: 'Cart cleared' };
   }
 
