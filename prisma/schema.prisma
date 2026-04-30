@@ -368,8 +368,8 @@ model TaxSetting {
 
 model Cart {
   id          String     @id @default(uuid())
-  userId      String     @unique
-  sessionId   String?    @unique
+  userId      String?    @unique  // nullable for guests
+  sessionId   String?    @unique  // for guest users
   totalAmount Float      @default(0)
   expiresAt   DateTime?
   createdAt   DateTime   @default(now())

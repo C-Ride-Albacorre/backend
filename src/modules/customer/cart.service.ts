@@ -1,5 +1,10 @@
 // src/customer/services/cart.service.ts
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { AddToCartDto, CartSummaryDto } from './dto/cart.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 
@@ -12,7 +17,7 @@ export class CartService {
   /**
    * Get or create user's cart
    */
-  async getOrCreateCart(userId: string, sessionId?: string) {
+  async getOrCreateCartold(userId: string, sessionId?: string) {
     let cart;
 
     if (userId) {
@@ -47,6 +52,86 @@ export class CartService {
     return cart;
   }
 
+  async getOrCreateCart(userId?: string, sessionId?: string) {
+    if (!userId && !sessionId) {
+      throw new BadRequestException('User or sessionId must be provided');
+    }
+
+    let cart = null;
+
+    // ✅ 1. If user is logged in
+    if (userId) {
+      cart = await this.prisma.cart.findUnique({
+        where: { userId },
+        include: { items: true },
+      });
+
+      // 🔥 If user has no cart, check for guest cart to merge
+      if (!cart && sessionId) {
+        const guestCart = await this.prisma.cart.findUnique({
+          where: { sessionId },
+          include: { items: true },
+        });
+
+        if (guestCart) {
+          // 🔁 Convert guest cart → user cart
+          cart = await this.prisma.cart.update({
+            where: { id: guestCart.id },
+            data: {
+              user: { connect: { id: userId } },
+              sessionId: null, // optional: clear session
+            },
+            include: { items: true },
+          });
+
+          return cart;
+        }
+      }
+
+      // ✅ If still no cart, create new one
+      if (!cart) {
+        cart = await this.prisma.cart.create({
+          data: {
+            user: { connect: { id: userId } },
+          },
+          include: { items: true },
+        });
+      }
+
+      return cart;
+    }
+
+    // 🧠 2. Guest user (no userId)
+    cart = await this.prisma.cart.findUnique({
+      where: { sessionId },
+      include: { items: true },
+    });
+
+    // if (!cart) {
+    //   cart = await this.prisma.cart.create({
+    //     data: { sessionId },
+    //     include: { items: true },
+    //   });
+    // }
+    if (!cart) {
+      cart = await this.prisma.cart.create({
+        //data: userId ? { userId } : { sessionId },
+        data: userId
+          ? {
+              user: { connect: { id: userId } },
+              // add other required fields if needed
+            }
+          : {
+              sessionId,
+              user: undefined, // or null if your schema allows
+              // add other required fields if needed
+            },
+        include: { items: true },
+      });
+
+      return cart;
+    }
+  }
   /**
    * Add item to cart
    */
