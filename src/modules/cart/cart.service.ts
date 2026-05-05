@@ -340,7 +340,6 @@ export class CartService {
       throw new ForbiddenException('Access denied to this cart item');
     }
 
-
     const newTotalPrice = cartItem.unitPrice * quantity;
 
     // Calculate add-ons total if any
@@ -422,7 +421,15 @@ export class CartService {
   /**
    * Get cart summary with calculations
    */
-  async getCartSummary(cartId: string): Promise<CartSummaryDto> {
+  async getCartSummary(
+    cartId: string,
+    userId?: string,
+    sessionId?: string,
+  ): Promise<CartSummaryDto> {
+    if (!userId && !sessionId) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+
     const cart = await this.prisma.cart.findUnique({
       where: { id: cartId },
       include: {
@@ -433,7 +440,7 @@ export class CartService {
                 store: true,
                 productImages: {
                   orderBy: [{ isPrimary: 'desc' }, { displayOrder: 'asc' }],
-                  take: 1, // ✅ only best image
+                  take: 1,
                 },
               },
             },
@@ -447,6 +454,14 @@ export class CartService {
       throw new NotFoundException('Cart not found');
     }
 
+    // 🔒 Ownership check
+    if (
+      (userId && cart.userId !== userId) ||
+      (!userId && cart.sessionId !== sessionId)
+    ) {
+      throw new ForbiddenException('Access denied to this cart');
+    }
+
     const items = cart.items.map((item) => {
       if (item.itemType === 'PRODUCT') {
         const product = item.product;
@@ -458,7 +473,7 @@ export class CartService {
           productId: item.productId,
           packageId: item.packageId,
           name: product?.productName || 'Product',
-          imageUrl, // ✅ included
+          imageUrl,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
@@ -477,7 +492,6 @@ export class CartService {
         productId: null,
         packageId: item.packageId,
         name: item.package?.name || 'Package',
-        //imageUrl: item.package?.imageUrl || null, // if exists
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         totalPrice: item.totalPrice,
