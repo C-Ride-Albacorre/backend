@@ -25,7 +25,8 @@ export class CartController {
   // ==================== CART ====================
 
   @Public()
-  @Get('cart')
+  @Get('')
+  @ApiOperation({ summary: 'Get current cart' })
   async getCart(@Request() req, @Headers('x-session-id') sessionId: string) {
     const userId = req.user?.id || null;
 
