@@ -25,7 +25,7 @@ import {
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CustomerService } from './customer.service';
 import { StoreDiscoveryService } from './store-discovery.service';
-import { CartService } from './cart.service';
+// import { CartService } from './cart.service.old';
 import { SaveLocationDto } from './dto/location.dto';
 import { AddToCartDto } from './dto/cart.dto';
 import { CreateOrderDto } from './dto/order.dto';
@@ -40,6 +40,7 @@ import { GetNearbyStoresQueryDto } from './dto/near-by-store.dto';
 // import { VerifiedUserGuard } from '../../common/guards/verified-user.guard';
 import { RolesGuard } from '../../common/guards/role.guard';
 import { Public } from '../../common/decorators/public.decorator';
+import { CartService } from '../cart/cart.service';
 
 @ApiTags('customer')
 @Controller('customer')
@@ -249,78 +250,78 @@ export class CustomerController {
     return this.customerService.getVendorAddressByStore(storeId);
   }
 
-  // ==================== CART ====================
+  // // ==================== CART ====================
 
+  // // @Get('cart')
+  // // @ApiOperation({ summary: 'Get current cart' })
+  // // async getCart(@Request() req) {
+  // //   const cart = await this.cartService.getOrCreateCart(req.user.id);
+  // //   return this.cartService.getCartSummary(cart.id);
+  // // }
+  // @Public()
   // @Get('cart')
-  // @ApiOperation({ summary: 'Get current cart' })
-  // async getCart(@Request() req) {
-  //   const cart = await this.cartService.getOrCreateCart(req.user.id);
+  // async getCart(@Request() req, @Headers('x-session-id') sessionId: string) {
+  //   const userId = req.user?.id || null;
+
+  //   const cart = await this.cartService.getOrCreateCart(userId, sessionId);
   //   return this.cartService.getCartSummary(cart.id);
   // }
-  @Public()
-  @Get('cart')
-  async getCart(@Request() req, @Headers('x-session-id') sessionId: string) {
-    const userId = req.user?.id || null;
 
-    const cart = await this.cartService.getOrCreateCart(userId, sessionId);
-    return this.cartService.getCartSummary(cart.id);
-  }
-
+  // // @Post('cart/add')
+  // // @ApiOperation({ summary: 'Add item to cart' })
+  // // async addToCart(@Request() req, @Body() dto: AddToCartDto) {
+  // //   return this.cartService.addToCart(req.user.id, dto);
+  // // }
+  // @Public()
   // @Post('cart/add')
   // @ApiOperation({ summary: 'Add item to cart' })
-  // async addToCart(@Request() req, @Body() dto: AddToCartDto) {
-  //   return this.cartService.addToCart(req.user.id, dto);
+  // async addToCart(
+  //   @Request() req,
+  //   @Body() dto: AddToCartDto,
+  //   @Headers('x-session-id') sessionId: string,
+  // ) {
+  //   const userId = req.user?.id || null;
+
+  //   return this.cartService.addToCart(userId, dto, sessionId);
   // }
-  @Public()
-  @Post('cart/add')
-  @ApiOperation({ summary: 'Add item to cart' })
-  async addToCart(
-    @Request() req,
-    @Body() dto: AddToCartDto,
-    @Headers('x-session-id') sessionId: string,
-  ) {
-    const userId = req.user?.id || null;
 
-    return this.cartService.addToCart(userId, dto, sessionId);
-  }
+  // @Public()
+  // @Post('cart/item/:itemId/quantity')
+  // @ApiOperation({ summary: 'Update cart item quantity' })
+  // async updateCartItemQuantity(
+  //   @Param('itemId') itemId: string,
+  //   @Body('quantity') quantity: number,
+  // ) {
+  //   return this.cartService.updateCartItemQuantity(itemId, quantity);
+  // }
 
-  @Public()
-  @Post('cart/item/:itemId/quantity')
-  @ApiOperation({ summary: 'Update cart item quantity' })
-  async updateCartItemQuantity(
-    @Param('itemId') itemId: string,
-    @Body('quantity') quantity: number,
-  ) {
-    return this.cartService.updateCartItemQuantity(itemId, quantity);
-  }
-
-  @Public()
-  @Post('cart/item/:itemId/remove')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Remove item from cart' })
-  async removeCartItem(@Param('itemId') itemId: string) {
-    return this.cartService.removeCartItem(itemId);
-  }
-
-  // @Post('cart/clear')
+  // @Public()
+  // @Post('cart/item/:itemId/remove')
   // @HttpCode(HttpStatus.OK)
+  // @ApiOperation({ summary: 'Remove item from cart' })
+  // async removeCartItem(@Param('itemId') itemId: string) {
+  //   return this.cartService.removeCartItem(itemId);
+  // }
+
+  // // @Post('cart/clear')
+  // // @HttpCode(HttpStatus.OK)
+  // // @ApiOperation({ summary: 'Clear cart' })
+  // // async clearCart(@Request() req) {
+  // //   const cart = await this.cartService.getOrCreateCart(req.user.id);
+  // //   await this.cartService.clearCart(cart.id);
+  // //   return { success: true, message: 'Cart cleared' };
+  // // }
+  // @Public()
+  // @Post('cart/clear')
   // @ApiOperation({ summary: 'Clear cart' })
-  // async clearCart(@Request() req) {
-  //   const cart = await this.cartService.getOrCreateCart(req.user.id);
+  // async clearCart(@Request() req, @Headers('x-session-id') sessionId: string) {
+  //   const userId = req.user?.id || null;
+
+  //   const cart = await this.cartService.getOrCreateCart(userId, sessionId);
   //   await this.cartService.clearCart(cart.id);
+
   //   return { success: true, message: 'Cart cleared' };
   // }
-  @Public()
-  @Post('cart/clear')
-  @ApiOperation({ summary: 'Clear cart' })
-  async clearCart(@Request() req, @Headers('x-session-id') sessionId: string) {
-    const userId = req.user?.id || null;
-
-    const cart = await this.cartService.getOrCreateCart(userId, sessionId);
-    await this.cartService.clearCart(cart.id);
-
-    return { success: true, message: 'Cart cleared' };
-  }
 
   // ==================== ORDER ====================
 

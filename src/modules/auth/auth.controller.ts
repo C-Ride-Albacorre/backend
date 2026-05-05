@@ -16,6 +16,7 @@ import {
   Logger,
   Query,
   ParseIntPipe,
+  Headers,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import {
@@ -23,6 +24,7 @@ import {
   ApiBody,
   ApiConsumes,
   ApiExcludeEndpoint,
+  ApiHeader,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -213,8 +215,31 @@ export class AuthController {
     return this.authService.resendVerificationToken(dto);
   }
 
+  // @Post('/customer/login')
+  // @ApiOperation({ summary: 'Login with email and password | phone number' })
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'User logged in successfully',
+  //   type: ApiResponseDto<AuthResponseDto>,
+  // })
+  // @ApiResponse({
+  //   status: 401,
+  //   description: 'Invalid credentials',
+  //   type: ApiErrorResponseDto,
+  // })
+  // @ApiResponse({ status: 403, description: 'Account deactivated' })
+  // //@UsePipes(new ValidationPipe({ transform: true }))
+  // async loginCustomer(@Body() dto: CustomerLoginDto) {
+  //   return this.authService.loginCustomer(dto);
+  // }
+
   @Post('/customer/login')
-  @ApiOperation({ summary: 'Login with email and password | phone number' })
+  @ApiOperation({ summary: 'Login with email/password or phone number' })
+  @ApiHeader({
+    name: 'x-session-id',
+    required: false,
+    description: 'Guest session ID used to merge cart after login',
+  })
   @ApiResponse({
     status: 200,
     description: 'User logged in successfully',
@@ -226,9 +251,11 @@ export class AuthController {
     type: ApiErrorResponseDto,
   })
   @ApiResponse({ status: 403, description: 'Account deactivated' })
-  //@UsePipes(new ValidationPipe({ transform: true }))
-  async loginCustomer(@Body() dto: CustomerLoginDto) {
-    return this.authService.loginCustomer(dto);
+  async loginCustomer(
+    @Body() dto: CustomerLoginDto,
+    @Headers('x-session-id') sessionId?: string,
+  ) {
+    return this.authService.loginCustomer(dto, sessionId);
   }
 
   @Post('/resend-otp')

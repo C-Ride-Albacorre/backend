@@ -5,11 +5,12 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { CartService } from './cart.service';
+// import { CartService } from './cart.service.old';
 import { CreateOrderDto, OrderSummaryDto } from './dto/order.dto';
 // import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { OrderType } from '@prisma/client';
+import { CartService } from '../cart/cart.service';
 
 @Injectable()
 export class OrderService {
@@ -18,7 +19,7 @@ export class OrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cartService: CartService,
-  ) {}
+  ) { }
 
   /**
    * Create order from cart

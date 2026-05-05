@@ -8,7 +8,8 @@ import {
 import { PrismaService } from '../../shared/services/prisma.service';
 import { CreateOrderDto, OrderSummaryDto } from '../customer/dto/order.dto';
 import { OrderType } from '@prisma/client';
-import { CartService } from '../customer/cart.service';
+import { CartService } from '../cart/cart.service';
+// import { CartService } from '../customer/cart.service.old';
 // import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
