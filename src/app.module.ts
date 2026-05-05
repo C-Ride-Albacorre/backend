@@ -16,6 +16,7 @@ import { OrderModule } from './modules/order/order.module';
 import { GeocodeModule } from './geocode/geocode.module';
 import { QueueModule } from './queue/queue.module';
 import { DriverModule } from './modules/driver/driver.module';
+import { CartModule } from './modules/cart/cart.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { DriverModule } from './modules/driver/driver.module';
     GeocodeModule,
     QueueModule,
     DriverModule,
+    CartModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],
