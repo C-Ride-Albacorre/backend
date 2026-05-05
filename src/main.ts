@@ -88,7 +88,10 @@ async function bootstrap() {
   // ================= Observability =================
   app.use(morgan('combined'));
 
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', {
+    exclude: ['/', '/health'],
+  });
+
   app.enableVersioning({
     type: VersioningType.URI,
     defaultVersion: '1',

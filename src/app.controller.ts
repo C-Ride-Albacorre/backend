@@ -2,18 +2,18 @@ import { Controller, Get, Head } from '@nestjs/common';
 import { AppService } from './app.service';
 import { ApiTags } from '@nestjs/swagger';
 
+@ApiTags('App')
 @Controller()
 export class AppController {
   constructor(private readonly appService: AppService) {}
 
-  @ApiTags("Hey! Wasup, Let's roll...")
-  @Get()
+  @Get('/')
   getHello(): string {
     return this.appService.getHello();
   }
 
-  @Head()
-  headHello(): void {
-    // Return nothing; 200 OK
+  @Head('/')
+  headHello(): string {
+    return '';
   }
 }
