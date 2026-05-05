@@ -10,13 +10,14 @@ import {
   HttpStatus,
   Headers,
 } from '@nestjs/common';
-import { ApiHeader, ApiOperation } from '@nestjs/swagger';
+import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CartService } from './cart.service';
 import { AddToCartDto } from './dto/cart.dto';
 // import { VerifiedUserGuard } from '../../common/guards/verified-user.guard';
 // import { RolesGuard } from '../../common/guards/role.guard';
 import { Public } from '../../common/decorators/public.decorator';
 
+@ApiTags('cart')
 @Controller('cart')
 export class CartController {
   constructor(private readonly cartService: CartService) {}
@@ -33,7 +34,7 @@ export class CartController {
   }
 
   @Public()
-  @Post('cart/add')
+  @Post('/add')
   @ApiOperation({ summary: 'Add item to cart' })
   async addToCart(
     @Request() req,
@@ -46,7 +47,7 @@ export class CartController {
   }
 
   @Public()
-  @Post('cart/item/:itemId/quantity')
+  @Post('/item/:itemId/quantity')
   @ApiOperation({ summary: 'Update cart item quantity' })
   @ApiHeader({
     name: 'x-session-id',
@@ -71,7 +72,7 @@ export class CartController {
 
   @Public()
   @Public()
-  @Post('cart/item/:itemId/remove')
+  @Post('/item/:itemId/remove')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove item from cart' })
   @ApiHeader({
@@ -90,7 +91,7 @@ export class CartController {
   }
 
   @Public()
-  @Post('cart/clear')
+  @Post('/clear')
   @ApiOperation({ summary: 'Clear cart' })
   async clearCart(@Request() req, @Headers('x-session-id') sessionId: string) {
     const userId = req.user?.id || null;
