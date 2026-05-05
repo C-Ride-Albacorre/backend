@@ -27,6 +27,11 @@ export class CartController {
   @Public()
   @Get('')
   @ApiOperation({ summary: 'Get current cart' })
+  @ApiHeader({
+    name: 'x-session-id',
+    required: false, // ✅ this is key
+    description: 'Guest session ID',
+  })
   async getCart(@Request() req, @Headers('x-session-id') sessionId: string) {
     const userId = req.user?.id || null;
 
@@ -37,6 +42,11 @@ export class CartController {
   @Public()
   @Post('/add')
   @ApiOperation({ summary: 'Add item to cart' })
+  @ApiHeader({
+    name: 'x-session-id',
+    required: false, // ✅ this is key
+    description: 'Guest session ID',
+  })
   async addToCart(
     @Request() req,
     @Body() dto: AddToCartDto,
@@ -94,6 +104,11 @@ export class CartController {
   @Public()
   @Post('/clear')
   @ApiOperation({ summary: 'Clear cart' })
+  @ApiHeader({
+    name: 'x-session-id',
+    required: false, // ✅ this is key
+    description: 'Guest session ID',
+  })
   async clearCart(@Request() req, @Headers('x-session-id') sessionId: string) {
     const userId = req.user?.id || null;
 
