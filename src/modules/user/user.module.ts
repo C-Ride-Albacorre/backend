@@ -14,10 +14,12 @@ import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider
 import { TermiiSmsProvider } from '../verification/providers/termii-sms.provider';
 import { AuthModule } from '../auth/auth.module';
 import { AuthService } from '../auth/auth.service';
+import { CustomerModule } from '../customer/customer.module';
 
 @Module({
   imports: [
     forwardRef(() => AuthModule), // 👈 REQUIRED
+    CustomerModule,
   ],
   controllers: [UserController],
   providers: [

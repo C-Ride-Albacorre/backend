@@ -79,7 +79,7 @@ model OAuthProvider {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   profileData Json?
-  user        User              @relation(fields: [userId], references: [id])
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerId])
   @@unique([userId, provider])
@@ -118,7 +118,7 @@ model VendorDocument {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   documentType DocumentType   @default(CAC)
-  user         User           @relation(fields: [userId], references: [id])
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Store {
@@ -368,13 +368,13 @@ model TaxSetting {
 
 model Cart {
   id          String     @id @default(uuid())
-  userId      String    @unique  // nullable for guests
+  userId      String?    @unique  // nullable for guests
   sessionId   String?    @unique  // for guest users
   totalAmount Float      @default(0)
   expiresAt   DateTime?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
   items       CartItem[]
 
   @@index([userId])
@@ -432,7 +432,7 @@ model Order {
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
   deliveryOption       DeliveryOption? @relation(fields: [deliveryOptionId], references: [id])
-  user                 User            @relation(fields: [userId], references: [id])
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   items                OrderItem[]
 
   @@index([orderNumber])
@@ -458,10 +458,11 @@ model OrderItem {
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
   order               Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  package             Package?     @relation(fields: [packageId], references: [id])
-  product             Product?     @relation(fields: [productId], references: [id])
-  store               Store?       @relation(fields: [storeId], references: [id])
-  variant             Variant?     @relation(fields: [variantId], references: [id])
+  package             Package?     @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  product             Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  store               Store?       @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  variant             Variant?     @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  
 
   @@index([orderId])
   @@index([productId])

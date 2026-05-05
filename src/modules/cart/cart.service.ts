@@ -1,9 +1,11 @@
 // src/customer/services/cart.service.ts
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { AddToCartDto, CartSummaryDto } from './dto/cart.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
@@ -209,21 +211,135 @@ export class CartService {
     return this.getCartSummary(cart.id);
   }
 
+  async mergeGuestCart(userId: string, sessionId: string) {
+    const guestCart = await this.prisma.cart.findUnique({
+      where: { sessionId },
+      include: { items: true },
+    });
+
+    if (!guestCart) return;
+
+    const userCart = await this.getOrCreateCart(userId);
+
+    for (const guestItem of guestCart.items) {
+      // 🔍 Check if similar item already exists
+      const existingItem = await this.prisma.cartItem.findFirst({
+        where: {
+          cartId: userCart.id,
+          productId: guestItem.productId,
+          packageId: guestItem.packageId,
+          itemType: guestItem.itemType,
+        },
+      });
+
+      if (existingItem) {
+        // ✅ Merge quantities
+        await this.prisma.cartItem.update({
+          where: { id: existingItem.id },
+          data: {
+            quantity: existingItem.quantity + guestItem.quantity,
+            totalPrice: existingItem.totalPrice + guestItem.totalPrice,
+          },
+        });
+      } else {
+        // ➕ Create new item
+        await this.prisma.cartItem.create({
+          data: {
+            cartId: userCart.id,
+            itemType: guestItem.itemType,
+            productId: guestItem.productId,
+            packageId: guestItem.packageId,
+            variantId: guestItem.variantId,
+            quantity: guestItem.quantity,
+            unitPrice: guestItem.unitPrice,
+            totalPrice: guestItem.totalPrice,
+            selectedAddons: guestItem.selectedAddons,
+            specialInstructions: guestItem.specialInstructions,
+          },
+        });
+      }
+    }
+
+    // 🧹 Delete guest cart
+    await this.prisma.cart.delete({
+      where: { id: guestCart.id },
+    });
+
+    // 🔄 Recalculate total
+    await this.updateCartTotal(userCart.id);
+
+    return this.getCartSummary(userCart.id);
+  }
+
   /**
    * Update cart item quantity
    */
-  async updateCartItemQuantity(cartItemId: string, quantity: number) {
+  // async updateCartItemQuantity(cartItemId: string, quantity: number) {
+  //   if (quantity < 1) {
+  //     return this.removeCartItem(cartItemId);
+  //   }
+
+  //   const cartItem = await this.prisma.cartItem.findUnique({
+  //     where: { id: cartItemId },
+  //   });
+
+  //   if (!cartItem) {
+  //     throw new NotFoundException('Cart item not found');
+  //   }
+
+  //   const newTotalPrice = cartItem.unitPrice * quantity;
+
+  //   // Calculate add-ons total if any
+  //   let addonsTotal = 0;
+  //   if (cartItem.selectedAddons && Array.isArray(cartItem.selectedAddons)) {
+  //     addonsTotal = (
+  //       cartItem.selectedAddons as Array<{ price: number }>
+  //     ).reduce((sum, addon) => sum + addon.price, 0);
+  //   }
+
+  //   await this.prisma.cartItem.update({
+  //     where: { id: cartItemId },
+  //     data: {
+  //       quantity,
+  //       totalPrice: newTotalPrice + addonsTotal * quantity,
+  //     },
+  //   });
+
+  //   await this.updateCartTotal(cartItem.cartId);
+
+  //   return this.getCartSummary(cartItem.cartId);
+  // }
+  async updateCartItemQuantity(
+    cartItemId: string,
+    quantity: number,
+    userId?: string,
+    sessionId?: string,
+  ) {
+    if (!userId && !sessionId) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+
     if (quantity < 1) {
-      return this.removeCartItem(cartItemId);
+      return this.removeCartItem(cartItemId, userId, sessionId);
     }
 
     const cartItem = await this.prisma.cartItem.findUnique({
       where: { id: cartItemId },
+      include: { cart: true },
     });
 
     if (!cartItem) {
       throw new NotFoundException('Cart item not found');
     }
+
+    // 🔒 Ownership check
+    if (
+      (userId && cartItem.cart.userId !== userId) ||
+      (!userId && cartItem.cart.sessionId !== sessionId)
+    ) {
+      throw new ForbiddenException('Access denied to this cart item');
+    }
+
 
     const newTotalPrice = cartItem.unitPrice * quantity;
 
@@ -251,13 +367,47 @@ export class CartService {
   /**
    * Remove item from cart
    */
-  async removeCartItem(cartItemId: string) {
+  // async removeCartItem(cartItemId: string) {
+  //   const cartItem = await this.prisma.cartItem.findUnique({
+  //     where: { id: cartItemId },
+  //   });
+
+  //   if (!cartItem) {
+  //     throw new NotFoundException('Cart item not found');
+  //   }
+
+  //   await this.prisma.cartItem.delete({
+  //     where: { id: cartItemId },
+  //   });
+
+  //   await this.updateCartTotal(cartItem.cartId);
+
+  //   return this.getCartSummary(cartItem.cartId);
+  // }
+  async removeCartItem(
+    cartItemId: string,
+    userId?: string,
+    sessionId?: string,
+  ) {
+    if (!userId && !sessionId) {
+      throw new UnauthorizedException('Unauthorized');
+    }
+
     const cartItem = await this.prisma.cartItem.findUnique({
       where: { id: cartItemId },
+      include: { cart: true },
     });
 
     if (!cartItem) {
       throw new NotFoundException('Cart item not found');
+    }
+
+    // 🔒 Ownership check
+    if (
+      (userId && cartItem.cart.userId !== userId) ||
+      (!userId && cartItem.cart.sessionId !== sessionId)
+    ) {
+      throw new ForbiddenException('Access denied to this cart item');
     }
 
     await this.prisma.cartItem.delete({

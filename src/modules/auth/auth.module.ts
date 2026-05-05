@@ -10,11 +10,13 @@ import { AuthController } from './auth.controller';
 import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 import { UserModule } from '../user/user.module';
 import { VerificationCacheService } from '../verification/verification-cache.service';
+import { CartModule } from '../cart/cart.module';
 
 @Module({
   imports: [
     ConfigModule,
     UserModule,
+    CartModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (cfg: ConfigService) => ({

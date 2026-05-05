@@ -63,6 +63,8 @@ import { AddPhoneDto } from './dto/add-phone-number.dto';
 import { CreateAdminDto } from '../admin/dto/create-admin.dto';
 import { CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js';
 import { ResendVerificationTokenDto } from './dto/resend-token-expiry.dto';
+import { CartService } from '../cart/cart.service';
+// import { CartService } from '../customer/cart.service.old';
 
 @Injectable()
 export class AuthService {
@@ -83,6 +85,7 @@ export class AuthService {
     private readonly cloudinary: CloudinaryService,
     private readonly userRepository: AbstractUserRepository,
     private readonly prisma: PrismaService,
+    private readonly cartService: CartService,
   ) {
     this.refreshTokenSecret = this.config.get<string>('REFRESH_TOKEN_SECRET');
     this.accessTokenExpiresIn = this.config.get<string | number>(
@@ -626,7 +629,7 @@ export class AuthService {
   /**
    * Login - user with email/phone and password - only works for verified users
    */
-  async loginCustomer(loginDto: LoginCustomerDto) {
+  async loginCustomerWithoutSessionId(loginDto: LoginCustomerDto) {
     const { email, phoneNumber } = loginDto;
 
     const identifier = email || phoneNumber;
@@ -655,6 +658,47 @@ export class AuthService {
       },
     );
   }
+
+  async loginCustomer(loginDto: LoginCustomerDto, sessionId?: string) {
+    const { email, phoneNumber } = loginDto;
+
+    const identifier = email || phoneNumber;
+    const verificationMethod = email ? 'email' : 'phone';
+
+    this.logger.log(`Login attempt: ${identifier}`);
+
+    const result = await this.userService.authenticateUser(
+      loginDto,
+      identifier,
+      verificationMethod,
+    );
+
+    // ❌ Failed login → return immediately (no merge)
+    if (!result.success) {
+      return result;
+    }
+
+    // ✅ Successful login → merge cart (NON-BLOCKING)
+    try {
+      if (sessionId && result.user?.id) {
+        await this.cartService.mergeGuestCart(result.user.id, sessionId);
+      }
+    } catch (error) {
+      // ⚠️ Never break login because of cart issues
+      this.logger.warn('Cart merge failed', error);
+    }
+
+    // 👇 Keep your original response logic untouched
+    return this.generateAuthResponse(
+      result.user,
+      identifier,
+      verificationMethod,
+      {
+        isNewUser: !result.user.lastLoginAt,
+      },
+    );
+  }
+
   // async loginCustomerOld(loginDto: LoginCustomerDto) {
   //   const { email, phoneNumber } = loginDto;
   //   const identifier = email || phoneNumber;

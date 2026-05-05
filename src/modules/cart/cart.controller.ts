@@ -1,0 +1,103 @@
+// src/customer/customer.controller.ts
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Param,
+  Request,
+  HttpCode,
+  HttpStatus,
+  Headers,
+} from '@nestjs/common';
+import { ApiHeader, ApiOperation } from '@nestjs/swagger';
+import { CartService } from './cart.service';
+import { AddToCartDto } from './dto/cart.dto';
+// import { VerifiedUserGuard } from '../../common/guards/verified-user.guard';
+// import { RolesGuard } from '../../common/guards/role.guard';
+import { Public } from '../../common/decorators/public.decorator';
+
+@Controller('cart')
+export class CartController {
+  constructor(private readonly cartService: CartService) {}
+
+  // ==================== CART ====================
+
+  @Public()
+  @Get('cart')
+  async getCart(@Request() req, @Headers('x-session-id') sessionId: string) {
+    const userId = req.user?.id || null;
+
+    const cart = await this.cartService.getOrCreateCart(userId, sessionId);
+    return this.cartService.getCartSummary(cart.id);
+  }
+
+  @Public()
+  @Post('cart/add')
+  @ApiOperation({ summary: 'Add item to cart' })
+  async addToCart(
+    @Request() req,
+    @Body() dto: AddToCartDto,
+    @Headers('x-session-id') sessionId: string,
+  ) {
+    const userId = req.user?.id || null;
+
+    return this.cartService.addToCart(userId, dto, sessionId);
+  }
+
+  @Public()
+  @Post('cart/item/:itemId/quantity')
+  @ApiOperation({ summary: 'Update cart item quantity' })
+  @ApiHeader({
+    name: 'x-session-id',
+    required: false,
+    description: 'Guest session ID',
+  })
+  async updateCartItemQuantity(
+    @Request() req,
+    @Param('itemId') itemId: string,
+    @Body('quantity') quantity: number,
+    @Headers('x-session-id') sessionId?: string,
+  ) {
+    const userId = req.user?.id || null;
+
+    return this.cartService.updateCartItemQuantity(
+      itemId,
+      quantity,
+      userId,
+      sessionId,
+    );
+  }
+
+  @Public()
+  @Public()
+  @Post('cart/item/:itemId/remove')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remove item from cart' })
+  @ApiHeader({
+    name: 'x-session-id',
+    required: false,
+    description: 'Guest session ID',
+  })
+  async removeCartItem(
+    @Request() req,
+    @Param('itemId') itemId: string,
+    @Headers('x-session-id') sessionId?: string,
+  ) {
+    const userId = req.user?.id || null;
+
+    return this.cartService.removeCartItem(itemId, userId, sessionId);
+  }
+
+  @Public()
+  @Post('cart/clear')
+  @ApiOperation({ summary: 'Clear cart' })
+  async clearCart(@Request() req, @Headers('x-session-id') sessionId: string) {
+    const userId = req.user?.id || null;
+
+    const cart = await this.cartService.getOrCreateCart(userId, sessionId);
+    await this.cartService.clearCart(cart.id);
+
+    return { success: true, message: 'Cart cleared' };
+  }
+}
