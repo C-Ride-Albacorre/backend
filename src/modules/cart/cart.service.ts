@@ -61,6 +61,74 @@ export class CartService {
 
     let cart = null;
 
+    // ✅ Logged-in user
+    if (userId) {
+      cart = await this.prisma.cart.findUnique({
+        where: { userId },
+        include: { items: true },
+      });
+
+      // Merge guest cart into user cart
+      if (!cart && sessionId) {
+        const guestCart = await this.prisma.cart.findUnique({
+          where: { sessionId },
+          include: { items: true },
+        });
+
+        if (guestCart) {
+          cart = await this.prisma.cart.update({
+            where: { id: guestCart.id },
+            data: {
+              user: { connect: { id: userId } },
+              sessionId: null,
+            },
+            include: { items: true },
+          });
+
+          return cart;
+        }
+      }
+
+      // Create new user cart
+      if (!cart) {
+        cart = await this.prisma.cart.create({
+          data: {
+            user: { connect: { id: userId } },
+          },
+          include: { items: true },
+        });
+      }
+
+      return cart;
+    }
+
+    // ✅ Guest user
+    cart = await this.prisma.cart.findUnique({
+      where: { sessionId },
+      include: { items: true },
+    });
+
+    // Create guest cart if none exists
+    if (!cart) {
+      cart = await this.prisma.cart.create({
+        data: {
+          sessionId,
+        },
+        include: { items: true },
+      });
+    }
+
+    // 🔥 MISSING RETURN
+    return cart;
+  }
+
+  async getOrCreateCartoldbug(userId?: string, sessionId?: string) {
+    if (!userId && !sessionId) {
+      throw new BadRequestException('User or sessionId must be provided');
+    }
+
+    let cart = null;
+
     // ✅ 1. If user is logged in
     if (userId) {
       cart = await this.prisma.cart.findUnique({
@@ -212,6 +280,75 @@ export class CartService {
   }
 
   async mergeGuestCart(userId: string, sessionId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const guestCart = await tx.cart.findUnique({
+        where: { sessionId },
+        include: { items: true },
+      });
+
+      const userCart = await this.getOrCreateCart(userId);
+
+      // ✅ Nothing to merge
+      if (!guestCart || guestCart.items.length === 0) {
+        return this.getCartSummary(userCart.id, userId);
+      }
+
+      for (const guestItem of guestCart.items) {
+        const existingItems = await tx.cartItem.findMany({
+          where: {
+            cartId: userCart.id,
+            itemType: guestItem.itemType,
+            productId: guestItem.productId,
+            packageId: guestItem.packageId,
+            variantId: guestItem.variantId,
+          },
+        });
+
+        const existingItem = existingItems.find(
+          (item) =>
+            JSON.stringify(item.selectedAddons) ===
+            JSON.stringify(guestItem.selectedAddons),
+        );
+
+        if (existingItem) {
+          await tx.cartItem.update({
+            where: { id: existingItem.id },
+            data: {
+              quantity: existingItem.quantity + guestItem.quantity,
+
+              totalPrice:
+                Number(existingItem.totalPrice) + Number(guestItem.totalPrice),
+            },
+          });
+        } else {
+          await tx.cartItem.create({
+            data: {
+              cartId: userCart.id,
+              itemType: guestItem.itemType,
+              productId: guestItem.productId,
+              packageId: guestItem.packageId,
+              variantId: guestItem.variantId,
+              quantity: guestItem.quantity,
+              unitPrice: guestItem.unitPrice,
+              totalPrice: guestItem.totalPrice,
+              selectedAddons: guestItem.selectedAddons,
+              specialInstructions: guestItem.specialInstructions,
+            },
+          });
+        }
+      }
+
+      await tx.cart.delete({
+        where: { id: guestCart.id },
+      });
+
+      await this.updateCartTotal(userCart.id);
+
+      return this.getCartSummary(userCart.id, userId);
+    });
+  }
+
+  async mergeGuestCartold(userId: string, sessionId: string) {
     const guestCart = await this.prisma.cart.findUnique({
       where: { sessionId },
       include: { items: true },
