@@ -13,10 +13,9 @@ import {
 import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CartService } from './cart.service';
 import { AddToCartDto } from './dto/cart.dto';
-// import { VerifiedUserGuard } from '../../common/guards/verified-user.guard';
-// import { RolesGuard } from '../../common/guards/role.guard';
 import { Public } from '../../common/decorators/public.decorator';
 
+@Public()
 @ApiTags('cart')
 @Controller('cart')
 export class CartController {
