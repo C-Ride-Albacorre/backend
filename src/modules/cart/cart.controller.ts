@@ -14,6 +14,7 @@ import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CartService } from './cart.service';
 import { AddToCartDto } from './dto/cart.dto';
 import { Public } from '../../common/decorators/public.decorator';
+import Helper from 'src/shared/utils/helpers';
 
 @ApiTags('cart')
 @Controller('cart')
@@ -38,10 +39,11 @@ export class CartController {
   }
 
   @Post('/add')
+  @Public()
   @ApiOperation({ summary: 'Add item to cart' })
   @ApiHeader({
     name: 'x-session-id',
-    required: false, // ✅ this is key
+    required: false,
     description: 'Guest session ID',
   })
   async addToCart(
@@ -50,7 +52,6 @@ export class CartController {
     @Headers('x-session-id') sessionId: string,
   ) {
     const userId = req.user?.id || null;
-
     return this.cartService.addToCart(userId, dto, sessionId);
   }
 
@@ -64,10 +65,9 @@ export class CartController {
   })
   async addToCart1(
     @Body() dto: AddToCartDto,
-   @Headers('x-session-id') sessionId: string,
+    //  @Headers('x-session-id') sessionId: string,
   ) {
     const userId = '15071201-dc89-4f90-884e-93a50f8fc0c1';
-
     return this.cartService.addToCart(userId, dto, sessionId);
   }
 
