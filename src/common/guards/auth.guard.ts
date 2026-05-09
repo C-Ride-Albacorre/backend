@@ -18,6 +18,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       return true;
     }
 
+    const req = context.switchToHttp().getRequest();
+    if (req.headers['x-session-id']) {
+      return true; // allow guest carts without JWT
+    }
+
     return super.canActivate(context);
   }
 }
