@@ -55,20 +55,13 @@ export class CartController {
     return this.cartService.addToCart(userId, dto, sessionId);
   }
 
-  @Public()
   @Post('/add1')
+  @Public()
   @ApiOperation({ summary: 'Add item to cart' })
-  @ApiHeader({
-    name: 'x-session-id',
-    required: false, // ✅ this is key
-    description: 'Guest session ID',
-  })
-  async addToCart1(
-    @Body() dto: AddToCartDto,
-    //  @Headers('x-session-id') sessionId: string,
-  ) {
-    const userId = '15071201-dc89-4f90-884e-93a50f8fc0c1';
-    return this.cartService.addToCart(userId, dto, sessionId);
+  async addToCart1(@Request() req, @Body() dto: AddToCartDto) {
+    const userId = req.user?.id || null;
+    // No sessionId from header – service will generate one for guests
+    return this.cartService.addToCart(userId, dto);
   }
 
   @Post('/item/:itemId/quantity')
