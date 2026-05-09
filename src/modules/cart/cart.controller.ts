@@ -64,10 +64,9 @@ export class CartController {
   })
   async addToCart1(
     @Body() dto: AddToCartDto,
-   // @Headers('x-session-id') sessionId: string,
+   @Headers('x-session-id') sessionId: string,
   ) {
     const userId = '15071201-dc89-4f90-884e-93a50f8fc0c1';
-    const sessionId = '15071201-dc89-4f90-884e-93a50f8fc0c1';
 
     return this.cartService.addToCart(userId, dto, sessionId);
   }
