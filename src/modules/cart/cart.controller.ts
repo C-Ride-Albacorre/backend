@@ -9,15 +9,24 @@ import {
   HttpCode,
   HttpStatus,
   Headers,
+  UseGuards,
+  
 } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CartService } from './cart.service';
 import { AddToCartDto } from './dto/cart.dto';
+import { JwtAuthGuard } from '../../common/guards/auth.guard';
+import { Roles } from '../../common/decorators/role.decorator';
+import { RolesGuard } from '../../common/guards/role.guard';
+import { UserRole } from 'src/shared/enums';
+
 import { Public } from '../../common/decorators/public.decorator';
 
-@Public()
 @ApiTags('cart')
 @Controller('cart')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.CUSTOMER)
+@ApiBearerAuth()
 export class CartController {
   constructor(private readonly cartService: CartService) {}
 
