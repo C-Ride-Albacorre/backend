@@ -9,30 +9,18 @@ import {
   HttpCode,
   HttpStatus,
   Headers,
-  UseGuards,
-  
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiHeader, ApiOperation } from '@nestjs/swagger';
 import { CartService } from './cart.service';
 import { AddToCartDto } from './dto/cart.dto';
-import { JwtAuthGuard } from '../../common/guards/auth.guard';
-import { Roles } from '../../common/decorators/role.decorator';
-import { RolesGuard } from '../../common/guards/role.guard';
-import { UserRole } from 'src/shared/enums';
-
 import { Public } from '../../common/decorators/public.decorator';
 
-@ApiTags('cart')
-@Controller('cart')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.CUSTOMER)
-@ApiBearerAuth()
+@Public()
 export class CartController {
   constructor(private readonly cartService: CartService) {}
 
   // ==================== CART ====================
 
-  @Public()
   @Get('')
   @ApiOperation({ summary: 'Get current cart' })
   @ApiHeader({
@@ -47,7 +35,6 @@ export class CartController {
     return this.cartService.getCartSummary(cart.id);
   }
 
-  @Public()
   @Post('/add')
   @ApiOperation({ summary: 'Add item to cart' })
   @ApiHeader({
@@ -65,7 +52,6 @@ export class CartController {
     return this.cartService.addToCart(userId, dto, sessionId);
   }
 
-  @Public()
   @Post('/item/:itemId/quantity')
   @ApiOperation({ summary: 'Update cart item quantity' })
   @ApiHeader({
@@ -89,8 +75,6 @@ export class CartController {
     );
   }
 
-  @Public()
-  @Public()
   @Post('/item/:itemId/remove')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Remove item from cart' })
@@ -109,7 +93,6 @@ export class CartController {
     return this.cartService.removeCartItem(itemId, userId, sessionId);
   }
 
-  @Public()
   @Post('/clear')
   @ApiOperation({ summary: 'Clear cart' })
   @ApiHeader({
