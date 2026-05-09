@@ -32,13 +32,7 @@ async function bootstrap() {
   });
 
   // ✅ HEAD
-  app.use((req, res, next) => {
-    if (req.method === 'HEAD' && req.url === '/') {
-      return res.status(200).end();
-    }
-    next();
-  });
-
+  
   const config = app.get(ConfigService);
 
   if (config.get('ENABLE_VIEWS') === 'true') {
