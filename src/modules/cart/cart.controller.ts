@@ -61,7 +61,7 @@ export class CartController {
   async addToCart1(@Request() req, @Body() dto: AddToCartDto) {
     const userId = req.user?.id || null;
     // No sessionId from header – service will generate one for guests
-    return this.cartService.addToCart(userId, dto);
+    return this.cartService.addToCart1(userId, dto);
   }
 
   @Post('/item/:itemId/quantity')
