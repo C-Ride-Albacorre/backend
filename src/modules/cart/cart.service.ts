@@ -60,6 +60,8 @@ export class CartService {
       throw new BadRequestException('User or sessionId must be provided');
     }
 
+    console.log("CHECKING HERE>>>>>>>>>>>>>>>")
+
     let cart = null;
 
     // ✅ Logged-in user
