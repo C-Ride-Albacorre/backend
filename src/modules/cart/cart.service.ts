@@ -60,8 +60,6 @@ export class CartService {
       throw new BadRequestException('User or sessionId must be provided');
     }
 
-    console.log("CHECKING HERE>>>>>>>>>>>>>>>")
-
     let cart = null;
 
     // ✅ Logged-in user
@@ -279,7 +277,7 @@ export class CartService {
     // Update cart total
     await this.updateCartTotal(cart.id);
 
-    return this.getCartSummary(cart.id);
+    return this.getCartSummary(cart.id, userId, sessionId);
   }
 
   async addToCart1(userId: string | null, dto: AddToCartDto) {
