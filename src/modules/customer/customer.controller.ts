@@ -252,9 +252,8 @@ export class CustomerController {
   }
 
   ////////////////////////////
-
-  @Post('/add')
   @Public()
+  @Post('/add')
   @ApiOperation({ summary: 'Add item to cart' })
   @ApiHeader({
     name: 'x-session-id',
