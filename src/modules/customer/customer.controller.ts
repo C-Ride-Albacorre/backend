@@ -21,6 +21,7 @@ import {
   ApiNotFoundResponse,
   ApiParam,
   ApiOkResponse,
+  ApiHeader,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CustomerService } from './customer.service';
@@ -250,7 +251,25 @@ export class CustomerController {
     return this.customerService.getVendorAddressByStore(storeId);
   }
 
-  
+  ////////////////////////////
+
+  @Post('/add')
+  @Public()
+  @ApiOperation({ summary: 'Add item to cart' })
+  @ApiHeader({
+    name: 'x-session-id',
+    required: false,
+    description: 'Guest session ID',
+  })
+  async addToCart(
+    @Request() req,
+    @Body() dto: AddToCartDto,
+    @Headers('x-session-id') sessionId: string,
+  ) {
+    const userId = req.user?.id || null;
+    return this.cartService.addToCart(userId, dto, sessionId);
+  }
+
   // ==================== ORDER ====================
 
   @Post('orders')
