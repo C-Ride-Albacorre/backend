@@ -18,13 +18,13 @@ import Helper from 'src/shared/utils/helpers';
 
 @ApiTags('cart')
 @Controller('cart')
-@Public()
 export class CartController {
   constructor(private readonly cartService: CartService) {}
 
   // ==================== CART ====================
 
   @Get('')
+  @Public()
   @ApiOperation({ summary: 'Get current cart' })
   @ApiHeader({
     name: 'x-session-id',
