@@ -1199,6 +1199,40 @@ export class AdminService {
       throw new NotFoundException('Category not found');
     }
 
+    return {
+      id: category.id,
+      name: category.name,
+      image: category.image, // ✅ included
+      icon: category.icon, // ✅ included
+      isActive: category.isActive,
+      subcategories: category.subcategories,
+      stores: category.stores,
+      createdAt: category.createdAt,
+      updatedAt: category.updatedAt,
+    };
+  }
+
+  async getCategoryByIdOld(id: string) {
+    const category = await this.prisma.category.findUnique({
+      where: { id },
+      include: {
+        subcategories: {
+          orderBy: { displayOrder: 'asc' },
+        },
+        stores: {
+          select: {
+            id: true,
+            storeName: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+
     return category;
   }
 
@@ -1346,6 +1380,8 @@ export class AdminService {
         data: {
           name: dto.name,
           description: dto.description,
+          icon: dto.icon,
+          image: dto.image,
           categoryId: dto.categoryId,
           isActive: dto.isActive ?? true,
           displayOrder: dto.displayOrder ?? 0,
@@ -1389,33 +1425,55 @@ export class AdminService {
     });
   }
 
-  // async getSubcategoryById(id: string) {
-  //   const subcategory = await this.prisma.subcategory.findUnique({
-  //     where: { id },
-  //     include: {
-  //       category: true,
-  //       storeSubcategories: {
-  //         include: {
-  //           store: {
-  //             select: {
-  //               id: true,
-  //               storeName: true,
-  //               status: true,
-  //             },
-  //           },
-  //         },
-  //       },
-  //     },
-  //   });
-
-  //   if (!subcategory) {
-  //     throw new NotFoundException('Subcategory not found');
-  //   }
-
-  //   return subcategory;
-  // }
-
   async getSubcategoryById(id: string) {
+    const subcategory = await this.prisma.subcategory.findUnique({
+      where: { id },
+      include: {
+        category: true,
+        products: {
+          include: {
+            store: {
+              select: {
+                id: true,
+                storeName: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!subcategory) {
+      throw new NotFoundException('Subcategory not found');
+    }
+
+    // ✅ Extract unique stores
+    const storesMap = new Map();
+
+    subcategory.products.forEach((product) => {
+      if (product.store) {
+        storesMap.set(product.store.id, product.store);
+      }
+    });
+
+    const stores = Array.from(storesMap.values());
+
+    return {
+      id: subcategory.id,
+      name: subcategory.name,
+      image: subcategory.image, // ✅ included
+      icon: subcategory.icon, // ✅ included
+      isActive: subcategory.isActive,
+      category: subcategory.category,
+      products: subcategory.products,
+      stores,
+      createdAt: subcategory.createdAt,
+      updatedAt: subcategory.updatedAt,
+    };
+  }
+
+  async getSubcategoryByIdold(id: string) {
     const subcategory = await this.prisma.subcategory.findUnique({
       where: { id },
       include: {
@@ -1455,7 +1513,61 @@ export class AdminService {
     };
   }
 
-  async updateSubcategory(id: string, dto: UpdateSubcategoryDto) {
+  async updateSubcategory(
+    id: string,
+    dto: UpdateSubcategoryDto,
+    files?: {
+      image?: Express.Multer.File[];
+      icon?: Express.Multer.File[];
+    },
+  ) {
+    try {
+      let imageUrl: string | null = null;
+      let iconUrl: string | null = null;
+
+      // ✅ Upload new image if provided
+      if (files?.image?.[0]) {
+        const uploadResult = await this.cloudinaryService.uploadLogo(
+          files.image[0],
+        );
+        imageUrl = uploadResult.secure_url;
+      }
+
+      // ✅ Upload new icon if provided
+      if (files?.icon?.[0]) {
+        const uploadResult = await this.cloudinaryService.uploadLogo(
+          files.icon[0],
+        );
+        iconUrl = uploadResult.secure_url;
+      }
+
+      return await this.prisma.subcategory.update({
+        where: { id },
+        data: {
+          ...dto,
+          ...(imageUrl && { image: imageUrl }),
+          ...(iconUrl && { icon: iconUrl }),
+        },
+        include: {
+          category: true,
+        },
+      });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        throw new ConflictException(
+          'Subcategory with this name already exists in this category',
+        );
+      }
+
+      if (error.code === 'P2025') {
+        throw new NotFoundException('Subcategory not found');
+      }
+
+      throw error;
+    }
+  }
+
+  async updateSubcategoryold(id: string, dto: UpdateSubcategoryDto) {
     try {
       return await this.prisma.subcategory.update({
         where: { id },
