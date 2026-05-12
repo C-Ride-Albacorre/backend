@@ -126,6 +126,7 @@ export class CustomerController {
   })
   @ApiQuery({ name: 'categoryId', required: false, type: String })
   @ApiQuery({ name: 'subcategoryId', required: false, type: String })
+  @ApiQuery({ name: 'storeId', required: false, type: String })
   @ApiQuery({ name: 'lat', required: false, type: Number })
   @ApiQuery({ name: 'lng', required: false, type: Number })
   @ApiQuery({ name: 'radiusKm', required: false, type: Number })
