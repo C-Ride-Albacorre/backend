@@ -21,14 +21,12 @@ import {
   ApiNotFoundResponse,
   ApiParam,
   ApiOkResponse,
-  ApiHeader,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CustomerService } from './customer.service';
 import { StoreDiscoveryService } from './store-discovery.service';
 // import { CartService } from './cart.service.old';
 import { SaveLocationDto } from './dto/location.dto';
-import { AddToCartDto } from './dto/cart.dto';
 import { CreateOrderDto } from './dto/order.dto';
 import { InitializePaymentDto } from './dto/payment.dto';
 import { MonnifyService } from '../payment/monnify.service';
@@ -52,7 +50,6 @@ export class CustomerController {
   constructor(
     private readonly customerService: CustomerService,
     private readonly storeDiscoveryService: StoreDiscoveryService,
-    private readonly cartService: CartService,
     private readonly orderService: OrderService,
     private readonly monnifyService: MonnifyService,
   ) {}
@@ -123,9 +120,9 @@ export class CustomerController {
   @Public()
   @Get('stores')
   @ApiOperation({
-    summary: 'Get stores (optionally filter by category & subcategory)',
+    summary: 'Get stores (optionally filter by category, subcategory & products)',
     description:
-      'Fetch stores. Optionally filter by category, subcategory, location, radius, search, and pagination.',
+      'Fetch stores. Optionally filter by category, subcategory, store, product, location, radius, search, and pagination.',
   })
   @ApiQuery({ name: 'categoryId', required: false, type: String })
   @ApiQuery({ name: 'subcategoryId', required: false, type: String })
@@ -249,24 +246,6 @@ export class CustomerController {
   })
   async getVendorAddressByStore(@Param('storeId') storeId: string) {
     return this.customerService.getVendorAddressByStore(storeId);
-  }
-
-  ////////////////////////////
-  @Public()
-  @Post('/add')
-  @ApiOperation({ summary: 'Add item to cart' })
-  @ApiHeader({
-    name: 'x-session-id',
-    required: false,
-    description: 'Guest session ID',
-  })
-  async addToCart(
-    @Request() req,
-    @Body() dto: AddToCartDto,
-    @Headers('x-session-id') sessionId: string,
-  ) {
-    const userId = req.user?.id || null;
-    return this.cartService.addToCart(userId, dto, sessionId);
   }
 
   // ==================== ORDER ====================

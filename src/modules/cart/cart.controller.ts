@@ -14,8 +14,9 @@ import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CartService } from './cart.service';
 import { AddToCartDto } from './dto/cart.dto';
 import { Public } from '../../common/decorators/public.decorator';
-import Helper from 'src/shared/utils/helpers';
 
+
+@Public()
 @ApiTags('cart')
 @Controller('cart')
 export class CartController {
@@ -24,7 +25,6 @@ export class CartController {
   // ==================== CART ====================
 
   @Get('')
-  @Public()
   @ApiOperation({ summary: 'Get current cart' })
   @ApiHeader({
     name: 'x-session-id',
@@ -35,11 +35,10 @@ export class CartController {
     const userId = req.user?.id || null;
 
     const cart = await this.cartService.getOrCreateCart(userId, sessionId);
-    return this.cartService.getCartSummary(cart.id);
+    return this.cartService.getCartSummary(cart.id, userId, sessionId);
   }
 
   @Post('/add')
-  @Public()
   @ApiOperation({ summary: 'Add item to cart' })
   @ApiHeader({
     name: 'x-session-id',
@@ -55,14 +54,6 @@ export class CartController {
     return this.cartService.addToCart(userId, dto, sessionId);
   }
 
-  @Post('/add1')
-  @Public()
-  @ApiOperation({ summary: 'Add item to cart' })
-  async addToCart1(@Body() dto: AddToCartDto) {
-    const userId = null;
-    // No sessionId from header – service will generate one for guests
-    return this.cartService.addToCart1(userId, dto);
-  }
 
   @Post('/item/:itemId/quantity')
   @ApiOperation({ summary: 'Update cart item quantity' })
