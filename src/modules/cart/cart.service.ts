@@ -280,84 +280,6 @@ export class CartService {
     return this.getCartSummary(cart.id, userId, sessionId);
   }
 
-  async addToCart1(userId: string | null, dto: AddToCartDto) {
-    // Generate a session ID for guests if none exists
-    let sessionId: string | undefined;
-    if (!userId) {
-      sessionId = Helper.generateUniqueCharacters(12); // or use uuid library
-    }
-
-    const cart = await this.getOrCreateCart(userId, sessionId);
-
-    // Get item details and calculate price
-    let itemDetails;
-    let unitPrice = 0;
-    let totalPrice = 0;
-    let selectedAddons = [];
-
-    switch (dto.itemType) {
-      case 'PRODUCT':
-        itemDetails = await this.getProductDetails(
-          dto.productId,
-          dto.variantId,
-        );
-        unitPrice = itemDetails.price;
-        totalPrice = unitPrice * dto.quantity;
-
-        // Add add-ons if selected
-        if (dto.addonIds?.length) {
-          selectedAddons = await this.getAddonDetails(dto.addonIds);
-          const addonsTotal = selectedAddons.reduce(
-            (sum, addon) => sum + addon.price,
-            0,
-          );
-          totalPrice += addonsTotal * dto.quantity;
-        }
-        break;
-
-      case 'PACKAGE':
-      case 'DOCUMENT':
-        itemDetails = await this.getPackageDetails(dto.packageId);
-        unitPrice = itemDetails.basePrice;
-        totalPrice = unitPrice * dto.quantity;
-        break;
-    }
-
-    if (dto.itemType === 'PACKAGE' || dto.itemType === 'DOCUMENT') {
-      const pkg = await this.prisma.package.findUnique({
-        where: { id: dto.packageId },
-      });
-
-      if (!pkg) {
-        throw new NotFoundException('Package not found');
-      }
-    }
-
-    // Create cart item
-    await this.prisma.cartItem.create({
-      data: {
-        cartId: cart.id,
-        itemType: dto.itemType,
-        productId: dto.itemType === 'PRODUCT' ? dto.productId : null,
-        variantId: dto.itemType === 'PRODUCT' ? dto.variantId : null,
-        packageId:
-          dto.itemType === 'PACKAGE' || dto.itemType === 'DOCUMENT'
-            ? dto.packageId
-            : null,
-        selectedAddons: selectedAddons,
-        quantity: dto.quantity,
-        unitPrice,
-        totalPrice,
-        specialInstructions: dto.specialInstructions,
-      },
-    });
-
-    // Update cart total
-    await this.updateCartTotal(cart.id);
-
-    return this.getCartSummary(cart.id);
-  }
-
   async mergeGuestCart(userId: string, sessionId: string) {
     return this.prisma.$transaction(async (tx) => {
       const guestCart = await tx.cart.findUnique({
@@ -369,7 +291,8 @@ export class CartService {
 
       // ✅ Nothing to merge
       if (!guestCart || guestCart.items.length === 0) {
-        return this.getCartSummary(userCart.id, userId);
+        //return this.getCartSummary(userCart.id, userId);
+        return this.getCartSummary(userCart.id, userId, sessionId);
       }
 
       for (const guestItem of guestCart.items) {
@@ -423,7 +346,8 @@ export class CartService {
 
       await this.updateCartTotal(userCart.id);
 
-      return this.getCartSummary(userCart.id, userId);
+      //return this.getCartSummary(userCart.id, userId);
+      return this.getCartSummary(userCart.id, userId, sessionId);
     });
   }
 
@@ -484,7 +408,8 @@ export class CartService {
     // 🔄 Recalculate total
     await this.updateCartTotal(userCart.id);
 
-    return this.getCartSummary(userCart.id);
+    //return this.getCartSummary(userCart.id);
+    return this.getCartSummary(userCart.id, userId, sessionId);
   }
 
   /**
@@ -576,7 +501,7 @@ export class CartService {
 
     await this.updateCartTotal(cartItem.cartId);
 
-    return this.getCartSummary(cartItem.cartId);
+    return this.getCartSummary(cartItem.id, userId, sessionId);
   }
 
   /**
@@ -631,7 +556,7 @@ export class CartService {
 
     await this.updateCartTotal(cartItem.cartId);
 
-    return this.getCartSummary(cartItem.cartId);
+    return this.getCartSummary(cartItem.id, userId, sessionId);
   }
 
   /**

@@ -273,6 +273,8 @@ model Subcategory {
   id           String    @id @default(uuid())
   name         String
   description  String?
+  icon         String?
+  image        String?
   categoryId   String
   isActive     Boolean   @default(true)
   displayOrder Int       @default(0)

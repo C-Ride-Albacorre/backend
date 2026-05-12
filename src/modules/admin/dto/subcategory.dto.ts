@@ -23,6 +23,16 @@ export class CreateSubcategoryDto {
   @IsUUID()
   categoryId: string;
 
+  @ApiPropertyOptional({ example: 'https://example.com/icon.png' })
+  //@IsUrl()
+  @IsOptional()
+  icon?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/image.jpg' })
+  //@IsUrl()
+  @IsOptional()
+  image?: string;
+
   @ApiPropertyOptional({ example: true, default: true })
   @IsBoolean()
   @IsOptional()

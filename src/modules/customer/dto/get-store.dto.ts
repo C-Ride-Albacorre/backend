@@ -50,4 +50,8 @@ export class GetStoresQueryDto {
   @IsOptional()
   @IsString()
   categoryId?: string;
+
+  @IsOptional()
+  @IsString()
+  storeId?: string;
 }
