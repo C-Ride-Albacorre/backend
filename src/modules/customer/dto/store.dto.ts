@@ -24,7 +24,7 @@ export class StoreWithDetailsDto {
   phoneNumber: string;
 
   @ApiProperty()
-  minimumOrder: number;
+  dailyOrderLimit: number;
 
   @ApiProperty()
   preparationTime: number;

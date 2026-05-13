@@ -49,6 +49,10 @@ export class CreateOrderDto {
 
   @ApiProperty()
   @IsString()
+  pickupLocation?: string;
+
+  @ApiProperty()
+  @IsString()
   recipientName: string;
 
   @ApiProperty()

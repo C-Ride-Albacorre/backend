@@ -128,7 +128,7 @@ model Store {
   storeAddress     String
   phoneNumber      String
   email            String
-  minimumOrder     Float?          @default(0)
+  dailyOrderLimit  Int?
   preparationTime  Int?
   deliveryFee      Float?
   storeLogo        String?

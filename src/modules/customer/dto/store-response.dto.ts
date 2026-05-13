@@ -9,7 +9,7 @@ export class StoreResponseDto {
   @ApiProperty() storeDescription: string;
   @ApiProperty() storeAddress: string;
   @ApiProperty() phoneNumber: string;
-  @ApiProperty() minimumOrder: number;
+  @ApiProperty() dailyOrderLimit: number;
   @ApiProperty() preparationTime: number;
   @ApiProperty() storeLogo: string;
   @ApiProperty() isOpen: boolean;

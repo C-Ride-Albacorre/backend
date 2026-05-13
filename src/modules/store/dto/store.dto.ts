@@ -109,7 +109,7 @@ export class CreateStoreDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  minimumOrder?: number;
+  dailyOrderLimit?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -197,7 +197,7 @@ export class UpdateStoreDto {
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  minimumOrder?: number;
+  dailyOrderLimit?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()
