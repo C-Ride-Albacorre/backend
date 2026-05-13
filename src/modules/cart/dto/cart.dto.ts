@@ -85,6 +85,12 @@ export class CartItemDto {
 
   @ApiProperty()
   specialInstructions?: string;
+
+  @ApiProperty()
+  storeId?: string;
+
+  @ApiProperty()
+  variantId?: string;
 }
 
 export class CartSummaryDto {
