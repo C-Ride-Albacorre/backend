@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as Chance from 'chance';
 import { DATE_TIME_OFFSET, DEFAULT_LIMIT, SortOrder } from './constant';
@@ -7,9 +6,9 @@ import { BadRequestException, Logger } from '@nestjs/common';
 import levenshtein from 'fast-levenshtein';
 import moment from 'moment';
 import { FileFilterCallback } from 'multer';
-import { User } from '@prisma/client';
 import { ParsedQuery } from '../../common/interfaces/interface';
 import { DashboardFilterTypes, RegistrationMethod } from '../enums';
+import { DateTime } from 'luxon';
 
 const chance = new Chance();
 const logger = new Logger('Helper');
@@ -809,28 +808,21 @@ export default class Helper {
     return (value * Math.PI) / 180;
   }
 
-  // static async findUserByIdentifier(identifier: string): Promise<User | null> {
-  //   // Check if identifier is email or phone
-  //   const isEmail = identifier.includes('@');
 
-  //   if (isEmail) {
-  //     // return this.userRepository.findOne({
-  //     //   where: { email: identifier }
-  //     // });
-  //     return await this.findByEmail(identifier);
-  //   } else {
-  //     // return this.userRepository.findOne({
-  //     //   where: { phoneNumber: identifier }
-  //     // });
-  //     return await this.findByPhoneNumber(identifier);
-  //   }
-  // }
+static timeToMinutes(time: string): number {
+  // "HH:mm" or "HH:mm:ss"
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+}
 
-  // async findByEmail(email: string): Promise<User | null> {
-  //   return this.userRepository.findByEmail(email);
-  // }
+static getCurrentMinutes(timezone = 'Africa/Lagos'): number {
+  const now = DateTime.now().setZone(timezone);
+  return now.hour * 60 + now.minute;
+}
 
-  // async findByPhoneNumber(phoneNumber: string): Promise<User | null> {
-  //   return this.userRepository.findByPhone(phoneNumber);
-  // }
+static getTodayWeekday(timezone = 'Africa/Lagos') {
+  return DateTime.now()
+    .setZone(timezone)
+    .toFormat('cccc'); // Monday, Tuesday...
+}
 }

@@ -16,7 +16,9 @@ import {
 import { PrismaService } from '../../shared/services/prisma.service';
 import { randomUUID } from 'crypto';
 import * as crypto from 'crypto';
-import { OrderStatus, PaymentStatus } from '@prisma/client';
+import { OrderStatus, PaymentStatus, Role } from '@prisma/client';
+import { OrderService } from '../order/order.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class MonnifyService {
@@ -31,6 +33,8 @@ export class MonnifyService {
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly orderService: OrderService,
+    private readonly notificationService: NotificationService,
   ) {
     this.baseUrl = this.configService.get<string>('MONNIFY_BASE_URL');
     this.apiKey = this.configService.get<string>('MONNIFY_API_KEY');
@@ -387,6 +391,14 @@ export class MonnifyService {
             statusHistory: JSON.stringify(statusHistory),
           },
         });
+
+        // ✅ ADD THIS HERE (after DB commit)
+        await this.orderService.transition(order.id, OrderStatus.ORDER_PLACED, {
+          actorId: order.userId,
+          actorRole: Role.CUSTOMER,
+        });
+
+        await this.notificationService.notifyVendorsForOrder(order.id);
       }
 
       // 5️⃣ Return verification info

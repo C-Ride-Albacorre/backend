@@ -42,6 +42,7 @@ import { CustomerModule } from '../customer/customer.module';
     VerificationService,
     AbstractUserRepository,
     AuthService,
+    ZohoEmailProvider,
   ],
 })
 export class UserModule {}
