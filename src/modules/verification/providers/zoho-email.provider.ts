@@ -17,36 +17,6 @@ export class ZohoEmailProvider implements IEmailProvider {
     this.fromEmail = this.configService.get<string>('ZOHO_FROM_EMAIL');
   }
 
-  // async sendEmail(
-  //   to: string,
-  //   subject: string,
-  //   body: string,
-  //   html?: string,
-  // ): Promise<any> {
-  //   try {
-  //     const response = await axios.post(
-  //       `${this.apiUrl}`,
-  //       {
-  //         from: this.fromEmail,
-  //         to: [to],
-  //         subject,
-  //         ...(html ? { htmlbody: html } : { textbody: body }),
-  //       },
-  //       {
-  //         headers: {
-  //           Authorization: `Zoho-authtoken ${this.apiKey}`,
-  //           'Content-Type': 'application/json',
-  //         },
-  //       },
-  //     );
-
-  //     this.logger.log(`Email sent to ${to}: ${response.data.message}`);
-  //     return response.data;
-  //   } catch (error) {
-  //     this.logger.error(`Failed to send email to ${to}: ${error.message}`);
-  //     throw new Error(`Email sending failed: ${error.message}`);
-  //   }
-  // }
   async sendEmail(
     to: string,
     subject: string,
@@ -150,5 +120,16 @@ export class ZohoEmailProvider implements IEmailProvider {
       </body>
       </html>
     `;
+  }
+
+  async sendOrderConfirmation(
+    to: string,
+    otp: string,
+    templateId?: string,
+  ): Promise<any> {
+    const subject = 'Your Verification Code';
+    const html = this.generateOtpEmail(otp);
+
+    return this.sendEmail(to, subject, `Your OTP is: ${otp}`, html);
   }
 }

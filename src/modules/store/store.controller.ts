@@ -22,8 +22,6 @@ import {
   ApiConsumes,
   ApiBody,
   ApiOperation,
-  ApiOkResponse,
-  ApiQuery,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { StoreService } from './store.service';
@@ -32,10 +30,7 @@ import {
   UpdateStoreDto,
   OperatingHoursDto,
 } from './dto/store.dto';
-import Helper from '../../shared/utils/helpers';
 import { PrismaService } from '../../shared/services/prisma.service';
-import { StoreResponseDto } from '../customer/dto/store-response.dto';
-import { GetNearbyStoresQueryDto } from '../customer/dto/near-by-store.dto';
 
 @ApiTags('vendor/stores')
 @Controller('vendor/stores')

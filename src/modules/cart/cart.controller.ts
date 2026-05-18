@@ -10,11 +10,10 @@ import {
   HttpStatus,
   Headers,
 } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CartService } from './cart.service';
 import { AddToCartDto } from './dto/cart.dto';
 import { Public } from '../../common/decorators/public.decorator';
-
 
 @Public()
 @ApiTags('cart')
@@ -54,9 +53,17 @@ export class CartController {
     return this.cartService.addToCart(userId, dto, sessionId);
   }
 
-
   @Post('/item/:itemId/quantity')
   @ApiOperation({ summary: 'Update cart item quantity' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        quantity: { type: 'number', example: 2 },
+      },
+      required: ['quantity'],
+    },
+  })
   @ApiHeader({
     name: 'x-session-id',
     required: false,

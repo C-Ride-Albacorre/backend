@@ -4,11 +4,7 @@ import { IsString, IsEnum, IsInt, Min, Max, Matches } from 'class-validator';
 
 export enum VehicleType {
   CAR = 'CAR',
-  MOTORCYCLE = 'MOTORCYCLE',
-  TRUCK = 'TRUCK',
-  VAN = 'VAN',
-  BICYCLE = 'BICYCLE',
-  OTHER = 'OTHER',
+  EV = 'EV',
 }
 
 export class DriverStep2Dto {

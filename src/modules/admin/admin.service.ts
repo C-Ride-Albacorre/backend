@@ -15,7 +15,7 @@ import { StoreFilterDto } from './dto/store-filter.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { StoreStatus, UserRole } from '../../shared/enums';
 import Helper from '../../shared/utils/helpers';
-import { OnBoardingStatus, UserStatus } from '@prisma/client';
+import { OnBoardingStatus, Role, UserStatus } from '@prisma/client';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { User } from '../user/entities/user.entity';
 import {
@@ -24,6 +24,8 @@ import {
 } from './dto/subcategory.dto';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
+import { ApproveDispatcherDto } from './dto/approve-dispatcher.dto';
+import { DispatcherFilterDto } from './dto/dispatcher-filter.dto';
 
 @Injectable()
 export class AdminService {
@@ -915,6 +917,163 @@ export class AdminService {
       message: `Store ${dto.action.toLowerCase()} successfully`,
       data: updatedStore,
     };
+  }
+
+  async getAllDispatchers(filterDto: DispatcherFilterDto) {
+    const { search, status, page = 1, limit = 10 } = filterDto;
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      role: Role.DISPATCHER,
+    };
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (search) {
+      where.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phoneNumber: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [dispatchers, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          driverProfile: true, // optional if reused
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    const formatted = dispatchers.map((d) => ({
+      id: d.id,
+      name: `${d.firstName} ${d.lastName}`,
+      email: d.email,
+      phoneNumber: d.phoneNumber,
+      status: d.status,
+      createdAt: d.createdAt,
+    }));
+
+    return {
+      success: true,
+      data: formatted,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getDispatcherDetails(dispatcherId: string) {
+    const dispatcher = await this.prisma.user.findFirst({
+      where: {
+        id: dispatcherId,
+        role: Role.DISPATCHER,
+      },
+      include: {
+        driverProfile: true,
+        orders: {
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!dispatcher) {
+      throw new NotFoundException('Dispatcher not found');
+    }
+
+    return {
+      success: true,
+      data: dispatcher,
+    };
+  }
+
+  async approveDispatcher(
+    adminId: string,
+    dispatcherId: string,
+    dto: ApproveDispatcherDto,
+  ) {
+    const dispatcher = await this.prisma.user.findFirst({
+      where: {
+        id: dispatcherId,
+        role: Role.DISPATCHER,
+      },
+    });
+
+    if (!dispatcher) {
+      throw new NotFoundException('Dispatcher not found');
+    }
+
+    if (dto.action === 'APPROVED') {
+      const updated = await this.prisma.user.update({
+        where: { id: dispatcherId },
+        data: {
+          status: UserStatus.ACTIVE,
+          approvedAt: new Date(),
+          approvedBy: adminId,
+          rejectionReason: null,
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Dispatcher approved successfully',
+        data: updated,
+      };
+    }
+
+    if (dto.action === 'REJECTED') {
+      if (!dto.rejectionReason) {
+        throw new BadRequestException('Rejection reason is required');
+      }
+
+      const updated = await this.prisma.user.update({
+        where: { id: dispatcherId },
+        data: {
+          status: UserStatus.REJECTED,
+          approvedAt: null,
+          approvedBy: adminId,
+          rejectionReason: dto.rejectionReason,
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Dispatcher rejected',
+        data: updated,
+      };
+    }
+
+    if (dto.action === 'SUSPENDED') {
+      const updated = await this.prisma.user.update({
+        where: { id: dispatcherId },
+        data: {
+          status: UserStatus.SUSPENDED,
+          approvedAt: null,
+          approvedBy: adminId,
+          rejectionReason: dto.rejectionReason,
+        },
+      });
+
+      return {
+        success: true,
+        message: 'Dispatcher suspended',
+        data: updated,
+      };
+    }
+
+    throw new BadRequestException('Invalid action');
   }
 
   /**

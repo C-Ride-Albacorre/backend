@@ -16,10 +16,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 
-import {
-  FileFieldsInterceptor,
-  FilesInterceptor,
-} from '@nestjs/platform-express';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -158,7 +155,7 @@ STEP 3 – Final Step: Review (Optional save before uploads)
         state: { type: 'string' },
 
         // STEP 2
-        vehicleType: { type: 'string', enum: ['BIKE', 'CAR', 'VAN', 'TRUCK'] },
+        vehicleType: { type: 'string', enum: ['EV', 'CAR'] },
         vehicleMake: { type: 'string' },
         vehicleModel: { type: 'string' },
         year: { type: 'integer' },
