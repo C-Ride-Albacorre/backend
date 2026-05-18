@@ -11,7 +11,7 @@ model User {
   id                    String             @id @default(uuid())
   email                 String?            @unique
   phoneNumber           String?            @unique
-  countryCode           String?            // e.g. "NG", "US", "GB"
+  countryCode           String? // e.g. "NG", "US", "GB"
   password              String?
   firstName             String
   lastName              String
@@ -46,6 +46,9 @@ model User {
   orders                Order[]
   stores                Store[]
   documents             VendorDocument[]
+  notifications         Notification[]
+  fcmToken              String?   // Firebase Cloud Messaging token
+  deviceType            String?   // 'ios', 'android', 'web'
 
   @@index([email])
   @@index([phoneNumber])
@@ -370,8 +373,8 @@ model TaxSetting {
 
 model Cart {
   id          String     @id @default(uuid())
-  userId      String?    @unique  // nullable for guests
-  sessionId   String?    @unique  // for guest users
+  userId      String?    @unique // nullable for guests
+  sessionId   String?    @unique // for guest users
   totalAmount Float      @default(0)
   expiresAt   DateTime?
   createdAt   DateTime   @default(now())
@@ -409,8 +412,8 @@ model CartItem {
 }
 
 model Order {
-  id                   String          @id @default(uuid())
-  orderNumber          String          @unique
+  id                   String             @id @default(uuid())
+  orderNumber          String             @unique
   userId               String
   orderType            OrderType
   subtotal             Float
@@ -420,22 +423,25 @@ model Order {
   totalAmount          Float
   deliveryOptionId     String?
   pickupLocation       String?
-  dropoffLocation      String
+  dropoffLocation      Json
   recipientName        String
   recipientPhone       String
   deliveryInstructions String?
-  paymentStatus        PaymentStatus   @default(PENDING)
+  paymentStatus        PaymentStatus      @default(PENDING)
   paymentMethod        PaymentMethod?
-  paymentReference     String?         @unique
-  monnifyReference     String?         @unique
-  orderStatus          OrderStatus     @default(PENDING)
+  paymentReference     String?            @unique
+  monnifyReference     String?            @unique
+  orderStatus          OrderStatus        @default(PENDING)
   statusHistory        Json?
   metadata             Json?
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
-  deliveryOption       DeliveryOption? @relation(fields: [deliveryOptionId], references: [id])
-  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  deliveryOption       DeliveryOption?    @relation(fields: [deliveryOptionId], references: [id])
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   items                OrderItem[]
+  orderActivityLogs    OrderActivityLog[]
+  vendorOrderAction    VendorOrderAction?
+  driverAssignment     DriverAssignment?
 
   @@index([orderNumber])
   @@index([userId])
@@ -464,7 +470,6 @@ model OrderItem {
   product             Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
   store               Store?       @relation(fields: [storeId], references: [id], onDelete: SetNull)
   variant             Variant?     @relation(fields: [variantId], references: [id], onDelete: SetNull)
-  
 
   @@index([orderId])
   @@index([productId])
@@ -472,29 +477,32 @@ model OrderItem {
 }
 
 model DriverProfile {
-  id                String           @id @default(uuid())
-  userId            String           @unique
+  id                String             @id @default(uuid())
+  userId            String             @unique
   address           String?
   city              String?
   state             String?
-  country           String?          @default("NG")
+  country           String?            @default("NG")
   postalCode        String?
-  vehicleType       VehicleType      @default(CAR)
+  vehicleType       VehicleType        @default(CAR)
   vehicleMake       String?
   vehicleModel      String?
   year              Int?
-  licensePlate      String?          @unique
-  rating            Float?           @default(0)
-  ratingCount       Int?             @default(0)
-  totalDeliveries   Int?             @default(0)
-  status            DriverStatus     @default(OFFLINE)
+  licensePlate      String?            @unique
+  rating            Float?             @default(0)
+  ratingCount       Int?               @default(0)
+  totalDeliveries   Int?               @default(0)
+  status            DriverStatus       @default(OFFLINE)
   latitude          Float?
   longitude         Float?
   locationUpdatedAt DateTime?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
   documents         DriverDocument[]
-  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  driverAssignments DriverAssignment[]
+  fcmToken          String?   // Firebase Cloud Messaging token
+  deviceType        String?   // 'ios', 'android', 'web'
 
   @@index([userId])
   @@index([status])
@@ -513,8 +521,7 @@ model DriverDocument {
   rejectionReason String?
   verifiedAt      DateTime?
   verifiedBy      String?
-  driver          DriverProfile      @relation(fields: [driverId], references: [id])
-
+  driver          DriverProfile      @relation(fields: [driverId], references: [id],  onDelete: Cascade)
   @@unique([driverId, documentType])
 }
 
@@ -533,11 +540,7 @@ enum DriverDocumentType {
 
 enum VehicleType {
   CAR
-  MOTORCYCLE
-  TRUCK
-  VAN
-  BICYCLE
-  OTHER
+  EV
 }
 
 enum Role {
@@ -669,6 +672,9 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
   REFUNDED
+  ORDER_PLACED // new - after customer checkout
+  ORDER_ACCEPTED // new - vendor accepted
+  ORDER_ASSIGNED // new - driver assigned
 }
 
 enum PaymentStatus {
@@ -686,4 +692,85 @@ enum PaymentMethod {
   USSD
   QR_CODE
   WALLET
+}
+// New models
+model OrderActivityLog {
+  id         String       @id @default(uuid())
+  orderId    String
+  actorId    String? // userId (vendor, driver, customer, system)
+  actorRole  Role?
+  action     String // ACCEPTED, DECLINED, ASSIGNED, PICKED_UP, DELIVERED, etc.
+  fromStatus OrderStatus?
+  toStatus   OrderStatus?
+  reason     String? // decline reason
+  metadata   Json? // extra data like driver location, eta
+  createdAt  DateTime     @default(now())
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([createdAt])
+}
+
+model VendorOrderAction {
+  id          String             @id @default(uuid())
+  orderId     String             @unique
+  vendorId    String
+  status      VendorActionStatus @default(PENDING)
+  reason      String?
+  respondedAt DateTime?
+  order       Order              @relation(fields: [orderId], references: [id])
+
+  @@index([vendorId])
+}
+
+enum VendorActionStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model DriverAssignment {
+  id                  String           @id @default(uuid())
+  orderId             String           @unique
+  driverId            String?
+  assignmentStatus    AssignmentStatus @default(PENDING)
+  assignedAt          DateTime?
+  etaSeconds          Int? // from driver to vendor at assignment time
+  pickupConfirmedAt   DateTime?
+  deliveryConfirmedAt DateTime?
+  order               Order            @relation(fields: [orderId], references: [id])
+  driver              DriverProfile?   @relation(fields: [driverId], references: [id])
+
+  @@index([assignmentStatus])
+  @@index([driverId])
+}
+
+enum AssignmentStatus {
+  PENDING // waiting for drivers to accept
+  ASSIGNED // driver accepted
+  REASSIGNING // fallback after timeout
+  FAILED
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json? // additional payload (orderId, deep link)
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  ORDER_STATUS
+  VENDOR_ACTION_REQUIRED
+  DRIVER_ASSIGNMENT
+  PICKUP_ALERT
+  RATING_REQUEST
 }

@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { CreateOrderDto, OrderSummaryDto } from '../customer/dto/order.dto';
@@ -12,10 +13,25 @@ import {
   OrderStatus,
   OrderType,
   PaymentStatus,
+  Prisma,
+  Role,
+  VendorActionStatus,
 } from '@prisma/client';
 import { CartService } from '../cart/cart.service';
-// import { CartService } from '../customer/cart.service.old';
+import Helper from 'src/shared/utils/helpers';
+import { DateTime } from 'luxon';
 // import { v4 as uuidv4 } from 'uuid';
+import { Queue } from 'bullmq';
+import { InjectQueue } from '@nestjs/bullmq';
+import { NotificationService } from '../notification/notification.service';
+import { DriverService } from '../driver/driver.service';
+
+type TransitionContext = {
+  actorId?: string;
+  actorRole?: Role;
+  reason?: string;
+  metadata?: any;
+};
 
 @Injectable()
 export class OrderService {
@@ -24,8 +40,132 @@ export class OrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cartService: CartService,
+    // private orderStatus: OrderStatusService,
+    //private orderService: OrderService,
+    // private driverAssignment: DriverAssignmentService,
+    private driverAssignment: DriverService,
+    private notification: NotificationService,
+    @InjectQueue('order-events') private orderQueue: Queue,
   ) {}
 
+  transitions: Record<
+    string,
+    { from: OrderStatus[]; to: OrderStatus; action: string }
+  > = {
+    confirm_payment: {
+      from: [OrderStatus.ORDER_PLACED], // after payment verification
+      to: OrderStatus.ORDER_PLACED,
+      action: 'ORDER_PLACED',
+    },
+    vendor_accept: {
+      from: [OrderStatus.ORDER_PLACED],
+      to: OrderStatus.ORDER_ACCEPTED,
+      action: 'VENDOR_ACCEPT',
+    },
+    assign_driver: {
+      from: [OrderStatus.ORDER_ACCEPTED],
+      to: OrderStatus.ORDER_ASSIGNED,
+      action: 'ASSIGN_DRIVER',
+    },
+    pickup: {
+      from: [OrderStatus.ORDER_ASSIGNED],
+      to: OrderStatus.PICKED_UP,
+      action: 'PICKUP',
+    },
+    deliver: {
+      from: [OrderStatus.PICKED_UP],
+      to: OrderStatus.DELIVERED,
+      action: 'DELIVER',
+    },
+    cancel: {
+      from: [OrderStatus.ORDER_PLACED, OrderStatus.ORDER_ACCEPTED],
+      to: OrderStatus.CANCELLED,
+      action: 'CANCEL',
+    },
+  };
+
+  async transition(
+    orderId: string,
+    targetStatus: OrderStatus,
+    context: TransitionContext,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { driverAssignment: true }, //vendorAction: true,
+      });
+      if (!order) throw new Error('Order not found');
+
+      const current = order.orderStatus;
+      const transitionKey = Object.keys(this.transitions).find(
+        (key) =>
+          this.transitions[key].to === targetStatus &&
+          this.transitions[key].from.includes(current),
+      );
+      if (!transitionKey) {
+        throw new BadRequestException(
+          `Invalid transition from ${current} to ${targetStatus}`,
+        );
+      }
+      const rule = this.transitions[transitionKey];
+
+      // Update order
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          orderStatus: targetStatus,
+          statusHistory: {
+            push: {
+              status: targetStatus,
+              timestamp: new Date().toISOString(),
+              note: rule.action,
+              actorId: context.actorId,
+              reason: context.reason,
+            },
+          },
+          ...(targetStatus === OrderStatus.ORDER_ACCEPTED && {
+            vendorAcceptedAt: new Date(),
+          }),
+          ...(targetStatus === OrderStatus.ORDER_ASSIGNED && {
+            driverAssignedAt: new Date(),
+          }),
+          ...(targetStatus === OrderStatus.PICKED_UP && {
+            pickupTime: new Date(),
+          }),
+          ...(targetStatus === OrderStatus.DELIVERED && {
+            deliveryTime: new Date(),
+          }),
+        },
+      });
+
+      // Log activity
+      await tx.orderActivityLog.create({
+        data: {
+          orderId,
+          actorId: context.actorId,
+          actorRole: context.actorRole,
+          action: rule.action,
+          fromStatus: current,
+          toStatus: targetStatus,
+          reason: context.reason,
+          metadata: context.metadata,
+        },
+      });
+
+      // Fire background job for side effects (notifications, etc.)
+      await this.orderQueue.add(
+        rule.action,
+        { orderId, context },
+        { attempts: 3 },
+      );
+
+      return updated;
+    });
+  }
+
+  /**
+   * Create order from cart
+   */
   /**
    * Create order from cart
    */
@@ -37,8 +177,571 @@ export class OrderService {
 
     /**
      * STEP 1:
+     * Validate cart ownership
+     */
+    const cart = await this.prisma.cart.findUnique({
+      where: { id: dto.cartId },
+      select: {
+        id: true,
+        userId: true,
+      },
+    });
+
+    if (!cart) {
+      throw new NotFoundException('Cart not found');
+    }
+
+    if (cart.userId !== userId) {
+      throw new ForbiddenException('You are not allowed to access this cart');
+    }
+
+    /**
+     * STEP 2:
+     * Cart summary
+     */
+    const cartSummary = await this.cartService.getCartSummary(dto.cartId);
+
+    if (!cartSummary.items.length) {
+      throw new BadRequestException('Cart is empty');
+    }
+
+    /**
+     * STEP 3:
+     * Order number
+     */
+    const orderNumber = this.generateOrderNumber();
+
+    /**
+     * STEP 4:
+     * Luxon time context (TIMEZONE SAFE)
+     */
+    const timezone = 'Africa/Lagos';
+
+    const now = DateTime.now().setZone(timezone);
+
+    const currentMinutes = now.hour * 60 + now.minute;
+
+    const todayWeekday = now.toFormat('cccc'); // Monday, Tuesday...
+
+    /**
+     * STEP 5:
+     * Serializable transaction + retry
+     */
+    const MAX_RETRIES = 3;
+
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const order = await this.prisma.$transaction(
+          async (prisma) => {
+            /**
+             * STEP 6:
+             * Store IDs
+             */
+            const storeIds = [
+              ...new Set(
+                cartSummary.items.map((i) => i.storeId).filter(Boolean),
+              ),
+            ];
+
+            /**
+             * STEP 7:
+             * BULLETPROOF STORE VALIDATION
+             */
+            await Promise.all(
+              storeIds.map(async (storeId) => {
+                const store = await prisma.store.findUnique({
+                  where: { id: storeId as string },
+                  include: {
+                    operatingHours: true,
+                  },
+                });
+
+                if (!store) {
+                  throw new NotFoundException('Store not found');
+                }
+
+                /**
+                 * STEP 7A:
+                 * Resolve today's operating hours
+                 */
+                const todayHours = store.operatingHours.find(
+                  (h) => h.dayOfWeek === todayWeekday,
+                );
+
+                if (!todayHours || !todayHours.isOpen) {
+                  throw new BadRequestException(
+                    `${store.storeName} is closed today`,
+                  );
+                }
+
+                /**
+                 * STEP 7B:
+                 * Closing-time cutoff (30 mins rule)
+                 */
+                if (todayHours.closingTime) {
+                  const closingMinutes = Helper.timeToMinutes(
+                    todayHours.closingTime,
+                  );
+
+                  const cutoffMinutes = closingMinutes - 30;
+
+                  if (currentMinutes >= cutoffMinutes) {
+                    throw new BadRequestException(
+                      `${store.storeName} is no longer accepting orders (closes at ${todayHours.closingTime})`,
+                    );
+                  }
+                }
+
+                /**
+                 * STEP 7C:
+                 * Daily limit check
+                 */
+                if (store.dailyOrderLimit && store.dailyOrderLimit > 0) {
+                  const startOfDay = new Date();
+                  startOfDay.setHours(0, 0, 0, 0);
+
+                  const endOfDay = new Date();
+                  endOfDay.setHours(23, 59, 59, 999);
+
+                  const todaysOrdersCount = await prisma.order.count({
+                    where: {
+                      createdAt: {
+                        gte: startOfDay,
+                        lte: endOfDay,
+                      },
+                      orderStatus: {
+                        in: [
+                          OrderStatus.PENDING,
+                          OrderStatus.CONFIRMED,
+                          OrderStatus.PROCESSING,
+                          OrderStatus.DELIVERED,
+                        ],
+                      },
+                      items: {
+                        some: {
+                          storeId: store.id,
+                        },
+                      },
+                    },
+                  });
+
+                  if (todaysOrdersCount >= store.dailyOrderLimit) {
+                    throw new BadRequestException(
+                      `${store.storeName} has reached its daily order limit`,
+                    );
+                  }
+                }
+              }),
+            );
+
+            /**
+             * STEP 8:
+             * Create order (JSON SAFE)
+             */
+            const newOrder = await prisma.order.create({
+              data: {
+                orderNumber,
+                userId,
+
+                orderType: this.determineOrderType(cartSummary.items),
+
+                subtotal: cartSummary.subtotal,
+                deliveryFee: cartSummary.deliveryFee,
+                serviceFee: cartSummary.serviceFee,
+                taxAmount: cartSummary.taxAmount,
+                totalAmount: cartSummary.totalAmount,
+
+                deliveryOptionId: dto.deliveryOptionId,
+
+                pickupLocation: dto.pickupLocation
+                  ? JSON.stringify(dto.pickupLocation)
+                  : null,
+
+                dropoffLocation: dto.dropoffLocation
+                  ? { ...dto.dropoffLocation }
+                  : null,
+
+                recipientName: dto.recipientName,
+                recipientPhone: dto.recipientPhone,
+
+                deliveryInstructions: dto.deliveryInstructions,
+
+                paymentStatus: PaymentStatus.PENDING,
+                orderStatus: OrderStatus.PENDING,
+
+                statusHistory: [
+                  {
+                    status: OrderStatus.PENDING,
+                    timestamp: now.toISO(),
+                    note: 'Order created',
+                  },
+                ],
+              },
+            });
+
+            /**
+             * STEP 9:
+             * Bulk insert items
+             */
+            await prisma.orderItem.createMany({
+              data: cartSummary.items.map((item) => ({
+                orderId: newOrder.id,
+
+                itemType: item.itemType as CartItemType,
+
+                productId:
+                  item.itemType === CartItemType.PRODUCT
+                    ? item.productId
+                    : null,
+
+                packageId:
+                  item.itemType === CartItemType.PACKAGE ||
+                  item.itemType === CartItemType.DOCUMENT
+                    ? item.packageId
+                    : null,
+
+                storeId: item.storeId || null,
+                variantId: item.variantId || null,
+
+                selectedAddons: item.selectedAddons || [],
+
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                totalPrice: item.totalPrice,
+
+                specialInstructions: item.specialInstructions || null,
+              })),
+            });
+
+            /**
+             * STEP 10:
+             * Clear cart
+             */
+            await prisma.cartItem.deleteMany({
+              where: { cartId: dto.cartId },
+            });
+
+            await prisma.cart.update({
+              where: { id: dto.cartId },
+              data: { totalAmount: 0 },
+            });
+
+            return newOrder;
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+
+        return this.getOrderSummary(order.id);
+      } catch (err) {
+        lastError = err;
+
+        const isRetryable = err.code === 'P2034' || err.code === 'P2028';
+
+        if (!isRetryable || attempt === MAX_RETRIES) {
+          throw err;
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  async createOrderWithoutOperationTimeCheck(
+    userId: string,
+    dto: CreateOrderDto,
+  ): Promise<OrderSummaryDto> {
+    this.logger.log(`Creating order for user: ${userId}`);
+
+    /**
+     * STEP 1:
+     * Validate cart ownership
+     */
+    const cart = await this.prisma.cart.findUnique({
+      where: { id: dto.cartId },
+      select: {
+        id: true,
+        userId: true,
+      },
+    });
+
+    if (!cart) {
+      throw new NotFoundException('Cart not found');
+    }
+
+    if (cart.userId !== userId) {
+      throw new ForbiddenException('You are not allowed to access this cart');
+    }
+
+    /**
+     * STEP 2:
      * Get cart summary
      */
+    const cartSummary = await this.cartService.getCartSummary(dto.cartId);
+
+    if (!cartSummary.items.length) {
+      throw new BadRequestException('Cart is empty');
+    }
+
+    /**
+     * STEP 3:
+     * Generate order number
+     */
+    const orderNumber = this.generateOrderNumber();
+
+    /**
+     * STEP 4:
+     * UTC-safe day boundaries
+     */
+    const now = new Date();
+
+    const startOfDay = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        0,
+        0,
+        0,
+        0,
+      ),
+    );
+
+    const endOfDay = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        23,
+        59,
+        59,
+        999,
+      ),
+    );
+
+    /**
+     * STEP 5:
+     * Retry wrapper for SERIALIZABLE transaction
+     */
+    const MAX_RETRIES = 3;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const order = await this.prisma.$transaction(
+          async (prisma) => {
+            /**
+             * STEP 6:
+             * Extract store IDs
+             */
+            const storeIds = [
+              ...new Set(
+                cartSummary.items.map((i) => i.storeId).filter(Boolean),
+              ),
+            ];
+
+            /**
+             * STEP 7:
+             * Parallel store validation (performance fix)
+             */
+            await Promise.all(
+              storeIds.map(async (storeId) => {
+                const store = await prisma.store.findUnique({
+                  where: { id: storeId as string },
+                  select: {
+                    id: true,
+                    storeName: true,
+                    dailyOrderLimit: true,
+                  },
+                });
+
+                if (!store) {
+                  throw new NotFoundException('Store not found');
+                }
+
+                if (!store.dailyOrderLimit || store.dailyOrderLimit <= 0) {
+                  return;
+                }
+
+                const todaysOrdersCount = await prisma.order.count({
+                  where: {
+                    createdAt: {
+                      gte: startOfDay,
+                      lte: endOfDay,
+                    },
+                    orderStatus: {
+                      in: [
+                        OrderStatus.PENDING,
+                        OrderStatus.CONFIRMED,
+                        OrderStatus.PROCESSING,
+                        OrderStatus.DELIVERED,
+                      ],
+                    },
+                    items: {
+                      some: {
+                        storeId: store.id,
+                      },
+                    },
+                  },
+                });
+
+                if (todaysOrdersCount >= store.dailyOrderLimit) {
+                  throw new BadRequestException(
+                    `${store.storeName} has reached its daily order limit`,
+                  );
+                }
+              }),
+            );
+
+            /**
+             * STEP 8:
+             * Create order
+             */
+            const newOrder = await prisma.order.create({
+              data: {
+                orderNumber,
+                userId,
+
+                orderType: this.determineOrderType(cartSummary.items),
+
+                subtotal: cartSummary.subtotal,
+                deliveryFee: cartSummary.deliveryFee,
+                serviceFee: cartSummary.serviceFee,
+                taxAmount: cartSummary.taxAmount,
+                totalAmount: cartSummary.totalAmount,
+
+                deliveryOptionId: dto.deliveryOptionId,
+
+                pickupLocation: dto.pickupLocation
+                  ? JSON.stringify(dto.pickupLocation)
+                  : null,
+
+                dropoffLocation: dto.dropoffLocation
+                  ? { ...dto.dropoffLocation } // JSON-safe
+                  : null,
+
+                recipientName: dto.recipientName,
+                recipientPhone: dto.recipientPhone,
+
+                deliveryInstructions: dto.deliveryInstructions,
+
+                paymentStatus: PaymentStatus.PENDING,
+                orderStatus: OrderStatus.PENDING,
+
+                /**
+                 * JSON-safe status history
+                 */
+                statusHistory: [
+                  {
+                    status: OrderStatus.PENDING,
+                    timestamp: new Date().toISOString(),
+                    note: 'Order created',
+                  },
+                ],
+              },
+            });
+
+            /**
+             * STEP 9:
+             * Bulk insert order items
+             */
+            await prisma.orderItem.createMany({
+              data: cartSummary.items.map((item) => ({
+                orderId: newOrder.id,
+
+                itemType: item.itemType as CartItemType,
+
+                productId:
+                  item.itemType === CartItemType.PRODUCT
+                    ? item.productId
+                    : null,
+
+                packageId:
+                  item.itemType === CartItemType.PACKAGE ||
+                  item.itemType === CartItemType.DOCUMENT
+                    ? item.packageId
+                    : null,
+
+                storeId: item.storeId || null,
+                variantId: item.variantId || null,
+
+                selectedAddons: item.selectedAddons || [],
+
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                totalPrice: item.totalPrice,
+
+                specialInstructions: item.specialInstructions || null,
+              })),
+            });
+
+            /**
+             * STEP 10:
+             * Clear cart
+             */
+            await prisma.cartItem.deleteMany({
+              where: { cartId: dto.cartId },
+            });
+
+            await prisma.cart.update({
+              where: { id: dto.cartId },
+              data: { totalAmount: 0 },
+            });
+
+            return newOrder;
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+
+        /**
+         * SUCCESS
+         */
+        return this.getOrderSummary(order.id);
+      } catch (err) {
+        lastError = err;
+
+        const isRetryable = err.code === 'P2034' || err.code === 'P2028';
+
+        if (!isRetryable || attempt === MAX_RETRIES) {
+          throw err;
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  async createOrderbk(
+    userId: string,
+    dto: CreateOrderDto,
+  ): Promise<OrderSummaryDto> {
+    this.logger.log(`Creating order for user: ${userId}`);
+
+    /**
+     * STEP 1:
+     * Get cart summary
+     */
+    const cart = await this.prisma.cart.findUnique({
+      where: { id: dto.cartId },
+      select: {
+        id: true,
+        userId: true,
+      },
+    });
+
+    if (!cart) {
+      throw new NotFoundException('Cart not found');
+    }
+
+    if (cart.userId !== userId) {
+      throw new ForbiddenException('You are not allowed to access this cart');
+    }
+
     const cartSummary = await this.cartService.getCartSummary(dto.cartId);
 
     if (!cartSummary.items.length) {
@@ -192,7 +895,7 @@ export class OrderService {
           data: {
             orderId: newOrder.id,
 
-            itemType: item.itemType as any,
+            itemType: item.itemType as CartItemType,
 
             productId:
               item.itemType === CartItemType.PRODUCT ? item.productId : null,
@@ -502,5 +1205,70 @@ export class OrderService {
     }
 
     return 'MIXED';
+  }
+
+  //////////////////
+
+  async handleVendorAction(
+    orderId: string,
+    vendorId: string,
+    dto: { action: string; reason?: string },
+  ) {
+    // Verify vendor owns a store associated with this order
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { store: true } } },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    const isVendorStore = order.items.some(
+      (item) => item.store?.userId === vendorId,
+    );
+    if (!isVendorStore) throw new ForbiddenException('Not your store');
+
+    const existingAction = await this.prisma.vendorOrderAction.findUnique({
+      where: { orderId },
+    });
+    if (existingAction?.status !== VendorActionStatus.PENDING) {
+      throw new ForbiddenException('Order already responded to');
+    }
+
+    if (dto.action === 'ACCEPT') {
+      // Update vendor action
+      await this.prisma.vendorOrderAction.update({
+        where: { orderId },
+        data: { status: VendorActionStatus.ACCEPTED, respondedAt: new Date() },
+      });
+      // Transition order to ACCEPTED
+      // await this.orderStatus.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
+      await this.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
+        actorId: vendorId,
+        actorRole: Role.VENDOR,
+      });
+      // Initiate driver search (background)
+      const pickupLocation = JSON.parse(order.pickupLocation || '{}');
+      await this.driverAssignment.initiateDriverSearch(orderId, pickupLocation);
+    } else {
+      // DECLINE
+      await this.prisma.vendorOrderAction.update({
+        where: { orderId },
+        data: {
+          status: VendorActionStatus.DECLINED,
+          reason: dto.reason,
+          respondedAt: new Date(),
+        },
+      });
+      await this.transition(orderId, OrderStatus.CANCELLED, {
+        actorId: vendorId,
+        actorRole: Role.VENDOR,
+        reason: dto.reason,
+      });
+      await this.notification.sendOrderCancelled(
+        order.userId,
+        order.orderNumber,
+        dto.reason,
+      );
+    }
+
+    return { success: true };
   }
 }

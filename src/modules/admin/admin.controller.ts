@@ -50,6 +50,8 @@ import {
   FileFieldsInterceptor,
   FileInterceptor,
 } from '@nestjs/platform-express';
+import { DispatcherFilterDto } from './dto/dispatcher-filter.dto';
+import { ApproveDispatcherDto } from './dto/approve-dispatcher.dto';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -131,6 +133,35 @@ export class AdminController {
     @Body() dto: ApproveStoreDto,
   ) {
     return this.adminService.approveStore(user.id, storeId, dto);
+  }
+
+  // =============DISPACTHER============= //
+  @Get('dispatchers')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get all dispatchers with filters' })
+  async getAllDispatchers(@Query() filterDto: DispatcherFilterDto) {
+    return this.adminService.getAllDispatchers(filterDto);
+  }
+
+  @Get('dispatchers/:dispatcherId')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get dispatcher details by ID' })
+  async getDispatcherDetails(@Param('dispatcherId') dispatcherId: string) {
+    return this.adminService.getDispatcherDetails(dispatcherId);
+  }
+
+  @Patch('dispatchers/:dispatcherId/approve')
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Approve or reject dispatcher' })
+  async approveDispatcher(
+    @GetUser() user: any,
+    @Param('dispatcherId') dispatcherId: string,
+    @Body() dto: ApproveDispatcherDto,
+  ) {
+    return this.adminService.approveDispatcher(user.id, dispatcherId, dto);
   }
 
   // ========== CATEGORY ENDPOINTS ==========
