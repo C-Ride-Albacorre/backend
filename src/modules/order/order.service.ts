@@ -369,11 +369,11 @@ export class OrderService {
                 deliveryInstructions: dto.deliveryInstructions,
 
                 paymentStatus: PaymentStatus.PENDING,
-                orderStatus: OrderStatus.PENDING,
+                orderStatus: OrderStatus.ORDER_PLACED,
 
                 statusHistory: [
                   {
-                    status: OrderStatus.PENDING,
+                    status: OrderStatus.ORDER_PLACED,
                     timestamp: now.toISO(),
                     note: 'Order created',
                   },
