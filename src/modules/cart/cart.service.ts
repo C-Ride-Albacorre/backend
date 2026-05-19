@@ -56,6 +56,91 @@ export class CartService {
   }
 
   async getOrCreateCart(userId?: string, sessionId?: string) {
+    console.log('userId', userId);
+    console.log('safeSessionId', sessionId);
+
+    const safeSessionId = sessionId?.trim() || null;
+    const hasUser = !!userId;
+    const hasSession = !!safeSessionId;
+
+    if (!hasUser && !hasSession) {
+      throw new BadRequestException('User or sessionId must be provided');
+    }
+
+    let cart;
+
+    /**
+     * =========================
+     * LOGGED-IN USER FLOW
+     * =========================
+     */
+    if (hasUser) {
+      cart = await this.prisma.cart.findUnique({
+        where: { userId },
+        include: { items: true },
+      });
+
+      /**
+       * Merge guest cart → user cart (only if session exists)
+       */
+      if (!cart && hasSession) {
+        const guestCart = await this.prisma.cart.findUnique({
+          where: { sessionId: safeSessionId },
+          include: { items: true },
+        });
+
+        if (guestCart) {
+          cart = await this.prisma.cart.update({
+            where: { id: guestCart.id },
+            data: {
+              user: { connect: { id: userId } },
+              sessionId: null,
+            },
+            include: { items: true },
+          });
+
+          return cart;
+        }
+      }
+
+      /**
+       * Create user cart if none exists
+       */
+      if (!cart) {
+        cart = await this.prisma.cart.create({
+          data: {
+            user: { connect: { id: userId } },
+          },
+          include: { items: true },
+        });
+      }
+
+      return cart;
+    }
+
+    /**
+     * =========================
+     * GUEST FLOW
+     * =========================
+     */
+    cart = await this.prisma.cart.findUnique({
+      where: { sessionId: safeSessionId },
+      include: { items: true },
+    });
+
+    if (!cart) {
+      cart = await this.prisma.cart.create({
+        data: {
+          sessionId: safeSessionId,
+        },
+        include: { items: true },
+      });
+    }
+
+    return cart;
+  }
+
+  async getOrCreateCartbk(userId?: string, sessionId?: string) {
     if (!userId && !sessionId) {
       throw new BadRequestException('User or sessionId must be provided');
     }
