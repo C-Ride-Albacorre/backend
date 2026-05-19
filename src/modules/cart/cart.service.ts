@@ -501,7 +501,7 @@ export class CartService {
 
     await this.updateCartTotal(cartItem.cartId);
 
-    return this.getCartSummary(cartItem.id, userId, sessionId);
+    return this.getCartSummary(cartItem.cartId, userId, sessionId);
   }
 
   /**
@@ -556,7 +556,7 @@ export class CartService {
 
     await this.updateCartTotal(cartItem.cartId);
 
-    return this.getCartSummary(cartItem.id, userId, sessionId);
+    return this.getCartSummary(cartItem.cartId, userId, sessionId);
   }
 
   /**
