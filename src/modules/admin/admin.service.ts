@@ -1524,7 +1524,48 @@ export class AdminService {
 
   // ========== SUBCATEGORY SERVICES ==========
 
-  async createSubcategory(dto: CreateSubcategoryDto) {
+  // async createSubcategory(dto: CreateSubcategoryDto) {
+  //   // Verify category exists
+  //   const category = await this.prisma.category.findUnique({
+  //     where: { id: dto.categoryId },
+  //   });
+
+  //   if (!category) {
+  //     throw new NotFoundException('Category not found');
+  //   }
+
+  //   try {
+  //     return await this.prisma.subcategory.create({
+  //       data: {
+  //         name: dto.name,
+  //         description: dto.description,
+  //         icon: dto.icon,
+  //         image: dto.image,
+  //         categoryId: dto.categoryId,
+  //         isActive: dto.isActive ?? true,
+  //         displayOrder: dto.displayOrder ?? 0,
+  //       },
+  //       include: {
+  //         category: true,
+  //       },
+  //     });
+  //   } catch (error) {
+  //     if (error.code === 'P2002') {
+  //       throw new ConflictException(
+  //         'Subcategory with this name already exists in this category',
+  //       );
+  //     }
+  //     throw error;
+  //   }
+  // }
+
+  async createSubcategory(
+    dto: CreateSubcategoryDto,
+    files?: {
+      image?: Express.Multer.File[];
+      icon?: Express.Multer.File[];
+    },
+  ) {
     // Verify category exists
     const category = await this.prisma.category.findUnique({
       where: { id: dto.categoryId },
@@ -1535,12 +1576,31 @@ export class AdminService {
     }
 
     try {
+      let imageUrl: string | null = null;
+      let iconUrl: string | null = null;
+
+      // ✅ Upload image
+      if (files?.image?.[0]) {
+        const uploadResult = await this.cloudinaryService.uploadLogo(
+          files.image[0],
+        );
+        imageUrl = uploadResult.secure_url;
+      }
+
+      // ✅ Upload icon
+      if (files?.icon?.[0]) {
+        const uploadResult = await this.cloudinaryService.uploadLogo(
+          files.icon[0],
+        );
+        iconUrl = uploadResult.secure_url;
+      }
+
       return await this.prisma.subcategory.create({
         data: {
           name: dto.name,
           description: dto.description,
-          icon: dto.icon,
-          image: dto.image,
+          icon: iconUrl, // 👈 now from Cloudinary
+          image: imageUrl,
           categoryId: dto.categoryId,
           isActive: dto.isActive ?? true,
           displayOrder: dto.displayOrder ?? 0,

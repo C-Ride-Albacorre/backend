@@ -356,7 +356,45 @@ export class AdminController {
 
   // ========== SUBCATEGORY ENDPOINTS ==========
 
+  // @Post('subcategories')
+  // @ApiOperation({
+  //   summary: 'Create a new subcategory',
+  //   description:
+  //     'Creates a new subcategory under an existing category. Subcategory name must be unique within its category.',
+  // })
+  // @ApiBody({
+  //   type: CreateSubcategoryDto,
+  //   description: 'Subcategory creation data',
+  //   examples: {
+  //     'Italian Subcategory': {
+  //       value: {
+  //         name: 'Italian Restaurant',
+  //         description: 'Authentic Italian cuisine',
+  //         categoryId: '123e4567-e89b-12d3-a456-426614174000',
+  //         isActive: true,
+  //         displayOrder: 1,
+  //       },
+  //     },
+  //   },
+  // })
+  // @ApiCreatedResponse({ description: 'Subcategory created successfully' })
+  // @ApiBadRequestResponse({ description: 'Invalid input data' })
+  // @ApiNotFoundResponse({ description: 'Category not found' })
+  // @ApiConflictResponse({
+  //   description: 'Subcategory with this name already exists in this category',
+  // })
+  // async createSubcategory(@Body() dto: CreateSubcategoryDto) {
+  //   return this.adminService.createSubcategory(dto);
+  // }
+
   @Post('subcategories')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'image', maxCount: 1 },
+      { name: 'icon', maxCount: 1 },
+    ]),
+  )
   @ApiOperation({
     summary: 'Create a new subcategory',
     description:
@@ -371,6 +409,8 @@ export class AdminController {
           name: 'Italian Restaurant',
           description: 'Authentic Italian cuisine',
           categoryId: '123e4567-e89b-12d3-a456-426614174000',
+          icon: 'https://example.com/icons/italian.png',
+          image: 'https://example.com/images/italian.jpg',
           isActive: true,
           displayOrder: 1,
         },
@@ -383,8 +423,15 @@ export class AdminController {
   @ApiConflictResponse({
     description: 'Subcategory with this name already exists in this category',
   })
-  async createSubcategory(@Body() dto: CreateSubcategoryDto) {
-    return this.adminService.createSubcategory(dto);
+  async createSubcategory(
+    @Body() dto: CreateSubcategoryDto,
+    @UploadedFiles()
+    files: {
+      image?: Express.Multer.File[];
+      icon?: Express.Multer.File[];
+    },
+  ) {
+    return this.adminService.createSubcategory(dto, files);
   }
 
   @Get('subcategories')

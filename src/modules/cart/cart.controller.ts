@@ -37,6 +37,22 @@ export class CartController {
     return this.cartService.getCartSummary(cart.id, userId, sessionId);
   }
 
+  // @Post('/add')
+  // @ApiOperation({ summary: 'Add item to cart' })
+  // @ApiHeader({
+  //   name: 'x-session-id',
+  //   required: false,
+  //   description: 'Guest session ID',
+  // })
+  // async addToCart(
+  //   @Request() req,
+  //   @Body() dto: AddToCartDto,
+  //   @Headers('x-session-id') sessionId: string,
+  // ) {
+  //   const userId = req.user?.id || null;
+  //   return this.cartService.addToCart(userId, dto, sessionId);
+  // }
+
   @Post('/add')
   @ApiOperation({ summary: 'Add item to cart' })
   @ApiHeader({
@@ -44,13 +60,19 @@ export class CartController {
     required: false,
     description: 'Guest session ID',
   })
+  @Post('/add')
   async addToCart(
     @Request() req,
     @Body() dto: AddToCartDto,
-    @Headers('x-session-id') sessionId: string,
+    @Headers('x-session-id') sessionId?: string,
   ) {
     const userId = req.user?.id || null;
-    return this.cartService.addToCart(userId, dto, sessionId);
+    const safeSessionId = sessionId?.trim() || null;
+
+    console.log('userId', userId);
+    console.log('safeSessionId', safeSessionId);
+
+    return this.cartService.addToCart(userId, dto, safeSessionId);
   }
 
   @Post('/item/:itemId/quantity')
