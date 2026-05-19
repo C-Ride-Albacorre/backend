@@ -60,7 +60,6 @@ export class CartController {
     required: false,
     description: 'Guest session ID',
   })
-  @Post('/add')
   async addToCart(
     @Request() req,
     @Body() dto: AddToCartDto,
