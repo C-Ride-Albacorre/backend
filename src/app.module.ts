@@ -35,8 +35,6 @@ import { BullModule } from '@nestjs/bullmq';
         }
       })(),
     }),
-
-    // ✅ ADD THIS
     BullModule.forRoot({
       connection: {
         url: process.env.REDIS_URL,
