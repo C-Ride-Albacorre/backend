@@ -18,6 +18,7 @@ import { QueueModule } from './queue/queue.module';
 import { DriverModule } from './modules/driver/driver.module';
 import { CartModule } from './modules/cart/cart.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { BullModule } from '@nestjs/bullmq';
 
 @Module({
   imports: [
@@ -34,6 +35,14 @@ import { NotificationModule } from './modules/notification/notification.module';
         }
       })(),
     }),
+
+    // ✅ ADD THIS
+    BullModule.forRoot({
+      connection: {
+        url: process.env.REDIS_URL,
+      },
+    }),
+
     SharedModule,
     AuthModule,
     UserModule,

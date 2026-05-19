@@ -40,9 +40,6 @@ export class OrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cartService: CartService,
-    // private orderStatus: OrderStatusService,
-    //private orderService: OrderService,
-    // private driverAssignment: DriverAssignmentService,
     private driverAssignment: DriverService,
     private notification: NotificationService,
     @InjectQueue('order-events') private orderQueue: Queue,
