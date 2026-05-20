@@ -115,6 +115,9 @@ export class OrderSummaryDto {
   dropoffLocation: DropoffLocationDto;
 
   @ApiProperty()
+  pickupLocation: PickupLocationDto;
+
+  @ApiProperty()
   recipientName: string;
 
   @ApiProperty()
