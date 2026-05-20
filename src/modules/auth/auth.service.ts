@@ -256,8 +256,13 @@ export class AuthService {
       },
     });
 
+    // if (!admin) {
+    //   throw new UnauthorizedException('Invalid credentials');
+    // }
     if (!admin) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new NotFoundException(
+        'Account not found. Please create an account first.',
+      );
     }
 
     if (!admin.isActive) {
@@ -2925,8 +2930,13 @@ export class AuthService {
 
     const vendor = await this.userRepository.findByEmail(email);
 
+    // if (!vendor) {
+    //   throw new UnauthorizedException('Invalid credentials');
+    // }
     if (!vendor) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new NotFoundException(
+        'Account not found. Please create an account first.',
+      );
     }
 
     // Verify password
@@ -2992,8 +3002,13 @@ export class AuthService {
 
     const user = await this.userRepository.findByEmail(email);
 
+    // if (!user) {
+    //   throw new UnauthorizedException('Invalid credentials');
+    // }
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new NotFoundException(
+        'Account not found. Please create an account first.',
+      );
     }
 
     if (user.role !== role) {
