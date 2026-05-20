@@ -7,7 +7,12 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
-import { CreateOrderDto, DropoffLocationDto, OrderSummaryDto, PickupLocationDto } from '../customer/dto/order.dto';
+import {
+  CreateOrderDto,
+  DropoffLocationDto,
+  OrderSummaryDto,
+  PickupLocationDto,
+} from '../customer/dto/order.dto';
 import {
   CartItemType,
   OrderStatus,
@@ -167,6 +172,323 @@ export class OrderService {
    * Create order from cart
    */
   async createOrder(
+    userId: string,
+    dto: CreateOrderDto,
+  ): Promise<OrderSummaryDto> {
+    this.logger.log(`Creating order for user: ${userId}`);
+
+    /**
+     * STEP 1:
+     * Validate ACTIVE cart ownership
+     */
+    const cart = await this.prisma.cart.findFirst({
+      where: {
+        id: dto.cartId,
+        userId,
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+      },
+    });
+
+    if (!cart) {
+      throw new NotFoundException(
+        'Active cart not found or does not belong to user',
+      );
+    }
+
+    if (cart.status !== 'ACTIVE') {
+      throw new BadRequestException('Cart has already been checked out');
+    }
+
+    /**
+     * STEP 2:
+     * Get validated cart summary
+     */
+    const cartSummary = await this.cartService.getCartSummary(
+      dto.cartId,
+      userId,
+    );
+
+    if (!cartSummary.items.length) {
+      throw new BadRequestException('Cart is empty');
+    }
+
+    /**
+     * STEP 3:
+     * Generate order number
+     */
+    const orderNumber = this.generateOrderNumber();
+
+    /**
+     * STEP 4:
+     * Timezone-safe date handling
+     */
+    const timezone = 'Africa/Lagos';
+
+    const now = DateTime.now().setZone(timezone);
+
+    const currentMinutes = now.hour * 60 + now.minute;
+
+    const todayWeekday = now.toFormat('cccc');
+
+    /**
+     * STEP 5:
+     * Retry-safe serializable transaction
+     */
+    const MAX_RETRIES = 3;
+
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const order = await this.prisma.$transaction(
+          async (prisma) => {
+            /**
+             * STEP 6:
+             * Resolve unique stores
+             */
+            const storeIds = [
+              ...new Set(
+                cartSummary.items.map((i) => i.storeId).filter(Boolean),
+              ),
+            ];
+
+            /**
+             * STEP 7:
+             * Validate stores
+             */
+            await Promise.all(
+              storeIds.map(async (storeId) => {
+                const store = await prisma.store.findUnique({
+                  where: { id: storeId as string },
+                  include: {
+                    operatingHours: true,
+                  },
+                });
+
+                if (!store) {
+                  throw new NotFoundException('Store not found');
+                }
+
+                /**
+                 * Today's operating hours
+                 */
+                const todayHours = store.operatingHours.find(
+                  (h) => h.dayOfWeek === todayWeekday,
+                );
+
+                if (!todayHours || !todayHours.isOpen) {
+                  throw new BadRequestException(
+                    `${store.storeName} is closed today`,
+                  );
+                }
+
+                /**
+                 * 30-minute closing cutoff
+                 */
+                if (todayHours.closingTime) {
+                  const closingMinutes = Helper.timeToMinutes(
+                    todayHours.closingTime,
+                  );
+
+                  const cutoffMinutes = closingMinutes - 30;
+
+                  if (currentMinutes >= cutoffMinutes) {
+                    throw new BadRequestException(
+                      `${store.storeName} is no longer accepting orders (closes at ${todayHours.closingTime})`,
+                    );
+                  }
+                }
+
+                /**
+                 * Daily order limit validation
+                 */
+                if (store.dailyOrderLimit && store.dailyOrderLimit > 0) {
+                  const startOfDay = new Date();
+                  startOfDay.setHours(0, 0, 0, 0);
+
+                  const endOfDay = new Date();
+                  endOfDay.setHours(23, 59, 59, 999);
+
+                  const todaysOrdersCount = await prisma.order.count({
+                    where: {
+                      createdAt: {
+                        gte: startOfDay,
+                        lte: endOfDay,
+                      },
+                      orderStatus: {
+                        in: [
+                          OrderStatus.PENDING,
+                          OrderStatus.CONFIRMED,
+                          OrderStatus.PROCESSING,
+                          OrderStatus.DELIVERED,
+                        ],
+                      },
+                      items: {
+                        some: {
+                          storeId: store.id,
+                        },
+                      },
+                    },
+                  });
+
+                  if (todaysOrdersCount >= store.dailyOrderLimit) {
+                    throw new BadRequestException(
+                      `${store.storeName} has reached its daily order limit`,
+                    );
+                  }
+                }
+              }),
+            );
+
+            /**
+             * STEP 8:
+             * Create immutable order snapshot
+             */
+            const newOrder = await prisma.order.create({
+              data: {
+                orderNumber,
+                userId,
+
+                orderType: this.determineOrderType(cartSummary.items),
+
+                subtotal: cartSummary.subtotal,
+                deliveryFee: cartSummary.deliveryFee,
+                serviceFee: cartSummary.serviceFee,
+                taxAmount: cartSummary.taxAmount,
+                totalAmount: cartSummary.totalAmount,
+
+                deliveryOptionId: dto.deliveryOptionId,
+
+                pickupLocation: dto.pickupLocation
+                  ? {
+                      ...dto.pickupLocation,
+                    }
+                  : null,
+
+                dropoffLocation: dto.dropoffLocation
+                  ? {
+                      ...dto.dropoffLocation,
+                    }
+                  : null,
+
+                recipientName: dto.recipientName,
+
+                recipientPhone: dto.recipientPhone,
+
+                deliveryInstructions: dto.deliveryInstructions,
+
+                paymentStatus: PaymentStatus.PENDING,
+
+                orderStatus: OrderStatus.ORDER_PLACED,
+
+                statusHistory: [
+                  {
+                    status: OrderStatus.ORDER_PLACED,
+                    timestamp: now.toISO(),
+                    note: 'Order created',
+                  },
+                ],
+              },
+            });
+
+            /**
+             * STEP 9:
+             * Create order items
+             */
+            await prisma.orderItem.createMany({
+              data: cartSummary.items.map((item) => ({
+                orderId: newOrder.id,
+
+                itemType: item.itemType as CartItemType,
+
+                productId:
+                  item.itemType === CartItemType.PRODUCT
+                    ? item.productId
+                    : null,
+
+                packageId:
+                  item.itemType === CartItemType.PACKAGE ||
+                  item.itemType === CartItemType.DOCUMENT
+                    ? item.packageId
+                    : null,
+
+                storeId: item.storeId || null,
+
+                variantId: item.variantId || null,
+
+                selectedAddons: item.selectedAddons || [],
+
+                quantity: item.quantity,
+
+                unitPrice: item.unitPrice,
+
+                totalPrice: item.totalPrice,
+
+                specialInstructions: item.specialInstructions || null,
+              })),
+            });
+
+            /**
+             * STEP 10:
+             * Mark cart as checked out
+             *
+             * IMPORTANT:
+             * We NEVER delete carts in production systems.
+             * This preserves:
+             * - audit history
+             * - analytics
+             * - customer support traceability
+             * - fraud investigations
+             */
+            await prisma.cart.update({
+              where: {
+                id: dto.cartId,
+              },
+              data: {
+                status: 'CHECKED_OUT',
+                checkedOutAt: new Date(),
+              },
+            });
+
+            return newOrder;
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+
+        /**
+         * STEP 11:
+         * Return order summary
+         */
+        return this.getOrderSummary(order.id);
+      } catch (err: any) {
+        lastError = err;
+
+        /**
+         * Retry transient transaction failures
+         */
+        const isRetryable = err.code === 'P2034' || err.code === 'P2028';
+
+        if (!isRetryable || attempt === MAX_RETRIES) {
+          throw err;
+        }
+
+        this.logger.warn(
+          `Retrying order transaction (${attempt}/${MAX_RETRIES})`,
+        );
+      }
+    }
+
+    throw lastError;
+  }
+
+  async createOrderBk(
     userId: string,
     dto: CreateOrderDto,
   ): Promise<OrderSummaryDto> {

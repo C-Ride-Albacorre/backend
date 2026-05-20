@@ -47,8 +47,8 @@ model User {
   stores                Store[]
   documents             VendorDocument[]
   notifications         Notification[]
-  fcmToken              String?   // Firebase Cloud Messaging token
-  deviceType            String?   // 'ios', 'android', 'web'
+  fcmToken              String? // Firebase Cloud Messaging token
+  deviceType            String? // 'ios', 'android', 'web'
 
   @@index([email])
   @@index([phoneNumber])
@@ -371,16 +371,25 @@ model TaxSetting {
   @@index([appliesTo])
 }
 
+enum CartStatus {
+  ACTIVE
+  CHECKED_OUT
+  ABANDONED
+}
+
 model Cart {
-  id          String     @id @default(uuid())
-  userId      String?    @unique // nullable for guests
-  sessionId   String?    @unique // for guest users
-  totalAmount Float      @default(0)
-  expiresAt   DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  user        User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items       CartItem[]
+  id           String     @id @default(uuid())
+  userId       String?    @unique // nullable for guests
+  sessionId    String?    @unique // for guest users
+  totalAmount  Float      @default(0)
+  expiresAt    DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  user         User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items        CartItem[]
+  status       CartStatus @default(ACTIVE)
+  checkedOutAt DateTime?
+  abandonedAt  DateTime?
 
   @@index([userId])
   @@index([sessionId])
@@ -501,8 +510,8 @@ model DriverProfile {
   documents         DriverDocument[]
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   driverAssignments DriverAssignment[]
-  fcmToken          String?   // Firebase Cloud Messaging token
-  deviceType        String?   // 'ios', 'android', 'web'
+  fcmToken          String? // Firebase Cloud Messaging token
+  deviceType        String? // 'ios', 'android', 'web'
 
   @@index([userId])
   @@index([status])
@@ -521,7 +530,8 @@ model DriverDocument {
   rejectionReason String?
   verifiedAt      DateTime?
   verifiedBy      String?
-  driver          DriverProfile      @relation(fields: [driverId], references: [id],  onDelete: Cascade)
+  driver          DriverProfile      @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
   @@unique([driverId, documentType])
 }
 
@@ -695,6 +705,7 @@ enum PaymentMethod {
   QR_CODE
   WALLET
 }
+
 // New models
 model OrderActivityLog {
   id         String       @id @default(uuid())
