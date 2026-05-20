@@ -7,7 +7,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
-import { CreateOrderDto, OrderSummaryDto } from '../customer/dto/order.dto';
+import { CreateOrderDto, DropoffLocationDto, OrderSummaryDto, PickupLocationDto } from '../customer/dto/order.dto';
 import {
   CartItemType,
   OrderStatus,
@@ -1074,7 +1074,8 @@ export class OrderService {
       serviceFee: order.serviceFee,
       taxAmount: order.taxAmount,
       totalAmount: order.totalAmount,
-      dropoffLocation: JSON.parse(order.dropoffLocation as string),
+      dropoffLocation: order.dropoffLocation as unknown as DropoffLocationDto,
+      pickupLocation: order.pickupLocation as unknown as PickupLocationDto,
       recipientName: order.recipientName,
       recipientPhone: order.recipientPhone,
       paymentStatus: order.paymentStatus,
