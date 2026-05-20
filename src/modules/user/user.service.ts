@@ -372,8 +372,13 @@ export class UserService {
 
     const user = await this.userRepository.findExistingUser(email, phoneNumber);
 
+    // if (!user) {
+    //   throw new UnauthorizedException('Invalid credentials');
+    // }
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new NotFoundException(
+        'Account not found. Please create an account first.',
+      );
     }
 
     if (!user.isActive) {
