@@ -35,7 +35,7 @@ export class DriverAssignmentProcessor extends WorkerHost {
           await this.driverAssignmentService.prisma.order.findUnique({
             where: { id: orderId },
           });
-        const location = JSON.parse(order.pickupLocation);
+        const location = order.pickupLocation as any;
         const drivers = await this.driverAssignmentService.getNearbyDrivers(
           location.lat,
           location.lng,

@@ -1031,10 +1031,18 @@ export class DriverService {
 
       // Get vendor location from first store (or from order.pickupLocation)
       const store = order.items[0]?.store;
+      // const vendorLat =
+      //    store?.latitude ?? JSON.parse(order.pickupLocation || '{}').lat;
+      // const vendorLng =
+      //   store?.longitude ?? JSON.parse(order.pickupLocation || '{}').lng;
+      const pickupLocation = order.pickupLocation as any;
+
       const vendorLat =
-        store?.latitude ?? JSON.parse(order.pickupLocation || '{}').lat;
+        store?.latitude ?? pickupLocation?.latitude ?? pickupLocation?.lat;
+
       const vendorLng =
-        store?.longitude ?? JSON.parse(order.pickupLocation || '{}').lng;
+        store?.longitude ?? pickupLocation?.longitude ?? pickupLocation?.lng;
+
       if (!vendorLat || !vendorLng) {
         throw new Error('Vendor location not available');
       }
