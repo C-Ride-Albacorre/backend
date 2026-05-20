@@ -6,6 +6,7 @@ import {
   IsPhoneNumber,
   IsOptional,
   ValidateNested,
+  IsNumber,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -32,6 +33,20 @@ export class DropoffLocationDto {
   postalCode?: string;
 }
 
+export class PickupLocationDto {
+  @ApiProperty()
+  @IsString()
+  address: string;
+
+  @ApiProperty()
+  @IsNumber()
+  latitude: number;
+
+  @ApiProperty()
+  @IsNumber()
+  longitude: number;
+}
+
 export class CreateOrderDto {
   @ApiProperty()
   @IsUUID()
@@ -47,9 +62,15 @@ export class CreateOrderDto {
   @Type(() => DropoffLocationDto)
   dropoffLocation: DropoffLocationDto;
 
-  @ApiProperty()
-  @IsString()
-  pickupLocation?: string;
+  // @ApiProperty()
+  // @IsString()
+  // pickupLocation?: string;
+
+  @ApiProperty({ type: PickupLocationDto, required: false })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PickupLocationDto)
+  pickupLocation?: PickupLocationDto;
 
   @ApiProperty()
   @IsString()

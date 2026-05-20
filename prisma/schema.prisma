@@ -422,7 +422,7 @@ model Order {
   taxAmount            Float
   totalAmount          Float
   deliveryOptionId     String?
-  pickupLocation       String?
+  pickupLocation       Json?
   dropoffLocation      Json?
   recipientName        String
   recipientPhone       String
