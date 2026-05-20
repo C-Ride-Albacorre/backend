@@ -196,7 +196,11 @@ export class OrderService {
      * STEP 2:
      * Cart summary
      */
-    const cartSummary = await this.cartService.getCartSummary(dto.cartId);
+    // const cartSummary = await this.cartService.getCartSummary(dto.cartId);
+    const cartSummary = await this.cartService.getCartSummary(
+      dto.cartId,
+      userId,
+    );
 
     if (!cartSummary.items.length) {
       throw new BadRequestException('Cart is empty');
