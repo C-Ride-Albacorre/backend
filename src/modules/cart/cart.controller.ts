@@ -54,6 +54,12 @@ export class CartController {
   // }
 
   @Get('')
+  @ApiOperation({ summary: 'Get current cart' })
+  @ApiHeader({
+    name: 'x-session-id',
+    required: false, // ✅ this is key
+    description: 'Guest session ID',
+  })
   async getCart(@Request() req, @Headers('x-session-id') sessionId: string) {
     const userId = req.user?.id || null;
     const safeSessionId = sessionId?.trim() || null;
