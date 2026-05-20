@@ -353,7 +353,7 @@ export class OrderService {
                 deliveryOptionId: dto.deliveryOptionId,
 
                 pickupLocation: dto.pickupLocation
-                  ? JSON.stringify(dto.pickupLocation)
+                  ? { ...dto.pickupLocation }
                   : null,
 
                 dropoffLocation: dto.dropoffLocation
@@ -1242,7 +1242,8 @@ export class OrderService {
         actorRole: Role.VENDOR,
       });
       // Initiate driver search (background)
-      const pickupLocation = JSON.parse(order.pickupLocation || '{}');
+      // const pickupLocation = JSON.parse(order.pickupLocation || '{}');
+      const pickupLocation = (order.pickupLocation as any) || {};
       await this.driverAssignment.initiateDriverSearch(orderId, pickupLocation);
     } else {
       // DECLINE
