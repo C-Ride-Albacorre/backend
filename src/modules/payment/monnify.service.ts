@@ -206,6 +206,19 @@ export class MonnifyService {
     let webhookData: any;
     try {
       webhookData = JSON.parse(rawBody);
+      this.logger.log(`Full webhook payload: ${JSON.stringify(webhookData)}`);
+
+      const transactionRef =
+        webhookData.transactionReference || webhookData.transactionReference;
+
+      if (!transactionRef) {
+        this.logger.error(
+          `Invalid webhook: missing transactionReference. Payload: ${JSON.stringify(webhookData)}`,
+        );
+        throw new BadRequestException(
+          'Missing transactionReference in webhook',
+        );
+      }
     } catch (e) {
       throw new BadRequestException('Invalid JSON payload');
     }
