@@ -32,6 +32,9 @@ async function bootstrap() {
     rawBody: true,
   });
 
+  // ✅ Enable trust proxy (required when behind a reverse proxy like Render)
+  app.set('trust proxy', true);
+
   // ✅ HEAD
   app.use((req, res, next) => {
     if (req.method === 'HEAD' && req.url === '/') {
