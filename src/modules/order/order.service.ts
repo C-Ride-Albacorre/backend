@@ -15,6 +15,7 @@ import {
 } from '../customer/dto/order.dto';
 import {
   CartItemType,
+  CartStatus,
   OrderStatus,
   OrderType,
   PaymentStatus,
@@ -175,57 +176,61 @@ export class OrderService {
     userId: string,
     dto: CreateOrderDto,
   ): Promise<OrderSummaryDto> {
-    this.logger.log(`Creating order for user: ${userId}`);
+    const requestId = crypto.randomUUID();
+
+    this.logger.log(
+      `[${requestId}] ORDER_CREATE_STARTED user=${userId} cart=${dto.cartId}`,
+    );
 
     /**
+     * =========================================================
      * STEP 1:
-     * Validate ACTIVE cart ownership
+     * Validate cart existence + ownership
+     * =========================================================
      */
-    const cart = await this.prisma.cart.findFirst({
+    const existingCart = await this.prisma.cart.findUnique({
       where: {
         id: dto.cartId,
-        userId,
-        status: 'ACTIVE',
       },
       select: {
         id: true,
         userId: true,
         status: true,
+        checkedOutAt: true,
       },
     });
 
-    if (!cart) {
-      throw new NotFoundException(
-        'Active cart not found or does not belong to user',
-      );
-    }
-
-    if (cart.status !== 'ACTIVE') {
-      throw new BadRequestException('Cart has already been checked out');
-    }
-
-    /**
-     * STEP 2:
-     * Get validated cart summary
-     */
-    const cartSummary = await this.cartService.getCartSummary(
-      dto.cartId,
-      userId,
+    this.logger.log(
+      `[${requestId}] CART_LOOKUP_RESULT ${JSON.stringify(existingCart)}`,
     );
 
-    if (!cartSummary.items.length) {
-      throw new BadRequestException('Cart is empty');
+    if (!existingCart) {
+      this.logger.warn(`[${requestId}] CART_NOT_FOUND cart=${dto.cartId}`);
+
+      throw new NotFoundException('Cart not found');
+    }
+
+    if (existingCart.userId !== userId) {
+      this.logger.warn(
+        `[${requestId}] CART_OWNERSHIP_FAILED cart=${dto.cartId} owner=${existingCart.userId} requester=${userId}`,
+      );
+
+      throw new ForbiddenException('You are not allowed to access this cart');
+    }
+
+    if (existingCart.status !== 'ACTIVE') {
+      this.logger.warn(
+        `[${requestId}] INVALID_CART_STATUS cart=${dto.cartId} status=${existingCart.status}`,
+      );
+
+      throw new BadRequestException(`Cart is ${existingCart.status}`);
     }
 
     /**
-     * STEP 3:
-     * Generate order number
-     */
-    const orderNumber = this.generateOrderNumber();
-
-    /**
-     * STEP 4:
-     * Timezone-safe date handling
+     * =========================================================
+     * STEP 2:
+     * Timezone-safe context
+     * =========================================================
      */
     const timezone = 'Africa/Lagos';
 
@@ -236,8 +241,10 @@ export class OrderService {
     const todayWeekday = now.toFormat('cccc');
 
     /**
-     * STEP 5:
+     * =========================================================
+     * STEP 3:
      * Retry-safe serializable transaction
+     * =========================================================
      */
     const MAX_RETRIES = 3;
 
@@ -245,11 +252,78 @@ export class OrderService {
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
+        this.logger.log(`[${requestId}] TRANSACTION_ATTEMPT=${attempt}`);
+
         const order = await this.prisma.$transaction(
           async (prisma) => {
             /**
+             * =====================================================
+             * STEP 4:
+             * ATOMIC cart lock
+             * Prevent double checkout
+             * =====================================================
+             */
+            const lockResult = await prisma.cart.updateMany({
+              where: {
+                id: dto.cartId,
+                userId,
+                status: CartStatus.ACTIVE,
+              },
+              data: {
+                status: CartStatus.CHECKED_OUT,
+              },
+            });
+
+            this.logger.log(
+              `[${requestId}] CART_LOCK_RESULT count=${lockResult.count}`,
+            );
+
+            if (lockResult.count === 0) {
+              this.logger.warn(
+                `[${requestId}] CART_ALREADY_PROCESSING cart=${dto.cartId}`,
+              );
+
+              throw new BadRequestException('Cart is already being processed');
+            }
+
+            /**
+             * =====================================================
+             * STEP 5:
+             * Recompute cart INSIDE transaction
+             * =====================================================
+             */
+            const cartSummary = await this.cartService.getCartSummary(
+              dto.cartId,
+              userId,
+            );
+
+            this.logger.log(
+              `[${requestId}] CART_SUMMARY subtotal=${cartSummary.subtotal} total=${cartSummary.totalAmount} items=${cartSummary.items.length}`,
+            );
+
+            if (!cartSummary.items.length) {
+              this.logger.warn(`[${requestId}] EMPTY_CART cart=${dto.cartId}`);
+
+              throw new BadRequestException('Cart is empty');
+            }
+
+            /**
+             * =====================================================
              * STEP 6:
-             * Resolve unique stores
+             * Generate order number
+             * =====================================================
+             */
+            const orderNumber = this.generateOrderNumber();
+
+            this.logger.log(
+              `[${requestId}] ORDER_NUMBER_GENERATED ${orderNumber}`,
+            );
+
+            /**
+             * =====================================================
+             * STEP 7:
+             * Resolve stores
+             * =====================================================
              */
             const storeIds = [
               ...new Set(
@@ -257,38 +331,56 @@ export class OrderService {
               ),
             ];
 
+            this.logger.log(
+              `[${requestId}] STORES_RESOLVED count=${storeIds.length}`,
+            );
+
             /**
-             * STEP 7:
-             * Validate stores
+             * =====================================================
+             * STEP 8:
+             * Store validation
+             * =====================================================
              */
             await Promise.all(
               storeIds.map(async (storeId) => {
+                this.logger.log(`[${requestId}] VALIDATING_STORE ${storeId}`);
+
                 const store = await prisma.store.findUnique({
-                  where: { id: storeId as string },
+                  where: {
+                    id: storeId as string,
+                  },
                   include: {
                     operatingHours: true,
                   },
                 });
 
                 if (!store) {
+                  this.logger.warn(
+                    `[${requestId}] STORE_NOT_FOUND store=${storeId}`,
+                  );
+
                   throw new NotFoundException('Store not found');
                 }
 
                 /**
-                 * Today's operating hours
+                 * Today's hours
                  */
                 const todayHours = store.operatingHours.find(
                   (h) => h.dayOfWeek === todayWeekday,
                 );
 
                 if (!todayHours || !todayHours.isOpen) {
+                  this.logger.warn(
+                    `[${requestId}] STORE_CLOSED store=${store.storeName}`,
+                  );
+
                   throw new BadRequestException(
                     `${store.storeName} is closed today`,
                   );
                 }
 
                 /**
-                 * 30-minute closing cutoff
+                 * Closing cutoff
                  */
                 if (todayHours.closingTime) {
                   const closingMinutes = Helper.timeToMinutes(
@@ -298,14 +390,18 @@ export class OrderService {
                   const cutoffMinutes = closingMinutes - 30;
 
                   if (currentMinutes >= cutoffMinutes) {
+                    this.logger.warn(
+                      `[${requestId}] STORE_CUTOFF_REACHED store=${store.storeName}`,
+                    );
+
                     throw new BadRequestException(
-                      `${store.storeName} is no longer accepting orders (closes at ${todayHours.closingTime})`,
+                      `${store.storeName} is no longer accepting orders`,
                     );
                   }
                 }
 
                 /**
-                 * Daily order limit validation
+                 * Daily order limit
                  */
                 if (store.dailyOrderLimit && store.dailyOrderLimit > 0) {
                   const startOfDay = new Date();
@@ -322,7 +418,7 @@ export class OrderService {
                       },
                       orderStatus: {
                         in: [
-                          OrderStatus.PENDING,
+                          OrderStatus.ORDER_PLACED,
                           OrderStatus.CONFIRMED,
                           OrderStatus.PROCESSING,
                           OrderStatus.DELIVERED,
@@ -336,7 +432,15 @@ export class OrderService {
                     },
                   });
 
+                  this.logger.log(
+                    `[${requestId}] STORE_DAILY_COUNT store=${store.storeName} count=${todaysOrdersCount}`,
+                  );
+
                   if (todaysOrdersCount >= store.dailyOrderLimit) {
+                    this.logger.warn(
+                      `[${requestId}] STORE_LIMIT_REACHED store=${store.storeName}`,
+                    );
+
                     throw new BadRequestException(
                       `${store.storeName} has reached its daily order limit`,
                     );
@@ -346,8 +450,10 @@ export class OrderService {
             );
 
             /**
-             * STEP 8:
-             * Create immutable order snapshot
+             * =====================================================
+             * STEP 9:
+             * Create order
+             * =====================================================
              */
             const newOrder = await prisma.order.create({
               data: {
@@ -377,7 +483,6 @@ export class OrderService {
                   : null,
 
                 recipientName: dto.recipientName,
-
                 recipientPhone: dto.recipientPhone,
 
                 deliveryInstructions: dto.deliveryInstructions,
@@ -396,9 +501,15 @@ export class OrderService {
               },
             });
 
+            this.logger.log(
+              `[${requestId}] ORDER_CREATED id=${newOrder.id} number=${newOrder.orderNumber}`,
+            );
+
             /**
-             * STEP 9:
+             * =====================================================
+             * STEP 10:
              * Create order items
+             * =====================================================
              */
             await prisma.orderItem.createMany({
               data: cartSummary.items.map((item) => ({
@@ -433,27 +544,29 @@ export class OrderService {
               })),
             });
 
+            this.logger.log(
+              `[${requestId}] ORDER_ITEMS_CREATED count=${cartSummary.items.length}`,
+            );
+
             /**
-             * STEP 10:
-             * Mark cart as checked out
-             *
-             * IMPORTANT:
-             * We NEVER delete carts in production systems.
-             * This preserves:
-             * - audit history
-             * - analytics
-             * - customer support traceability
-             * - fraud investigations
+             * =====================================================
+             * STEP 11:
+             * Finalize cart
+             * =====================================================
              */
             await prisma.cart.update({
               where: {
                 id: dto.cartId,
               },
               data: {
-                status: 'CHECKED_OUT',
+                status: CartStatus.CHECKED_OUT,
                 checkedOutAt: new Date(),
               },
             });
+
+            this.logger.log(
+              `[${requestId}] CART_CHECKED_OUT cart=${dto.cartId}`,
+            );
 
             return newOrder;
           },
@@ -463,12 +576,23 @@ export class OrderService {
         );
 
         /**
-         * STEP 11:
-         * Return order summary
+         * =========================================================
+         * STEP 12:
+         * Success response
+         * =========================================================
          */
+        this.logger.log(
+          `[${requestId}] ORDER_CREATE_SUCCESS order=${order.id}`,
+        );
+
         return this.getOrderSummary(order.id);
       } catch (err: any) {
         lastError = err;
+
+        this.logger.error(
+          `[${requestId}] ORDER_CREATE_FAILED attempt=${attempt} error=${err.message}`,
+          err.stack,
+        );
 
         /**
          * Retry transient transaction failures
@@ -476,11 +600,33 @@ export class OrderService {
         const isRetryable = err.code === 'P2034' || err.code === 'P2028';
 
         if (!isRetryable || attempt === MAX_RETRIES) {
+          /**
+           * IMPORTANT:
+           * Reset stuck cart status if checkout failed
+           */
+          try {
+            await this.prisma.cart.updateMany({
+              where: {
+                id: dto.cartId,
+                status: CartStatus.CHECKED_OUT,
+              },
+              data: {
+                status: CartStatus.ACTIVE,
+              },
+            });
+
+            this.logger.warn(
+              `[${requestId}] CART_STATUS_RESET_TO_ACTIVE cart=${dto.cartId}`,
+            );
+          } catch (resetErr) {
+            this.logger.error(`[${requestId}] FAILED_TO_RESET_CART_STATUS`);
+          }
+
           throw err;
         }
 
         this.logger.warn(
-          `Retrying order transaction (${attempt}/${MAX_RETRIES})`,
+          `[${requestId}] RETRYING_TRANSACTION attempt=${attempt}`,
         );
       }
     }
