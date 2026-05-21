@@ -29,6 +29,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger,
     bufferLogs: true,
+    rawBody: true,
   });
 
   // ✅ HEAD
@@ -114,7 +115,7 @@ async function bootstrap() {
       transformOptions: {
         enableImplicitConversion: true,
       },
-      forbidNonWhitelisted: true,
+      forbidNonWhitelisted: false, //true,
       skipMissingProperties: false,
       // Important: disable auto-validation for unknown types
       disableErrorMessages: false,
