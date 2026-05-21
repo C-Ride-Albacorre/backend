@@ -33,7 +33,7 @@ async function bootstrap() {
   });
 
   // ✅ Enable trust proxy (required when behind a reverse proxy like Render)
-  app.set('trust proxy', true);
+  app.set('trust proxy', 1);
 
   // ✅ HEAD
   app.use((req, res, next) => {
