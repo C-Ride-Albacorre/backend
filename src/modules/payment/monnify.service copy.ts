@@ -226,7 +226,113 @@ export class MonnifyService {
   //   webhookData: MonnifyWebhookDto,
   //   signature: string, // pass from controller header
   // ) {
-  async handleWebhook(rawBody: string, signature: string) {
+  async handleWebhook(
+    rawBody: string,
+    signature: string,
+  ): Promise<{ success: true }> {
+    this.logger.log('Processing webhook');
+
+    // 1. Verify signature using rawBody
+    if (!this.verifyWebhookSignature(rawBody, signature)) {
+      this.logger.error('Invalid webhook signature');
+      throw new ForbiddenException('Invalid signature');
+    }
+
+    let webhookData: any;
+    try {
+      webhookData = JSON.parse(rawBody);
+    } catch (e) {
+      throw new BadRequestException('Invalid JSON payload');
+    }
+
+    this.logger.log(`Full webhook payload: ${JSON.stringify(webhookData)}`);
+
+    // 2. Extract transactionReference (handle both root and nested in eventData)
+    let transactionRef = webhookData.transactionReference;
+    if (!transactionRef && webhookData.eventData) {
+      transactionRef = webhookData.eventData.transactionReference;
+    }
+
+    if (!transactionRef) {
+      // Ignore test webhooks or events without transaction reference
+      if (webhookData.eventType === 'TEST' || webhookData.test === true) {
+        this.logger.log('Ignoring test webhook');
+        return { success: true };
+      }
+      this.logger.error(
+        `Missing transactionReference in webhook: ${JSON.stringify(webhookData)}`,
+      );
+      throw new BadRequestException('Missing transactionReference');
+    }
+
+    this.logger.log(`Webhook received for transaction: ${transactionRef}`);
+
+    // 3. Find order using transactionReference (monnifyReference)
+    const order = await this.prisma.order.findFirst({
+      where: { monnifyReference: transactionRef },
+    });
+
+    if (!order) {
+      this.logger.error(`Order not found for transaction: ${transactionRef}`);
+      throw new NotFoundException(
+        `Order not found for reference ${transactionRef}`,
+      );
+    }
+
+    // 4. Idempotent update – only if still PENDING
+    const result = await this.prisma.order.updateMany({
+      where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
+      data: {
+        paymentStatus: PaymentStatus.PAID,
+        orderStatus: OrderStatus.CONFIRMED,
+        statusHistory: {
+          push: {
+            status: OrderStatus.CONFIRMED,
+            timestamp: new Date().toISOString(),
+            note: 'Payment confirmed via webhook',
+          },
+        },
+      },
+    });
+
+    if (result.count === 0) {
+      this.logger.warn(`Webhook already processed for order ${order.id}`);
+      return { success: true };
+    }
+
+    // 5. Optional: Verify with Monnify API (already confirmed by signature, but safe)
+    const verification = await this.verifyPayment(transactionRef);
+    if (verification?.responseBody?.paymentStatus !== 'PAID') {
+      // Rollback
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: {
+          paymentStatus: PaymentStatus.PENDING,
+          orderStatus: OrderStatus.PENDING,
+        },
+      });
+      throw new BadRequestException('Payment verification failed');
+    }
+
+    // 6. Trigger business logic
+    await this.orderService
+      .transition(order.id, OrderStatus.ORDER_PLACED, {
+        actorId: order.userId,
+        actorRole: 'CUSTOMER',
+      })
+      .catch((e) => this.logger.error(`Transition failed: ${e.message}`));
+
+    await this.notificationService
+      .notifyVendorsForOrder(order.id)
+      .catch((e) =>
+        this.logger.error(`Vendor notification failed: ${e.message}`),
+      );
+
+    this.logger.log(`Order ${order.orderNumber} marked as PAID via webhook`);
+    return { success: true };
+  }
+
+  async handleWebhookbk(rawBody: string, signature: string) {
     if (!this.verifyWebhookSignature(rawBody, signature)) {
       throw new ForbiddenException('Invalid signature');
     }
