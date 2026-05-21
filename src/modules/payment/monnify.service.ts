@@ -190,14 +190,13 @@ export class MonnifyService {
   }
 
   // ==================== WEBHOOK (FIXED SIGNATURE + IDEMPOTENCY) ====================
-
   async handleWebhook(
     rawBody: string,
     signature: string,
   ): Promise<{ success: true }> {
     this.logger.log('Processing webhook');
 
-    // 1. Signature validation (raw body)
+    // 1. Verify signature using rawBody
     if (!this.verifyWebhookSignature(rawBody, signature)) {
       this.logger.error('Invalid webhook signature');
       throw new ForbiddenException('Invalid signature');
@@ -206,47 +205,48 @@ export class MonnifyService {
     let webhookData: any;
     try {
       webhookData = JSON.parse(rawBody);
-      this.logger.log(`Full webhook payload: ${JSON.stringify(webhookData)}`);
-
-      const transactionRef =
-        webhookData.transactionReference || webhookData.transactionReference;
-
-      if (!transactionRef) {
-        this.logger.error(
-          `Invalid webhook: missing transactionReference. Payload: ${JSON.stringify(webhookData)}`,
-        );
-        throw new BadRequestException(
-          'Missing transactionReference in webhook',
-        );
-      }
     } catch (e) {
       throw new BadRequestException('Invalid JSON payload');
     }
 
-    const transactionRef = webhookData.transactionReference;
+    this.logger.log(`Full webhook payload: ${JSON.stringify(webhookData)}`);
+
+    // 2. Extract transactionReference from the nested eventData object
+    let transactionRef = webhookData.transactionReference;
+    if (!transactionRef && webhookData.eventData) {
+      transactionRef = webhookData.eventData.transactionReference;
+    }
+
+    if (!transactionRef) {
+      // Ignore test webhooks or non-payment events
+      if (webhookData.eventType === 'TEST' || webhookData.test === true) {
+        this.logger.log('Ignoring test webhook');
+        return { success: true };
+      }
+      this.logger.error(
+        `Missing transactionReference in webhook: ${JSON.stringify(webhookData)}`,
+      );
+      throw new BadRequestException('Missing transactionReference');
+    }
+
     this.logger.log(`Webhook received for transaction: ${transactionRef}`);
 
-    // 2. Find order (using monnifyReference)
+    // 3. Find order using transactionReference (monnifyReference)
     const order = await this.prisma.order.findFirst({
       where: { monnifyReference: transactionRef },
     });
 
     if (!order) {
       this.logger.error(`Order not found for transaction: ${transactionRef}`);
-      // Do NOT throw 404 – maybe Monnify sent a transaction we don't know.
-      // But we must return 200? No – throw 404 so Monnify retries? Better throw 422.
+      // A 404 will prompt Monnify to retry.
       throw new NotFoundException(
         `Order not found for reference ${transactionRef}`,
       );
     }
 
-    // 3. Idempotency / duplicate check using updateMany
-    //    Attempt to update only if status is still PENDING
+    // 4. Idempotent update – only if payment is still PENDING
     const result = await this.prisma.order.updateMany({
-      where: {
-        id: order.id,
-        paymentStatus: PaymentStatus.PENDING,
-      },
+      where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
       data: {
         paymentStatus: PaymentStatus.PAID,
         orderStatus: OrderStatus.CONFIRMED,
@@ -262,19 +262,15 @@ export class MonnifyService {
 
     if (result.count === 0) {
       this.logger.warn(`Webhook already processed for order ${order.id}`);
-      return { success: true }; // already paid
+      // Return success so Monnify doesn't retry
+      return { success: true };
     }
 
-    // 4. OPTIONAL: Verify with Monnify to be absolutely sure
+    // 5. VERIFICATION - Re-query Monnify API as a final safety check
+    // This protects against forged webhook requests, even if the signature is valid.
     const verification = await this.verifyPayment(transactionRef);
-    const verifiedStatus = verification?.responseBody?.paymentStatus;
-    if (verifiedStatus !== 'PAID') {
-      // This shouldn't happen if signature is valid, but rollback the update?
-      // Because we already updated DB. Better to revert or log critical.
-      this.logger.error(
-        `Verification mismatch for order ${order.id}: ${verifiedStatus}`,
-      );
-      // Revert status (optional but safe)
+    if (verification?.responseBody?.paymentStatus !== 'PAID') {
+      // Rollback the database update if the official API check fails
       await this.prisma.order.update({
         where: { id: order.id },
         data: {
@@ -282,11 +278,13 @@ export class MonnifyService {
           orderStatus: OrderStatus.PENDING,
         },
       });
+      this.logger.error(
+        `Verification mismatch for order ${order.id}: ${verification?.responseBody?.paymentStatus}`,
+      );
       throw new BadRequestException('Payment verification failed');
     }
 
-    // 5. Trigger business logic (order placed, vendor notifications)
-    //    Ensure these are idempotent or called only once.
+    // 6. Trigger business logic
     await this.orderService
       .transition(order.id, OrderStatus.ORDER_PLACED, {
         actorId: order.userId,
@@ -306,13 +304,144 @@ export class MonnifyService {
 
   private verifyWebhookSignature(rawBody: string, signature: string): boolean {
     const secret = this.secretKey;
-    const cleanSig = signature?.trim().replace(/^"|"$/g, '');
+    // Clean the signature (remove any surrounding whitespace or quotes)
+    const cleanSignature = signature?.trim().replace(/^"|"$/g, '');
+    // Hash the exact raw body string
     const hash = crypto
       .createHmac('sha512', secret)
       .update(rawBody)
       .digest('hex');
-    return hash === cleanSig;
+    const isValid = hash === cleanSignature;
+
+    if (!isValid) {
+      this.logger.warn(
+        `Signature verification failed. Expected: ${hash}, Received: ${cleanSignature}`,
+      );
+    }
+    return isValid;
   }
+  // async handleWebhook(
+  //   rawBody: string,
+  //   signature: string,
+  // ): Promise<{ success: true }> {
+  //   this.logger.log('Processing webhook');
+
+  //   // 1. Signature validation (raw body)
+  //   if (!this.verifyWebhookSignature(rawBody, signature)) {
+  //     this.logger.error('Invalid webhook signature');
+  //     throw new ForbiddenException('Invalid signature');
+  //   }
+
+  //   let webhookData: any;
+  //   try {
+  //     webhookData = JSON.parse(rawBody);
+  //     this.logger.log(`Full webhook payload: ${JSON.stringify(webhookData)}`);
+
+  //     const transactionRef =
+  //       webhookData.transactionReference || webhookData.transactionReference;
+
+  //     if (!transactionRef) {
+  //       this.logger.error(
+  //         `Invalid webhook: missing transactionReference. Payload: ${JSON.stringify(webhookData)}`,
+  //       );
+  //       throw new BadRequestException(
+  //         'Missing transactionReference in webhook',
+  //       );
+  //     }
+  //   } catch (e) {
+  //     throw new BadRequestException('Invalid JSON payload');
+  //   }
+
+  //   const transactionRef = webhookData.transactionReference;
+  //   this.logger.log(`Webhook received for transaction: ${transactionRef}`);
+
+  //   // 2. Find order (using monnifyReference)
+  //   const order = await this.prisma.order.findFirst({
+  //     where: { monnifyReference: transactionRef },
+  //   });
+
+  //   if (!order) {
+  //     this.logger.error(`Order not found for transaction: ${transactionRef}`);
+  //     // Do NOT throw 404 – maybe Monnify sent a transaction we don't know.
+  //     // But we must return 200? No – throw 404 so Monnify retries? Better throw 422.
+  //     throw new NotFoundException(
+  //       `Order not found for reference ${transactionRef}`,
+  //     );
+  //   }
+
+  //   // 3. Idempotency / duplicate check using updateMany
+  //   //    Attempt to update only if status is still PENDING
+  //   const result = await this.prisma.order.updateMany({
+  //     where: {
+  //       id: order.id,
+  //       paymentStatus: PaymentStatus.PENDING,
+  //     },
+  //     data: {
+  //       paymentStatus: PaymentStatus.PAID,
+  //       orderStatus: OrderStatus.CONFIRMED,
+  //       statusHistory: {
+  //         push: {
+  //           status: OrderStatus.CONFIRMED,
+  //           timestamp: new Date().toISOString(),
+  //           note: 'Payment confirmed via webhook',
+  //         },
+  //       },
+  //     },
+  //   });
+
+  //   if (result.count === 0) {
+  //     this.logger.warn(`Webhook already processed for order ${order.id}`);
+  //     return { success: true }; // already paid
+  //   }
+
+  //   // 4. OPTIONAL: Verify with Monnify to be absolutely sure
+  //   const verification = await this.verifyPayment(transactionRef);
+  //   const verifiedStatus = verification?.responseBody?.paymentStatus;
+  //   if (verifiedStatus !== 'PAID') {
+  //     // This shouldn't happen if signature is valid, but rollback the update?
+  //     // Because we already updated DB. Better to revert or log critical.
+  //     this.logger.error(
+  //       `Verification mismatch for order ${order.id}: ${verifiedStatus}`,
+  //     );
+  //     // Revert status (optional but safe)
+  //     await this.prisma.order.update({
+  //       where: { id: order.id },
+  //       data: {
+  //         paymentStatus: PaymentStatus.PENDING,
+  //         orderStatus: OrderStatus.PENDING,
+  //       },
+  //     });
+  //     throw new BadRequestException('Payment verification failed');
+  //   }
+
+  //   // 5. Trigger business logic (order placed, vendor notifications)
+  //   //    Ensure these are idempotent or called only once.
+  //   await this.orderService
+  //     .transition(order.id, OrderStatus.ORDER_PLACED, {
+  //       actorId: order.userId,
+  //       actorRole: 'CUSTOMER',
+  //     })
+  //     .catch((e) => this.logger.error(`Transition failed: ${e.message}`));
+
+  //   await this.notificationService
+  //     .notifyVendorsForOrder(order.id)
+  //     .catch((e) =>
+  //       this.logger.error(`Vendor notification failed: ${e.message}`),
+  //     );
+
+  //   this.logger.log(`Order ${order.orderNumber} marked as PAID via webhook`);
+  //   return { success: true };
+  // }
+
+  // private verifyWebhookSignature(rawBody: string, signature: string): boolean {
+  //   const secret = this.secretKey;
+  //   const cleanSig = signature?.trim().replace(/^"|"$/g, '');
+  //   const hash = crypto
+  //     .createHmac('sha512', secret)
+  //     .update(rawBody)
+  //     .digest('hex');
+  //   return hash === cleanSig;
+  // }
 
   // ==================== VERIFICATION & CALLBACK ====================
 
