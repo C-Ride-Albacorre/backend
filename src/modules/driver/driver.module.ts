@@ -5,10 +5,13 @@ import { UserModule } from '../user/user.module';
 import { BullModule } from '@nestjs/bullmq';
 import { OrderModule } from '../order/order.module';
 import { NotificationModule } from '../notification/notification.module';
+import { DriverAssignmentService } from './driver-assignment.service';
+import { DriverOrderService } from './driver-order.service';
 
 @Module({
   imports: [
     BullModule.registerQueue(
+      { name: 'order-events' },
       { name: 'driver-notification' },
       { name: 'driver-assignment' },
     ),
@@ -17,7 +20,7 @@ import { NotificationModule } from '../notification/notification.module';
     NotificationModule,
   ],
   controllers: [DriverController],
-  providers: [DriverService],
-  exports: [DriverService],
+  providers: [DriverService, DriverAssignmentService, DriverOrderService],
+  exports: [DriverService, DriverAssignmentService, DriverOrderService],
 })
 export class DriverModule {}

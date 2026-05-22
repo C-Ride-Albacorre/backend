@@ -6,7 +6,6 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { OrderService } from './order.service';
-import { CurrentUser } from 'src/common/guards/current-user.decorator';
 import { Role, User } from '@prisma/client';
 import { GetUser } from 'src/common/decorators/get-user.decorator';
 
