@@ -1,12 +1,13 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { DriverService } from '../driver.service';
 import { PrismaService } from 'src/shared/services/prisma.service';
+import { DriverAssignmentService } from '../driver-assignment.service';
 
 @Processor('driver-assignment')
 export class DriverAssignmentProcessor extends WorkerHost {
   constructor(
-    private driverAssignmentService: DriverService,
+    // private driverAssignmentService: DriverService,
+    private driverAssignmentService: DriverAssignmentService,
     public readonly prisma: PrismaService,
   ) {
     super();
