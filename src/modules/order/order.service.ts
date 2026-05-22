@@ -1681,6 +1681,45 @@ export class OrderService {
 
   //////////////////
 
+  async getVendorOrders(
+    vendorId: string,
+    filters: { status?: string; page?: number; limit?: number },
+  ) {
+    const stores = await this.prisma.store.findMany({
+      where: { userId: vendorId },
+      select: { id: true },
+    });
+    const storeIds = stores.map((s) => s.id);
+    if (!storeIds.length) return { data: [], total: 0 };
+
+    const page = filters.page || 1;
+    const limit = Math.min(filters.limit || 20, 100);
+    const where: any = { items: { some: { storeId: { in: storeIds } } } };
+    if (filters.status) where.orderStatus = filters.status;
+
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: {
+          items: { include: { store: true, product: true } },
+          user: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+
+    return {
+      data: orders,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   async handleVendorAction(
     orderId: string,
     vendorId: string,

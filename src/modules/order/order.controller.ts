@@ -4,7 +4,18 @@ import {
   Post,
   Body,
   ForbiddenException,
+  Get,
+  Query,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { OrderService } from './order.service';
 import { Role, User } from '@prisma/client';
 import { GetUser } from 'src/common/decorators/get-user.decorator';
@@ -14,18 +25,116 @@ export class VendorActionDto {
   reason?: string;
 }
 
-@Controller('order')
+@ApiTags('Vendor Orders')
+@ApiBearerAuth()
+@Controller('vendor/orders')
 export class OrderController {
   constructor(private readonly orderService: OrderService) {}
 
+  @Get()
+  @ApiOperation({
+    summary: 'List vendor orders',
+    description: 'Retrieve all orders belonging to the authenticated vendor.',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    type: String,
+    example: 'PENDING',
+    description: 'Filter orders by status',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    example: 1,
+    description: 'Page number',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    example: 10,
+    description: 'Number of records per page',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Orders retrieved successfully',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - User is not a vendor',
+  })
+  async listOrders(
+    @GetUser() user: any,
+    @Query('status') status?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    if (user.role !== Role.VENDOR) {
+      throw new ForbiddenException();
+    }
+
+    return this.orderService.getVendorOrders(user.id, {
+      status,
+      page,
+      limit,
+    });
+  }
+
+  // @Post(':orderId/action')
+  // async handleAction(
+  //   @Param('orderId') orderId: string,
+  //   @Body() dto: VendorActionDto,
+  //   //@CurrentUser() vendor: User,
+  //   @GetUser() user: any,
+  // ) {
+  //   if (user.role !== Role.VENDOR) throw new ForbiddenException();
+  //   return this.orderService.handleVendorAction(orderId, user.id, dto);
+  // }
+
   @Post(':orderId/action')
+  @ApiOperation({
+    summary: 'Handle vendor order action',
+    description:
+      'Allows a vendor to accept, reject, or perform an action on an order.',
+  })
+  @ApiParam({
+    name: 'orderId',
+    type: String,
+    description: 'Order ID',
+    example: 'clx123abc456',
+  })
+  @ApiBody({
+    type: VendorActionDto,
+    description: 'Vendor action payload',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Vendor action processed successfully',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid request payload',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - User is not a vendor',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Order not found',
+  })
   async handleAction(
     @Param('orderId') orderId: string,
     @Body() dto: VendorActionDto,
     //@CurrentUser() vendor: User,
     @GetUser() user: any,
   ) {
-    if (user.role !== Role.VENDOR) throw new ForbiddenException();
+    if (user.role !== Role.VENDOR) {
+      throw new ForbiddenException();
+    }
+
     return this.orderService.handleVendorAction(orderId, user.id, dto);
   }
 }
