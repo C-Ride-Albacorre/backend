@@ -31,6 +31,7 @@ import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { NotificationService } from '../notification/notification.service';
 import { DriverService } from '../driver/driver.service';
+import { DriverAssignmentService } from '../driver/driver-assignment.service';
 
 type TransitionContext = {
   actorId?: string;
@@ -46,7 +47,8 @@ export class OrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cartService: CartService,
-    private driverAssignment: DriverService,
+    // private driverAssignment: DriverService,
+    private driverAssignment: DriverAssignmentService,
     private notification: NotificationService,
     @InjectQueue('order-events') private orderQueue: Queue,
   ) {}
