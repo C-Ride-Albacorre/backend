@@ -40,7 +40,7 @@ export class CreateUserDto {
   @ApiProperty({ example: 'StrongP@ssw0rd' })
   @IsString()
   @MinLength(8)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/)
   password: string;
 
   @ApiProperty({ example: 'John' })
