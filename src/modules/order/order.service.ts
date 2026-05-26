@@ -32,6 +32,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { NotificationService } from '../notification/notification.service';
 import { DriverService } from '../driver/driver.service';
 import { DriverAssignmentService } from '../driver/driver-assignment.service';
+import { CartSummaryDto } from '../cart/dto/cart-summary.dto';
 
 type TransitionContext = {
   actorId?: string;
@@ -170,9 +171,386 @@ export class OrderService {
   }
 
   /**
-   * Create order from cart
+   * Create an order from a cart.
+   * - Uses row‑level locking to prevent double checkout.
+   * - Builds cart summary inside the transaction before changing cart status.
+   * - Supports idempotency key to prevent duplicate orders.
+   * - Validates store hours and daily limits atomically.
+   * - Retries on transient transaction failures.
    */
   async createOrder(
+    userId: string,
+    dto: CreateOrderDto,
+  ): Promise<OrderSummaryDto> {
+    const requestId = crypto.randomUUID();
+    this.logger.log(
+      `[${requestId}] ORDER_CREATE_STARTED user=${userId} cart=${dto.cartId}`,
+    );
+
+    // ----- Pre-transaction fast validations (no lock) -----
+    const existingCart = await this.prisma.cart.findUnique({
+      where: { id: dto.cartId },
+      select: { id: true, userId: true, status: true },
+    });
+    if (!existingCart) throw new NotFoundException('Cart not found');
+    if (existingCart.userId !== userId)
+      throw new ForbiddenException('Access denied');
+    if (existingCart.status !== CartStatus.ACTIVE)
+      throw new BadRequestException(`Cart is ${existingCart.status}`);
+
+    // ----- Idempotency check (if key provided) -----
+    if (dto.idempotencyKey) {
+      const existing = await this.prisma.idempotencyRecord.findUnique({
+        where: { key: dto.idempotencyKey },
+      });
+      if (existing?.orderId) {
+        this.logger.log(
+          `[${requestId}] Idempotent request, returning existing order ${existing.orderId}`,
+        );
+        return this.getOrderSummary(existing.orderId, userId);
+      }
+    }
+
+    // ----- Precompute time‑based values (constant across retries) -----
+    const timezone = 'Africa/Lagos';
+    const now = DateTime.now().setZone(timezone);
+    const currentMinutes = now.hour * 60 + now.minute;
+    const todayWeekday = now.toFormat('cccc');
+    const startOfDay = now.startOf('day').toJSDate();
+    const endOfDay = now.endOf('day').toJSDate();
+    const orderNumber = Helper.generateOrderNumber();
+    const orderCode = Helper.generate4DigitCode();
+
+    const MAX_RETRIES = 3;
+    let lastError: any;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const order = await this.prisma.$transaction(
+          async (tx) => {
+            // --------------------------------------------------------------
+            // 1. Lock the cart row (SELECT FOR UPDATE)
+            // --------------------------------------------------------------
+            const lockedCart = await tx.$queryRaw<
+              Array<{ id: string; userId: string; status: string }>
+            >`
+            SELECT id, "userId", status FROM "Cart" WHERE id = ${dto.cartId} FOR UPDATE
+          `;
+            if (!lockedCart.length)
+              throw new NotFoundException('Cart not found');
+            if (lockedCart[0].userId !== userId)
+              throw new ForbiddenException('Access denied');
+            if (lockedCart[0].status !== CartStatus.ACTIVE) {
+              throw new BadRequestException(`Cart is ${lockedCart[0].status}`);
+            }
+
+            // --------------------------------------------------------------
+            // 2. Fetch full cart with items (row is locked)
+            // --------------------------------------------------------------
+            const cartWithItems = await tx.cart.findUnique({
+              where: { id: dto.cartId },
+              include: {
+                items: {
+                  include: {
+                    product: {
+                      include: {
+                        store: true,
+                        productImages: {
+                          orderBy: [
+                            { isPrimary: 'desc' },
+                            { displayOrder: 'asc' },
+                          ],
+                          take: 1,
+                        },
+                      },
+                    },
+                    package: { include: { store: true } },
+                  },
+                },
+              },
+            });
+            if (!cartWithItems) throw new NotFoundException('Cart not found');
+
+            // --------------------------------------------------------------
+            // 3. Build cart summary from fetched data (before status change)
+            // --------------------------------------------------------------
+            const items = cartWithItems.items.map((item) => {
+              if (item.itemType === 'PRODUCT') {
+                const product = item.product;
+                return {
+                  id: item.id,
+                  itemType: item.itemType,
+                  productId: item.productId,
+                  variantId: item.variantId,
+                  packageId: null,
+                  name: product?.productName || 'Product (deleted)',
+                  imageUrl: product?.productImages?.[0]?.imageUrl || null,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  totalPrice: item.totalPrice,
+                  selectedAddons: Array.isArray(item.selectedAddons)
+                    ? item.selectedAddons
+                    : [],
+                  storeId: product?.storeId || null,
+                  storeName: product?.store?.storeName || null,
+                  specialInstructions: item.specialInstructions,
+                };
+              } else {
+                const pkg = item.package;
+                return {
+                  id: item.id,
+                  itemType: item.itemType,
+                  productId: null,
+                  variantId: null,
+                  packageId: item.packageId,
+                  name: pkg?.name || 'Package (deleted)',
+                  imageUrl: null,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  totalPrice: item.totalPrice,
+                  selectedAddons: [],
+                  storeId: pkg?.storeId || null,
+                  storeName: pkg?.store?.storeName || null,
+                  specialInstructions: item.specialInstructions,
+                };
+              }
+            });
+
+            const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
+
+            // Calculate fees using the transaction client
+            const deliveryFee = await this.cartService.calculateDeliveryFee(
+              dto.cartId,
+              tx,
+            );
+            const serviceFee = await this.cartService.calculateServiceFee(
+              subtotal,
+              tx,
+            );
+            const taxAmount = await this.cartService.calculateTax(subtotal, tx);
+
+            const cartSummary = {
+              cartId: cartWithItems.id,
+              items,
+              subtotal,
+              deliveryFee,
+              serviceFee,
+              taxAmount,
+              totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
+            };
+
+            if (cartSummary.items.length === 0) {
+              throw new BadRequestException('Cart is empty');
+            }
+
+            // --------------------------------------------------------------
+            // 4. Idempotency record creation (if key provided)
+            // --------------------------------------------------------------
+            if (dto.idempotencyKey) {
+              await tx.idempotencyRecord.create({
+                data: { key: dto.idempotencyKey, status: 'PROCESSING' },
+              });
+            }
+
+            // --------------------------------------------------------------
+            // 5. Mark cart as CHECKED_OUT (now safe)
+            // --------------------------------------------------------------
+            await tx.cart.update({
+              where: { id: dto.cartId },
+              data: {
+                status: CartStatus.CHECKED_OUT,
+                checkedOutAt: new Date(),
+              },
+            });
+
+            // --------------------------------------------------------------
+            // 6. Store validation with atomic daily limits
+            // --------------------------------------------------------------
+            const storeIds = [
+              ...new Set(
+                cartSummary.items.map((i) => i.storeId).filter(Boolean),
+              ),
+            ] as string[];
+            for (const storeId of storeIds) {
+              await this.validateStoreWithAtomicCounter(
+                tx,
+                storeId,
+                todayWeekday,
+                currentMinutes,
+                startOfDay,
+                endOfDay,
+              );
+            }
+
+            // --------------------------------------------------------------
+            // 7. Create order
+            // --------------------------------------------------------------
+            const newOrder = await tx.order.create({
+              data: {
+                orderNumber,
+                orderCode,
+                userId,
+                orderType: this.determineOrderType(cartSummary.items),
+                subtotal: cartSummary.subtotal,
+                deliveryFee: cartSummary.deliveryFee,
+                serviceFee: cartSummary.serviceFee,
+                taxAmount: cartSummary.taxAmount,
+                totalAmount: cartSummary.totalAmount,
+                deliveryOptionId: dto.deliveryOptionId,
+                pickupLocation: dto.pickupLocation
+                  ? (dto.pickupLocation as unknown as Prisma.JsonObject)
+                  : null,
+                dropoffLocation: dto.dropoffLocation
+                  ? (dto.dropoffLocation as unknown as Prisma.JsonObject)
+                  : null,
+                recipientName: dto.recipientName,
+                recipientPhone: dto.recipientPhone,
+                deliveryInstructions: dto.deliveryInstructions,
+                paymentStatus: PaymentStatus.PENDING,
+                orderStatus: OrderStatus.ORDER_PLACED,
+                statusHistory: [
+                  {
+                    status: OrderStatus.ORDER_PLACED,
+                    timestamp: now.toISO(),
+                    note: 'Order created',
+                  },
+                ],
+              },
+            });
+
+            // --------------------------------------------------------------
+            // 8. Create order items
+            // --------------------------------------------------------------
+            await tx.orderItem.createMany({
+              data: cartSummary.items.map((item) => ({
+                orderId: newOrder.id,
+                itemType: item.itemType as CartItemType,
+                productId: item.itemType === 'PRODUCT' ? item.productId : null,
+                packageId:
+                  item.itemType === 'PACKAGE' || item.itemType === 'DOCUMENT'
+                    ? item.packageId
+                    : null,
+                storeId: item.storeId || null,
+                variantId: item.variantId || null,
+                selectedAddons: item.selectedAddons || [],
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                totalPrice: item.totalPrice,
+                specialInstructions: item.specialInstructions || null,
+              })),
+            });
+
+            // --------------------------------------------------------------
+            // 9. Update idempotency record to COMPLETED
+            // --------------------------------------------------------------
+            if (dto.idempotencyKey) {
+              await tx.idempotencyRecord.update({
+                where: { key: dto.idempotencyKey },
+                data: { status: 'COMPLETED', orderId: newOrder.id },
+              });
+            }
+
+            return newOrder;
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            timeout: 15000, // 15 seconds
+          },
+        );
+
+        this.logger.log(
+          `[${requestId}] ORDER_CREATE_SUCCESS order=${order.id}`,
+        );
+        return this.getOrderSummary(order.id, userId);
+      } catch (err: any) {
+        lastError = err;
+        this.logger.error(
+          `[${requestId}] Attempt ${attempt} failed: ${err.message}`,
+          err.stack,
+        );
+
+        const isRetryable = err.code === 'P2034' || err.code === 'P2028';
+        if (!isRetryable || attempt === MAX_RETRIES) {
+          // No need to manually reset cart status – transaction rollback already did it
+          throw err;
+        }
+        this.logger.warn(
+          `[${requestId}] Retrying transaction, attempt ${attempt + 1}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100 * attempt)); // exponential backoff
+      }
+    }
+    throw lastError;
+  }
+
+  // private buildCartSummaryFromCart2(cart: any): CartSummaryDto {
+  //   const items = cart.items.map((item: any) => {
+  //     if (item.itemType === 'PRODUCT') {
+  //       const product = item.product;
+  //       return {
+  //         id: item.id,
+  //         itemType: item.itemType,
+  //         productId: item.productId,
+  //         variantId: item.variantId,
+  //         packageId: null,
+  //         name: product?.productName || 'Product (deleted)',
+  //         imageUrl: product?.productImages?.[0]?.imageUrl || null,
+  //         quantity: item.quantity,
+  //         unitPrice: item.unitPrice,
+  //         totalPrice: item.totalPrice,
+  //         selectedAddons: Array.isArray(item.selectedAddons)
+  //           ? item.selectedAddons
+  //           : [],
+  //         storeId: product?.storeId || null,
+  //         storeName: product?.store?.storeName || null,
+  //         specialInstructions: item.specialInstructions,
+  //       };
+  //     } else {
+  //       const pkg = item.package;
+  //       return {
+  //         id: item.id,
+  //         itemType: item.itemType,
+  //         productId: null,
+  //         variantId: null,
+  //         packageId: item.packageId,
+  //         name: pkg?.name || 'Package (deleted)',
+  //         imageUrl: null,
+  //         quantity: item.quantity,
+  //         unitPrice: item.unitPrice,
+  //         totalPrice: item.totalPrice,
+  //         selectedAddons: [],
+  //         storeId: pkg?.storeId || null,
+  //         storeName: pkg?.store?.storeName || null,
+  //         specialInstructions: item.specialInstructions,
+  //       };
+  //     }
+  //   });
+
+  //   const subtotal = items.reduce(
+  //     (sum: number, i: any) => sum + i.totalPrice,
+  //     0,
+  //   );
+  //   // Note: deliveryFee, serviceFee, taxAmount would need to be calculated
+  //   // using the same helpers, but we want to avoid DB calls here.
+  //   // For simplicity, you can compute them synchronously if they don't depend on DB.
+  //   // Or call the helpers with the transaction client later.
+  //   // I'll assume you have a way to compute them without DB inside the transaction.
+  //   // For this example, we compute them using the transaction client later – but we are inside
+  //   // the transaction already, so we can call the helpers with `tx`. However, to keep this method pure,
+  //   // we can compute fees outside and pass them. I'll refactor: compute fees separately.
+  //   // Better: after building items, we compute fees using the transaction client (tx).
+  //   // But we don't have tx here. So let's restructure: compute fees inside the transaction
+  //   // after building items, before returning the summary.
+  //   // Actually, we are not returning this summary to the outside; we are using it to create the order.
+  //   // So we can compute the fees right after building items, still inside the transaction.
+  //   // Let's change the approach: inside the transaction, after fetching cartWithItems,
+  //   // compute items array, subtotal, then call fee helpers with tx, then build the final summary.
+  //   // I'll adjust the transaction code accordingly.
+  // }
+
+  // Therefore, instead of a separate buildCartSummaryFromCart, we compute everything inline.
+
+  async createOrderFix(
     userId: string,
     dto: CreateOrderDto,
   ): Promise<OrderSummaryDto> {

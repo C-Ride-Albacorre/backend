@@ -1499,7 +1499,7 @@ export class CartService {
    * In production, compute based on distance and delivery option.
    * Accepts optional transaction client for use inside transactions.
    */
-  private async calculateDeliveryFee(
+  async calculateDeliveryFee(
     cartId: string,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
@@ -1516,7 +1516,7 @@ export class CartService {
    * Supports both percentage and fixed fees.
    * Accepts optional transaction client for use inside transactions.
    */
-  private async calculateServiceFee(
+  async calculateServiceFee(
     subtotal: number,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
@@ -1542,7 +1542,7 @@ export class CartService {
    * Calculate tax based on active tax settings.
    * Accepts optional transaction client for use inside transactions.
    */
-  private async calculateTax(
+  async calculateTax(
     subtotal: number,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
