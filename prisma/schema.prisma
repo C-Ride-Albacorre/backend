@@ -149,6 +149,7 @@ model Store {
   operatingHours   OperatingHour[]
   orderItems       OrderItem[]
   products         Product[]
+  packages         Package[]
   category         Category        @relation(fields: [categoryId], references: [id])
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -314,6 +315,9 @@ model Package {
   type        PackageType
   weight      Float?
   dimensions  Json?
+  storeId     String?
+  store       Store?    @relation(fields: [storeId], references: [id])
+
   //imageUrl    String?     // ✅ ADD THIS
   basePrice   Float
   isActive    Boolean     @default(true)
@@ -423,6 +427,7 @@ model CartItem {
 model Order {
   id                   String             @id @default(uuid())
   orderNumber          String             @unique
+  orderCode            String             @unique
   userId               String
   orderType            OrderType
   subtotal             Float
@@ -452,6 +457,7 @@ model Order {
   vendorOrderAction    VendorOrderAction?
   driverAssignment     DriverAssignment?
 
+  @@index([orderCode])
   @@index([orderNumber])
   @@index([userId])
   @@index([orderStatus])
@@ -483,6 +489,25 @@ model OrderItem {
   @@index([orderId])
   @@index([productId])
   @@index([storeId])
+}
+
+model IdempotencyRecord {
+  key       String   @id
+  status    String   // PROCESSING, COMPLETED, FAILED
+  orderId   String?  @map("order_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("idempotency_records")
+}
+
+model StoreDailyCounter {
+  storeId    String   @map("store_id")
+  date       String   // YYYY-MM-DD
+  orderCount Int      @default(0) @map("order_count")
+
+  @@id([storeId, date])
+  @@map("store_daily_counters")
 }
 
 model DriverProfile {
