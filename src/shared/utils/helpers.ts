@@ -9,6 +9,7 @@ import { FileFilterCallback } from 'multer';
 import { ParsedQuery } from '../../common/interfaces/interface';
 import { DashboardFilterTypes, RegistrationMethod } from '../enums';
 import { DateTime } from 'luxon';
+import { randomInt } from 'crypto';
 
 const chance = new Chance();
 const logger = new Logger('Helper');
@@ -808,21 +809,26 @@ export default class Helper {
     return (value * Math.PI) / 180;
   }
 
+  static timeToMinutes(time: string): number {
+    // "HH:mm" or "HH:mm:ss"
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
+  }
 
-static timeToMinutes(time: string): number {
-  // "HH:mm" or "HH:mm:ss"
-  const [h, m] = time.split(':').map(Number);
-  return h * 60 + m;
-}
+  static getCurrentMinutes(timezone = 'Africa/Lagos'): number {
+    const now = DateTime.now().setZone(timezone);
+    return now.hour * 60 + now.minute;
+  }
 
-static getCurrentMinutes(timezone = 'Africa/Lagos'): number {
-  const now = DateTime.now().setZone(timezone);
-  return now.hour * 60 + now.minute;
-}
+  static getTodayWeekday(timezone = 'Africa/Lagos') {
+    return DateTime.now().setZone(timezone).toFormat('cccc'); // Monday, Tuesday...
+  }
 
-static getTodayWeekday(timezone = 'Africa/Lagos') {
-  return DateTime.now()
-    .setZone(timezone)
-    .toFormat('cccc'); // Monday, Tuesday...
-}
+  static generateOrderNumber(): string {
+    return `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`;
+  }
+
+  static generate4DigitCode(): string {
+    return randomInt(0, 10000).toString().padStart(4, '0');
+  }
 }
