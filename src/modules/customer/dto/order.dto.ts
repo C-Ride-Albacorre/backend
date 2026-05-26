@@ -9,6 +9,8 @@ import {
   IsNumber,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { OrderType } from '@prisma/client';
+import { DeliveryOptionDto } from './delivery-option.dto';
 
 export class DropoffLocationDto {
   @ApiProperty()
@@ -84,6 +86,11 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   deliveryInstructions?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  idempotencyKey?: string;
 }
 
 export class OrderSummaryDto {
@@ -130,5 +137,24 @@ export class OrderSummaryDto {
   orderStatus: string;
 
   @ApiProperty()
+  @IsOptional()
+  orderType?: OrderType;
+
+  @ApiProperty()
+  @IsOptional()
+  deliveryInstructions?: string;
+
+  @ApiProperty()
+  @IsOptional()
+  statusHistory?: any;
+
+  @ApiProperty()
+  @IsOptional()
+  deliveryOption?: DeliveryOptionDto;
+
+  @ApiProperty()
   createdAt: Date;
+
+  @ApiProperty()
+  updatedAt: Date;
 }
