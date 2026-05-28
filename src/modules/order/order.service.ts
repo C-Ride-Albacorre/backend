@@ -215,7 +215,8 @@ export class OrderService {
     const timezone = 'Africa/Lagos';
     const now = DateTime.now().setZone(timezone);
     const currentMinutes = now.hour * 60 + now.minute;
-    const todayWeekday = now.toFormat('cccc');
+    // const todayWeekday = now.toFormat('cccc');
+    const todayWeekday = now.weekdayLong.toUpperCase();
     const startOfDay = now.startOf('day').toJSDate();
     const endOfDay = now.endOf('day').toJSDate();
     const orderNumber = Helper.generateOrderNumber();
