@@ -34,7 +34,11 @@ export class CreateVendorDto {
   @ApiProperty({ example: 'StrongP@ssw0rd' })
   @IsString()
   @MinLength(8)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/)
+  //@Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/)
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
+    message:
+      'Password must contain at least 1 uppercase, 1 lowercase, 1 number and 1 special character',
+  })
   password: string;
 
   @ApiProperty({ example: 'John' })
