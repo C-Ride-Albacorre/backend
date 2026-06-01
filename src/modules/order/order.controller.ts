@@ -24,11 +24,12 @@ import { RolesGuard } from '../../common/guards/role.guard';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { Roles } from '../../common/decorators/role.decorator';
 import { UserRole } from '../../shared/enums';
+import { VendorActionDto } from './dto/vendor-action.dto';
 
-export class VendorActionDto {
-  action: 'ACCEPT' | 'DECLINE';
-  reason?: string;
-}
+// export class VendorActionDto {
+//   action: 'ACCEPT' | 'DECLINE';
+//   reason?: string;
+// }
 
 @ApiTags('Vendor Orders')
 @ApiBearerAuth()
