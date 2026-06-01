@@ -75,6 +75,8 @@ export class OrderController {
       throw new ForbiddenException();
     }
 
+    console.log('Vendor ID:', user);
+
     return this.orderService.getVendorOrders(user.id, {
       status,
       page,
