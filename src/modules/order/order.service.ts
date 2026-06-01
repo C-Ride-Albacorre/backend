@@ -2460,7 +2460,7 @@ export class OrderService {
 
   //////////////////
 
-  async getVendorOrders(
+  async getVendorOrdersbk(
     vendorId: string,
     filters: { status?: string; page?: number; limit?: number },
   ) {
@@ -2498,6 +2498,117 @@ export class OrderService {
       totalPages: Math.ceil(total / limit),
     };
   }
+
+  async getVendorOrders(
+  vendorId: string,
+  filters: { status?: string; page?: number; limit?: number },
+) {
+  // 1. Get all stores owned by vendor
+  const stores = await this.prisma.store.findMany({
+    where: { userId: vendorId },
+    select: { id: true },
+  });
+
+  const storeIds = stores.map((s) => s.id);
+
+  if (!storeIds.length) {
+    return {
+      data: [],
+      total: 0,
+      page: filters.page || 1,
+      limit: filters.limit || 20,
+      totalPages: 0,
+    };
+  }
+
+  // 2. Pagination setup
+  const page = Math.max(filters.page || 1, 1);
+  const limit = Math.min(filters.limit || 20, 100);
+
+  // 3. Order-level filter (vendor must have at least one item in order)
+  const where: any = {
+    items: {
+      some: {
+        storeId: { in: storeIds },
+      },
+    },
+  };
+
+  if (filters.status) {
+    where.orderStatus = filters.status;
+  }
+
+  // 4. Fetch orders + ONLY vendor-related items
+  const [orders, total] = await Promise.all([
+    this.prisma.order.findMany({
+      where,
+      include: {
+        items: {
+          where: {
+            storeId: { in: storeIds },
+          },
+          include: {
+            store: true,
+            product: true,
+            variant: true,
+          },
+        },
+        user: true,
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+
+    this.prisma.order.count({ where }),
+  ]);
+
+  // 5. Transform response to vendor-safe format
+  const data = orders.map((order) => {
+    const vendorItems = order.items;
+
+    const vendorSubtotal = vendorItems.reduce(
+      (sum, item) => sum + item.totalPrice,
+      0,
+    );
+
+    const vendorQuantity = vendorItems.reduce(
+      (sum, item) => sum + item.quantity,
+      0,
+    );
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      orderCode: order.orderCode,
+      createdAt: order.createdAt,
+      orderStatus: order.orderStatus,
+      paymentStatus: order.paymentStatus,
+
+      // customer info
+      user: order.user,
+
+      // vendor-specific items only
+      items: vendorItems,
+
+      // computed vendor metrics (IMPORTANT)
+      vendorSummary: {
+        itemCount: vendorItems.length,
+        totalQuantity: vendorQuantity,
+        subtotal: vendorSubtotal,
+      },
+    };
+  });
+
+  // 6. Return paginated response
+  return {
+    data,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
 
   async handleVendorAction(
     orderId: string,
