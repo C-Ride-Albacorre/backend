@@ -39,7 +39,6 @@ export class OrderController {
   constructor(private readonly orderService: OrderService) {}
 
   @Get()
-
   @ApiOperation({
     summary: 'List vendor orders',
     description: 'Retrieve all orders belonging to the authenticated vendor.',
@@ -79,11 +78,12 @@ export class OrderController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    if (user.role !== Role.VENDOR) {
-      throw new ForbiddenException();
-    }
+        console.log('Vendor ID:', user);
 
-    console.log('Vendor ID:', user);
+    // if (user.role !== Role.VENDOR) {
+    //   throw new ForbiddenException();
+    // }
+
 
     return this.orderService.getVendorOrders(user.id, {
       status,
@@ -92,16 +92,6 @@ export class OrderController {
     });
   }
 
-  // @Post(':orderId/action')
-  // async handleAction(
-  //   @Param('orderId') orderId: string,
-  //   @Body() dto: VendorActionDto,
-  //   //@CurrentUser() vendor: User,
-  //   @GetUser() user: any,
-  // ) {
-  //   if (user.role !== Role.VENDOR) throw new ForbiddenException();
-  //   return this.orderService.handleVendorAction(orderId, user.id, dto);
-  // }
 
   @Post(':orderId/action')
   @ApiOperation({
