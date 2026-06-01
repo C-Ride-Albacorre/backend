@@ -17,7 +17,7 @@ import { JsonValue } from '@prisma/client/runtime/library';
 export class CartService {
   private readonly logger = new Logger(CartService.name);
 
-  constructor(private prisma: PrismaService) { }
+  constructor(private prisma: PrismaService) {}
 
   /**
    * Get or create user's cart
@@ -42,14 +42,14 @@ export class CartService {
         //data: userId ? { userId } : { sessionId },
         data: userId
           ? {
-            user: { connect: { id: userId } },
-            // add other required fields if needed
-          }
+              user: { connect: { id: userId } },
+              // add other required fields if needed
+            }
           : {
-            sessionId,
-            user: undefined, // or null if your schema allows
-            // add other required fields if needed
-          },
+              sessionId,
+              user: undefined, // or null if your schema allows
+              // add other required fields if needed
+            },
         include: { items: true },
       });
     }
@@ -330,14 +330,14 @@ export class CartService {
         //data: userId ? { userId } : { sessionId },
         data: userId
           ? {
-            user: { connect: { id: userId } },
-            // add other required fields if needed
-          }
+              user: { connect: { id: userId } },
+              // add other required fields if needed
+            }
           : {
-            sessionId,
-            user: undefined, // or null if your schema allows
-            // add other required fields if needed
-          },
+              sessionId,
+              user: undefined, // or null if your schema allows
+              // add other required fields if needed
+            },
         include: { items: true },
       });
 
@@ -504,126 +504,126 @@ export class CartService {
    * Merge guest ACTIVE cart into user ACTIVE cart – fully atomic.
    */
   async mergeGuestCart(userId: string, sessionId: string): Promise<CartSummaryDto> {
-    if (!userId || !sessionId) {
-      throw new BadRequestException('Both userId and sessionId are required');
-    }
+  if (!userId || !sessionId) {
+    throw new BadRequestException('Both userId and sessionId are required');
+  }
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        // ------------------------------------------------------
-        // 1. Get or create an ACTIVE cart for the user
-        // ------------------------------------------------------
-        let userCart = await tx.cart.findFirst({
-          where: { userId, status: CartStatus.ACTIVE },
+  return this.prisma.$transaction(
+    async (tx) => {
+      // ------------------------------------------------------
+      // 1. Get or create an ACTIVE cart for the user
+      // ------------------------------------------------------
+      let userCart = await tx.cart.findFirst({
+        where: { userId, status: CartStatus.ACTIVE },
+        include: { items: true },
+      });
+
+      if (!userCart) {
+        // Check if a cart exists for this user (any status)
+        const existingCart = await tx.cart.findFirst({
+          where: { userId },
           include: { items: true },
         });
 
-        if (!userCart) {
-          // Check if a cart exists for this user (any status)
-          const existingCart = await tx.cart.findFirst({
-            where: { userId },
+        if (existingCart) {
+          // Reuse the existing cart: set status to ACTIVE and clear old items
+          userCart = await tx.cart.update({
+            where: { id: existingCart.id },
+            data: {
+              status: CartStatus.ACTIVE,
+              items: { deleteMany: {} },   // remove all previous items
+              checkedOutAt: null,           // reset checkout timestamp
+            },
             include: { items: true },
           });
-
-          if (existingCart) {
-            // Reuse the existing cart: set status to ACTIVE and clear old items
-            userCart = await tx.cart.update({
-              where: { id: existingCart.id },
-              data: {
-                status: CartStatus.ACTIVE,
-                items: { deleteMany: {} },   // remove all previous items
-                checkedOutAt: null,           // reset checkout timestamp
-              },
-              include: { items: true },
-            });
-            this.logger.log(
-              `Reused existing cart ${userCart.id} for user ${userId} (was ${existingCart.status})`,
-            );
-          } else {
-            // No cart at all – create a fresh one
-            userCart = await tx.cart.create({
-              data: { userId, status: CartStatus.ACTIVE },
-              include: { items: true },
-            });
-            this.logger.log(`Created new active cart ${userCart.id} for user ${userId}`);
-          }
+          this.logger.log(
+            `Reused existing cart ${userCart.id} for user ${userId} (was ${existingCart.status})`,
+          );
+        } else {
+          // No cart at all – create a fresh one
+          userCart = await tx.cart.create({
+            data: { userId, status: CartStatus.ACTIVE },
+            include: { items: true },
+          });
+          this.logger.log(`Created new active cart ${userCart.id} for user ${userId}`);
         }
+      }
 
-        // ------------------------------------------------------
-        // 2. Get guest's ACTIVE cart
-        // ------------------------------------------------------
-        const guestCart = await tx.cart.findFirst({
-          where: { sessionId, status: CartStatus.ACTIVE },
-          include: { items: true },
+      // ------------------------------------------------------
+      // 2. Get guest's ACTIVE cart
+      // ------------------------------------------------------
+      const guestCart = await tx.cart.findFirst({
+        where: { sessionId, status: CartStatus.ACTIVE },
+        include: { items: true },
+      });
+
+      if (!guestCart || guestCart.items.length === 0) {
+        // Nothing to merge – return current user cart summary
+        return this.getCartSummary(userCart.id, userId, undefined, tx);
+      }
+
+      // ------------------------------------------------------
+      // 3. Merge guest items into user cart
+      // ------------------------------------------------------
+      for (const guestItem of guestCart.items) {
+        const existingItem = await tx.cartItem.findFirst({
+          where: {
+            cartId: userCart.id,
+            itemType: guestItem.itemType,
+            productId: guestItem.productId,
+            packageId: guestItem.packageId,
+            variantId: guestItem.variantId,
+            selectedAddons: { equals: this.normalizeAddons(guestItem.selectedAddons) },
+          },
         });
 
-        if (!guestCart || guestCart.items.length === 0) {
-          // Nothing to merge – return current user cart summary
-          return this.getCartSummary(userCart.id, userId, undefined, tx);
-        }
-
-        // ------------------------------------------------------
-        // 3. Merge guest items into user cart
-        // ------------------------------------------------------
-        for (const guestItem of guestCart.items) {
-          const existingItem = await tx.cartItem.findFirst({
-            where: {
+        if (existingItem) {
+          await tx.cartItem.update({
+            where: { id: existingItem.id },
+            data: {
+              quantity: existingItem.quantity + guestItem.quantity,
+              totalPrice: Number(existingItem.totalPrice) + Number(guestItem.totalPrice),
+            },
+          });
+        } else {
+          await tx.cartItem.create({
+            data: {
               cartId: userCart.id,
               itemType: guestItem.itemType,
               productId: guestItem.productId,
               packageId: guestItem.packageId,
               variantId: guestItem.variantId,
-              selectedAddons: { equals: this.normalizeAddons(guestItem.selectedAddons) },
+              quantity: guestItem.quantity,
+              unitPrice: guestItem.unitPrice,
+              totalPrice: guestItem.totalPrice,
+              selectedAddons: guestItem.selectedAddons,
+              specialInstructions: guestItem.specialInstructions,
             },
           });
-
-          if (existingItem) {
-            await tx.cartItem.update({
-              where: { id: existingItem.id },
-              data: {
-                quantity: existingItem.quantity + guestItem.quantity,
-                totalPrice: Number(existingItem.totalPrice) + Number(guestItem.totalPrice),
-              },
-            });
-          } else {
-            await tx.cartItem.create({
-              data: {
-                cartId: userCart.id,
-                itemType: guestItem.itemType,
-                productId: guestItem.productId,
-                packageId: guestItem.packageId,
-                variantId: guestItem.variantId,
-                quantity: guestItem.quantity,
-                unitPrice: guestItem.unitPrice,
-                totalPrice: guestItem.totalPrice,
-                selectedAddons: guestItem.selectedAddons,
-                specialInstructions: guestItem.specialInstructions,
-              },
-            });
-          }
         }
+      }
 
-        // ------------------------------------------------------
-        // 4. Delete the guest cart
-        // ------------------------------------------------------
-        await tx.cart.delete({ where: { id: guestCart.id } });
+      // ------------------------------------------------------
+      // 4. Delete the guest cart
+      // ------------------------------------------------------
+      await tx.cart.delete({ where: { id: guestCart.id } });
 
-        // ------------------------------------------------------
-        // 5. Update user cart total
-        // ------------------------------------------------------
-        await this.updateCartTotal(userCart.id, tx);
+      // ------------------------------------------------------
+      // 5. Update user cart total
+      // ------------------------------------------------------
+      await this.updateCartTotal(userCart.id, tx);
 
-        // ------------------------------------------------------
-        // 6. Return merged cart summary
-        // ------------------------------------------------------
-        return this.getCartSummary(userCart.id, userId, undefined, tx);
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        timeout: 10000,
-      },
-    );
-  }
+      // ------------------------------------------------------
+      // 6. Return merged cart summary
+      // ------------------------------------------------------
+      return this.getCartSummary(userCart.id, userId, undefined, tx);
+    },
+    {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      timeout: 10000,
+    },
+  );
+}
 
   async mergeGuestCartVeryRecent(
     userId: string,
@@ -1125,6 +1125,121 @@ export class CartService {
    * Can be used inside a transaction by passing `tx`.
    */
   async getCartSummary(
+  cartId: string,
+  userId?: string,
+  sessionId?: string,
+  tx?: Prisma.TransactionClient,
+): Promise<CartSummaryDto> {
+  if (!userId && !sessionId) {
+    throw new UnauthorizedException(
+      'Either userId or sessionId must be provided',
+    );
+  }
+
+  const prisma = tx ?? this.prisma;
+
+  const cart = await prisma.cart.findFirst({
+    where: {
+      id: cartId,
+      status: CartStatus.ACTIVE,
+      ...(userId ? { userId } : { sessionId }),
+    },
+    include: {
+      items: {
+        include: {
+          product: {
+            include: {
+              store: {
+                include: {
+                  category: true, // Include category to get categoryId
+                },
+              },
+              productImages: {
+                orderBy: [{ isPrimary: 'desc' }, { displayOrder: 'asc' }],
+                take: 1,
+              },
+            },
+          },
+          package: {
+            include: {
+              store: {
+                include: {
+                  category: true, // Include category for package store
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!cart) {
+    throw new NotFoundException('Active cart not found or access denied');
+  }
+
+  const items: CartItemDto[] = cart.items.map((item) => {
+    if (item.itemType === 'PRODUCT') {
+      const product = item.product;
+      return {
+        id: item.id,
+        itemType: item.itemType,
+        productId: item.productId,
+        variantId: item.variantId,
+        packageId: null,
+        name: product?.productName || 'Product (deleted)',
+        imageUrl: product?.productImages?.[0]?.imageUrl || null,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        selectedAddons: Array.isArray(item.selectedAddons)
+          ? item.selectedAddons
+          : [],
+        storeId: product?.storeId || null,
+        storeName: product?.store?.storeName || null,
+        categoryId: product?.store?.categoryId || null, // Added categoryId
+        specialInstructions: item.specialInstructions,
+      };
+    }
+    const pkg = item.package;
+    return {
+      id: item.id,
+      itemType: item.itemType,
+      productId: null,
+      variantId: null,
+      packageId: item.packageId,
+      name: pkg?.name || 'Package (deleted)',
+      imageUrl: null,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
+      selectedAddons: [],
+      storeId: pkg?.storeId || null,
+      storeName: pkg?.store?.storeName || null,
+      categoryId: pkg?.store?.categoryId || null, // Added categoryId
+      specialInstructions: item.specialInstructions,
+    };
+  });
+
+  const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
+  const [deliveryFee, serviceFee, taxAmount] = await Promise.all([
+    this.calculateDeliveryFee(cartId, prisma),
+    this.calculateServiceFee(subtotal, prisma),
+    this.calculateTax(subtotal, prisma),
+  ]);
+
+  return {
+    cartId: cart.id,
+    items,
+    subtotal,
+    deliveryFee,
+    serviceFee,
+    taxAmount,
+    totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
+  };
+}
+
+  async getCartSummaryWithoutStoreIdandCategoryId(
     cartId: string,
     userId?: string,
     sessionId?: string,
