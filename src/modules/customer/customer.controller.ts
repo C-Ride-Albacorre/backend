@@ -1,4 +1,3 @@
-// src/customer/customer.controller.ts
 import {
   Controller,
   Post,
@@ -10,7 +9,6 @@ import {
   Request,
   HttpCode,
   HttpStatus,
-  Headers,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -25,7 +23,6 @@ import {
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CustomerService } from './customer.service';
 import { StoreDiscoveryService } from './store-discovery.service';
-// import { CartService } from './cart.service.old';
 import { SaveLocationDto } from './dto/location.dto';
 import { CreateOrderDto } from './dto/order.dto';
 import { InitializePaymentDto } from './dto/payment.dto';
@@ -36,7 +33,6 @@ import { UserRole } from 'src/shared/enums';
 import { GetStoresQueryDto } from './dto/get-store.dto';
 import { StoreResponseDto } from './dto/store-response.dto';
 import { GetNearbyStoresQueryDto } from './dto/near-by-store.dto';
-// import { VerifiedUserGuard } from '../../common/guards/verified-user.guard';
 import { RolesGuard } from '../../common/guards/role.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { CartService } from '../cart/cart.service';
@@ -84,38 +80,6 @@ export class CustomerController {
     return this.customerService.getCategories();
   }
 
-  // @Public()
-  // @Get('stores/category/:categoryId')
-  // @ApiOperation({
-  //   summary: 'Get stores by category (optionally filter by subcategory)',
-  //   description:
-  //     'Fetch stores by category. Optionally filter by subcategory, location, radius, search, and pagination.',
-  // })
-  // @ApiParam({
-  //   name: 'categoryId',
-  //   description: 'ID of the store category',
-  //   type: 'string',
-  // })
-  // @ApiQuery({ name: 'subcategoryId', required: false, type: String })
-  // @ApiQuery({ name: 'lat', required: false, type: Number })
-  // @ApiQuery({ name: 'lng', required: false, type: Number })
-  // @ApiQuery({ name: 'radiusKm', required: false, type: Number })
-  // @ApiQuery({ name: 'search', required: false, type: String })
-  // @ApiQuery({ name: 'page', required: false, type: Number })
-  // @ApiQuery({ name: 'limit', required: false, type: Number })
-  // @ApiOkResponse({
-  //   description: 'Stores fetched successfully',
-  //   type: [StoreResponseDto],
-  // })
-  // async getStores(
-  //   @Param('categoryId') categoryId: string,
-  //   @Query() query: GetStoresQueryDto,
-  // ): Promise<PaginatedStoreResponse> {
-  //   return this.storeDiscoveryService.getStores({
-  //     categoryId,
-  //     ...query,
-  //   });
-  // }
 
   @Public()
   @Get('stores')
