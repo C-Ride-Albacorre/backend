@@ -17,7 +17,7 @@ import { JsonValue } from '@prisma/client/runtime/library';
 export class CartService {
   private readonly logger = new Logger(CartService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   /**
    * Get or create user's cart
@@ -42,14 +42,14 @@ export class CartService {
         //data: userId ? { userId } : { sessionId },
         data: userId
           ? {
-              user: { connect: { id: userId } },
-              // add other required fields if needed
-            }
+            user: { connect: { id: userId } },
+            // add other required fields if needed
+          }
           : {
-              sessionId,
-              user: undefined, // or null if your schema allows
-              // add other required fields if needed
-            },
+            sessionId,
+            user: undefined, // or null if your schema allows
+            // add other required fields if needed
+          },
         include: { items: true },
       });
     }
@@ -330,14 +330,14 @@ export class CartService {
         //data: userId ? { userId } : { sessionId },
         data: userId
           ? {
-              user: { connect: { id: userId } },
-              // add other required fields if needed
-            }
+            user: { connect: { id: userId } },
+            // add other required fields if needed
+          }
           : {
-              sessionId,
-              user: undefined, // or null if your schema allows
-              // add other required fields if needed
-            },
+            sessionId,
+            user: undefined, // or null if your schema allows
+            // add other required fields if needed
+          },
         include: { items: true },
       });
 
@@ -503,7 +503,129 @@ export class CartService {
   /**
    * Merge guest ACTIVE cart into user ACTIVE cart – fully atomic.
    */
-  async mergeGuestCart(
+  async mergeGuestCart(userId: string, sessionId: string): Promise<CartSummaryDto> {
+    if (!userId || !sessionId) {
+      throw new BadRequestException('Both userId and sessionId are required');
+    }
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        // ------------------------------------------------------
+        // 1. Get or create an ACTIVE cart for the user
+        // ------------------------------------------------------
+        let userCart = await tx.cart.findFirst({
+          where: { userId, status: CartStatus.ACTIVE },
+          include: { items: true },
+        });
+
+        if (!userCart) {
+          // Check if a cart exists for this user (any status)
+          const existingCart = await tx.cart.findFirst({
+            where: { userId },
+            include: { items: true },
+          });
+
+          if (existingCart) {
+            // Reuse the existing cart: set status to ACTIVE and clear old items
+            userCart = await tx.cart.update({
+              where: { id: existingCart.id },
+              data: {
+                status: CartStatus.ACTIVE,
+                items: { deleteMany: {} },   // remove all previous items
+                checkedOutAt: null,           // reset checkout timestamp
+              },
+              include: { items: true },
+            });
+            this.logger.log(
+              `Reused existing cart ${userCart.id} for user ${userId} (was ${existingCart.status})`,
+            );
+          } else {
+            // No cart at all – create a fresh one
+            userCart = await tx.cart.create({
+              data: { userId, status: CartStatus.ACTIVE },
+              include: { items: true },
+            });
+            this.logger.log(`Created new active cart ${userCart.id} for user ${userId}`);
+          }
+        }
+
+        // ------------------------------------------------------
+        // 2. Get guest's ACTIVE cart
+        // ------------------------------------------------------
+        const guestCart = await tx.cart.findFirst({
+          where: { sessionId, status: CartStatus.ACTIVE },
+          include: { items: true },
+        });
+
+        if (!guestCart || guestCart.items.length === 0) {
+          // Nothing to merge – return current user cart summary
+          return this.getCartSummary(userCart.id, userId, undefined, tx);
+        }
+
+        // ------------------------------------------------------
+        // 3. Merge guest items into user cart
+        // ------------------------------------------------------
+        for (const guestItem of guestCart.items) {
+          const existingItem = await tx.cartItem.findFirst({
+            where: {
+              cartId: userCart.id,
+              itemType: guestItem.itemType,
+              productId: guestItem.productId,
+              packageId: guestItem.packageId,
+              variantId: guestItem.variantId,
+              selectedAddons: { equals: this.normalizeAddons(guestItem.selectedAddons) },
+            },
+          });
+
+          if (existingItem) {
+            await tx.cartItem.update({
+              where: { id: existingItem.id },
+              data: {
+                quantity: existingItem.quantity + guestItem.quantity,
+                totalPrice: Number(existingItem.totalPrice) + Number(guestItem.totalPrice),
+              },
+            });
+          } else {
+            await tx.cartItem.create({
+              data: {
+                cartId: userCart.id,
+                itemType: guestItem.itemType,
+                productId: guestItem.productId,
+                packageId: guestItem.packageId,
+                variantId: guestItem.variantId,
+                quantity: guestItem.quantity,
+                unitPrice: guestItem.unitPrice,
+                totalPrice: guestItem.totalPrice,
+                selectedAddons: guestItem.selectedAddons,
+                specialInstructions: guestItem.specialInstructions,
+              },
+            });
+          }
+        }
+
+        // ------------------------------------------------------
+        // 4. Delete the guest cart
+        // ------------------------------------------------------
+        await tx.cart.delete({ where: { id: guestCart.id } });
+
+        // ------------------------------------------------------
+        // 5. Update user cart total
+        // ------------------------------------------------------
+        await this.updateCartTotal(userCart.id, tx);
+
+        // ------------------------------------------------------
+        // 6. Return merged cart summary
+        // ------------------------------------------------------
+        return this.getCartSummary(userCart.id, userId, undefined, tx);
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        timeout: 10000,
+      },
+    );
+  }
+
+  async mergeGuestCartVeryRecent(
     userId: string,
     sessionId: string,
   ): Promise<CartSummaryDto> {
@@ -746,10 +868,10 @@ export class CartService {
   //   });
   // }
 
-  private normalizeAddons(addons: any[]): any[] {
-    if (!addons || !Array.isArray(addons)) return [];
+  private normalizeAddons(addons: JsonValue): JsonValue {
+    if (!addons || !Array.isArray(addons)) return addons ?? [];
     return [...addons].sort((a, b) =>
-      String(a.id ?? a).localeCompare(String(b.id ?? b)),
+      String((a as any)?.id ?? a).localeCompare(String((b as any)?.id ?? b)),
     );
   }
 
