@@ -2459,6 +2459,116 @@ export class OrderService {
   }
 
   //////////////////
+  async getVendorOrders(
+  vendorId: string,
+  filters: { status?: string; page?: number; limit?: number },
+) {
+  // 1. Get vendor stores
+  const stores = await this.prisma.store.findMany({
+    where: { userId: vendorId },
+    select: { id: true },
+  });
+
+  const storeIds = stores.map((s) => s.id);
+
+  if (!storeIds.length) {
+    return {
+      data: [],
+      total: 0,
+      page: filters.page || 1,
+      limit: filters.limit || 20,
+      totalPages: 0,
+    };
+  }
+
+  // 2. Pagination
+  const page = Math.max(filters.page || 1, 1);
+  const limit = Math.min(filters.limit || 20, 100);
+
+  // 3. Vendor order filter (STRICT)
+  const where: any = {
+    orderStatus: "CONFIRMED",
+    paymentStatus: "PAID",
+    items: {
+      some: {
+        storeId: { in: storeIds },
+      },
+    },
+  };
+
+  // optional extra filter
+  if (filters.status) {
+    where.orderStatus = filters.status; // overrides CONFIRMED if provided
+  }
+
+  // 4. Fetch orders
+  const [orders, total] = await Promise.all([
+    this.prisma.order.findMany({
+      where,
+      include: {
+        items: {
+          where: {
+            storeId: { in: storeIds },
+          },
+          include: {
+            store: true,
+            product: true,
+            variant: true,
+          },
+        },
+        user: true,
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+
+    this.prisma.order.count({ where }),
+  ]);
+
+  // 5. Transform vendor-safe response
+  const data = orders.map((order) => {
+    const vendorItems = order.items;
+
+    const vendorSubtotal = vendorItems.reduce(
+      (sum, item) => sum + item.totalPrice,
+      0,
+    );
+
+    const vendorQuantity = vendorItems.reduce(
+      (sum, item) => sum + item.quantity,
+      0,
+    );
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      orderCode: order.orderCode,
+      createdAt: order.createdAt,
+
+      orderStatus: order.orderStatus,
+      paymentStatus: order.paymentStatus,
+
+      user: order.user,
+
+      items: vendorItems,
+
+      vendorSummary: {
+        itemCount: vendorItems.length,
+        totalQuantity: vendorQuantity,
+        subtotal: vendorSubtotal,
+      },
+    };
+  });
+
+  return {
+    data,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
 
   async getVendorOrdersbk(
     vendorId: string,
@@ -2499,7 +2609,7 @@ export class OrderService {
     };
   }
 
-  async getVendorOrders(
+  async getVendorOrdersn(
   vendorId: string,
   filters: { status?: string; page?: number; limit?: number },
 ) {
