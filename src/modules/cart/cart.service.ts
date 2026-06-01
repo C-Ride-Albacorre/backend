@@ -63,7 +63,89 @@ export class CartService {
    * - If only non‑ACTIVE carts exist (e.g., CHECKED_OUT), create a new one.
    * - If no cart exists, create one.
    */
-  async getOrCreateCart(
+  async getOrCreateCart(userId?: string, sessionId?: string, tx?: Prisma.TransactionClient) {
+  if (!userId && !sessionId) {
+    throw new BadRequestException('User or sessionId must be provided');
+  }
+
+  const prisma = tx ?? this.prisma;
+  const safeSessionId = sessionId?.trim() || null;
+  const hasUser = !!userId;
+
+  if (hasUser) {
+    // 1. Try to find an ACTIVE cart
+    let cart = await prisma.cart.findFirst({
+      where: { userId, status: CartStatus.ACTIVE },
+      include: { items: true },
+    });
+
+    if (!cart) {
+      // 2. Find ANY existing cart for this user (regardless of status)
+      const existingCart = await prisma.cart.findFirst({
+        where: { userId },
+        include: { items: true },
+      });
+
+      if (existingCart) {
+        // 3. Reuse the existing cart: set status to ACTIVE and clear all items & totals
+        cart = await prisma.cart.update({
+          where: { id: existingCart.id },
+          data: {
+            status: CartStatus.ACTIVE,
+            items: { deleteMany: {} },   // remove all old items
+            checkedOutAt: null,
+            totalAmount: 0,
+          },
+          include: { items: true },
+        });
+        this.logger.log(`Reset existing cart ${cart.id} to active for user ${userId}`);
+      } else {
+        // 4. No cart at all – create a fresh one
+        cart = await prisma.cart.create({
+          data: { userId, status: CartStatus.ACTIVE },
+          include: { items: true },
+        });
+        this.logger.log(`Created new active cart ${cart.id} for user ${userId}`);
+      }
+    }
+    return cart;
+  } else {
+    // Guest flow (no unique constraint on sessionId, but still safe to reuse)
+    let cart = await prisma.cart.findFirst({
+      where: { sessionId: safeSessionId, status: CartStatus.ACTIVE },
+      include: { items: true },
+    });
+
+    if (!cart) {
+      const existingGuestCart = await prisma.cart.findFirst({
+        where: { sessionId: safeSessionId },
+        include: { items: true },
+      });
+      if (existingGuestCart) {
+        cart = await prisma.cart.update({
+          where: { id: existingGuestCart.id },
+          data: {
+            status: CartStatus.ACTIVE,
+            items: { deleteMany: {} },
+            checkedOutAt: null,
+            totalAmount: 0,
+          },
+          include: { items: true },
+        });
+        this.logger.log(`Reset existing guest cart ${cart.id} to active for session ${safeSessionId}`);
+      } else {
+        cart = await prisma.cart.create({
+          data: { sessionId: safeSessionId, status: CartStatus.ACTIVE },
+          include: { items: true },
+        });
+        this.logger.log(`Created new active cart ${cart.id} for guest session ${safeSessionId}`);
+      }
+    }
+    return cart;
+  }
+}
+
+  async getOrCreateCartVRecent(
     userId?: string,
     sessionId?: string,
     tx?: Prisma.TransactionClient,
