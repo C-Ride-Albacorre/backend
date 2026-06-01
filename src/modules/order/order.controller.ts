@@ -6,6 +6,7 @@ import {
   ForbiddenException,
   Get,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -17,8 +18,12 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { OrderService } from './order.service';
-import { Role, User } from '@prisma/client';
-import { GetUser } from 'src/common/decorators/get-user.decorator';
+import { Role } from '@prisma/client';
+import { GetUser } from '../../common/decorators/get-user.decorator';
+import { RolesGuard } from '../../common/guards/role.guard';
+import { JwtAuthGuard } from '../../common/guards/auth.guard';
+import { Roles } from '../../common/decorators/role.decorator';
+import { UserRole } from '../../shared/enums';
 
 export class VendorActionDto {
   action: 'ACCEPT' | 'DECLINE';
@@ -27,11 +32,14 @@ export class VendorActionDto {
 
 @ApiTags('Vendor Orders')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.VENDOR)
 @Controller('vendor/orders')
 export class OrderController {
   constructor(private readonly orderService: OrderService) {}
 
   @Get()
+
   @ApiOperation({
     summary: 'List vendor orders',
     description: 'Retrieve all orders belonging to the authenticated vendor.',
