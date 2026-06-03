@@ -39,6 +39,7 @@ import { DriverDocumentMetadataDto } from './dto/driver-document-metadata.dto';
 import { GetUser } from 'src/common/decorators/get-user.decorator';
 import { User } from '@prisma/client';
 import { DriverOrderService } from './driver-order.service';
+import { DriverAssignmentService } from './driver-assignment.service';
 
 @ApiTags('driver')
 @Controller('driver')
@@ -48,6 +49,7 @@ export class DriverController {
   constructor(
     private readonly driverService: DriverService,
     private readonly driverOrderService: DriverOrderService,
+    private readonly driverAssignmentService: DriverAssignmentService
   ) {}
 
   // ================================
@@ -382,4 +384,12 @@ STEP 3 – Final Step: Review (Optional save before uploads)
   ) {
     return this.driverService.confirmDelivery(orderId, driver.id);
   }
+
+
+  // driver.controller.ts
+@Post('location')
+async updateLocation(@Body() dto: { driverId: string; orderId: string; lat: number; lng: number; heading: number }) {
+  await this.driverAssignmentService.updateDriverLocation(dto.driverId, dto.orderId, dto.lat, dto.lng, dto.heading);
+  return { success: true };
+}
 }

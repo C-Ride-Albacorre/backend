@@ -285,6 +285,7 @@ export class MonnifyService {
     }
 
     // 6. Trigger business logic
+    this.logger.log(`Order ${order.orderNumber} marked as PAID via webhook, triggering business logic`);
     await this.orderService
       .transition(order.id, OrderStatus.ORDER_PLACED, {
         actorId: order.userId,
@@ -292,6 +293,7 @@ export class MonnifyService {
       })
       .catch((e) => this.logger.error(`Transition failed: ${e.message}`));
 
+    this.logger.log(`Notifying vendors for order ${order.orderNumber}`);  
     await this.notificationService
       .notifyVendorsForOrder(order.id)
       .catch((e) =>
@@ -364,6 +366,7 @@ export class MonnifyService {
 
     if (result.count === 0) {
       // Already paid
+      this.logger.warn(`Payment already processed for order ${order.id}`);
       return {
         status: 'PAID',
         message: 'Payment already processed',
@@ -373,6 +376,7 @@ export class MonnifyService {
     }
 
     // Re-verify with Monnify (optional but recommended)
+    this.logger.log(`Re-verifying payment with Monnify for order ${order.orderNumber}`);
     const verification = await this.verifyPayment(transactionReference);
     if (verification?.responseBody?.paymentStatus !== 'PAID') {
       // Rollback
@@ -386,6 +390,7 @@ export class MonnifyService {
       throw new BadRequestException('Payment not confirmed by Monnify');
     }
 
+    this.logger.log(`Transitioning order ${order.orderNumber} to CONFIRMED`);
     // Business logic
     await this.orderService
       .transition(order.id, OrderStatus.ORDER_PLACED, {
@@ -393,6 +398,8 @@ export class MonnifyService {
         actorRole: 'CUSTOMER',
       })
       .catch((e) => this.logger.error(e));
+
+    this.logger.log(`Notifying vendors for order ${order.orderNumber}`);
     await this.notificationService
       .notifyVendorsForOrder(order.id)
       .catch((e) => this.logger.error(e));
@@ -405,6 +412,7 @@ export class MonnifyService {
   }
 
   async verifyPayment(transactionReference: string) {
+    this.logger.log(`Verifying payment for transactionReference: ${transactionReference}`);
     const accessToken = await this.getAccessToken();
     try {
       const response = await axios.get(

@@ -5,7 +5,7 @@ import { OrderController } from './order.controller';
 import { CustomerModule } from '../customer/customer.module';
 import { BullModule } from '@nestjs/bullmq';
 import { RedisModule } from '../redis/redis.module';
-import { VendorNotificationGateway } from 'src/map-gateway/vendor-notification.gateway';
+import { VendorNotificationGateway } from 'src/common/map-gateway/vendor-notification.gateway';
 import { DriverModule } from '../driver/driver.module';
 import { NotificationModule } from '../notification/notification.module';
 import { PaymentModule } from '../payment/payment.module';
@@ -27,4 +27,4 @@ import { PaymentModule } from '../payment/payment.module';
   providers: [OrderService, VendorNotificationGateway],
   exports: [OrderService],
 })
-export class OrderModule {}
+export class OrderModule { }

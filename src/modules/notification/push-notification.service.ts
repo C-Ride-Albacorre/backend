@@ -58,6 +58,8 @@ export class PushNotificationService {
     }
   }
 
+  
+
   /**
    * Send push notification to a single driver (or any user with a token).
    */
@@ -74,14 +76,27 @@ export class PushNotificationService {
 
     try {
       // Fetch driver's FCM token from database
-      const driver = await this.prisma.driverProfile.findUnique({
-        where: { userId: driverId },
-        select: { fcmToken: true, deviceType: true },
-      });
-      if (!driver?.fcmToken) {
-        this.logger.warn(`Driver ${driverId} has no FCM token`);
-        return false;
-      }
+      // const driver = await this.prisma.driverProfile.findUnique({
+      //   where: { userId: driverId },
+      //   select: { fcmToken: true, deviceType: true },
+      // });
+      // if (!driver?.fcmToken) {
+      //   this.logger.warn(`Driver ${driverId} has no FCM token`);
+      //   return false;
+      // }
+      // Fetch driver's FCM token from User table
+        const driver = await this.prisma.user.findUnique({
+          where: { id: driverId },
+          select: {
+            fcmToken: true,
+            deviceType: true,
+          },
+        });
+
+        if (!driver?.fcmToken) {
+          this.logger.warn(`Driver ${driverId} has no FCM token`);
+          return false;
+        }
 
       const message: admin.messaging.Message = {
         notification: {
@@ -120,9 +135,14 @@ export class PushNotificationService {
         this.logger.warn(
           `Invalid FCM token for driver ${driverId}, removing from DB`,
         );
-        await this.prisma.driverProfile
+        // await this.prisma.driverProfile
+        //   .update({
+        //     where: { userId: driverId },
+        //     data: { fcmToken: null },
+        //   })
+          await this.prisma.user
           .update({
-            where: { userId: driverId },
+            where: { id: driverId },
             data: { fcmToken: null },
           })
           .catch((e) => this.logger.error(e));
@@ -221,29 +241,56 @@ export class PushNotificationService {
     return { success, failure };
   }
 
+  async registerToken(userId: string, token: string, deviceType?: string) {
+  await this.prisma.user.update({
+    where: { id: userId },
+    data: { fcmToken: token, deviceType },
+  });
+  this.logger.log(`Registered FCM token for user ${userId}`);
+}
+
+
+async unregisterToken(userId: string) {
+  await this.prisma.user.update({
+    where: { id: userId },
+    data: { fcmToken: null },
+  });
+  this.logger.log(`Unregistered FCM token for user ${userId}`);
+}
+
   /**
    * Store or update a driver's FCM token.
    */
-  async registerDriverToken(
-    driverId: string,
-    token: string,
-    deviceType?: string,
-  ): Promise<void> {
-    await this.prisma.driverProfile.update({
-      where: { userId: driverId },
-      data: { fcmToken: token, deviceType },
-    });
-    this.logger.log(`Registered FCM token for driver ${driverId}`);
-  }
+//   async registerDriverToken(
+//     driverId: string,
+//     token: string,
+//     deviceType?: string,
+//   ): Promise<void> {
+//     await this.prisma.driverProfile.update({
+//       where: { userId: driverId },
+//       data: { fcmToken: token, deviceType },
+//     });
+//     this.logger.log(`Registered FCM token for driver ${driverId}`);
+//   }
 
-  /**
-   * Remove token (e.g., on logout or app uninstall).
-   */
-  async unregisterDriverToken(driverId: string): Promise<void> {
-    await this.prisma.driverProfile.update({
-      where: { userId: driverId },
-      data: { fcmToken: null },
-    });
-    this.logger.log(`Unregistered FCM token for driver ${driverId}`);
-  }
+//   /**
+//    * Remove token (e.g., on logout or app uninstall).
+//    */
+//   async unregisterDriverToken(driverId: string): Promise<void> {
+//     await this.prisma.driverProfile.update({
+//       where: { userId: driverId },
+//       data: { fcmToken: null },
+//     });
+//     this.logger.log(`Unregistered FCM token for driver ${driverId}`);
+//   }
+
+//   // push-notification.service.ts
+// async registerCustomerToken(userId: string, token: string, deviceType?: string,
+// ): Promise<void> {
+//   await this.prisma.user.update({
+//     where: { id: userId },
+//     data: { fcmToken: token, deviceType },
+//   });
+//   this.logger.log(`Registered FCM token for customer ${userId}`);
+// }
 }
