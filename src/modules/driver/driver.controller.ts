@@ -40,6 +40,7 @@ import { GetUser } from 'src/common/decorators/get-user.decorator';
 import { User } from '@prisma/client';
 import { DriverOrderService } from './driver-order.service';
 import { DriverAssignmentService } from './driver-assignment.service';
+import { UpdateDriverLocationDto } from './dto/update-driver-location.dto';
 
 @ApiTags('driver')
 @Controller('driver')
@@ -50,7 +51,7 @@ export class DriverController {
     private readonly driverService: DriverService,
     private readonly driverOrderService: DriverOrderService,
     private readonly driverAssignmentService: DriverAssignmentService
-  ) {}
+  ) { }
 
   // ================================
   // DRIVER ONBOARDING CONTROLLER
@@ -386,10 +387,41 @@ STEP 3 – Final Step: Review (Optional save before uploads)
   }
 
 
-  // driver.controller.ts
-@Post('location')
-async updateLocation(@Body() dto: { driverId: string; orderId: string; lat: number; lng: number; heading: number }) {
-  await this.driverAssignmentService.updateDriverLocation(dto.driverId, dto.orderId, dto.lat, dto.lng, dto.heading);
-  return { success: true };
-}
+
+  @Post('location')
+  @ApiOperation({
+    summary: 'Update driver location',
+    description:
+      'Stores the latest driver location in Redis and broadcasts it to the customer via WebSocket.',
+  })
+  @ApiBody({
+    type: UpdateDriverLocationDto,
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Driver location updated successfully',
+    schema: {
+      example: {
+        success: true,
+      },
+    },
+  })
+  async updateLocation(
+    @Body() dto: UpdateDriverLocationDto,
+  ) {
+    await this.driverAssignmentService.updateDriverLocation(
+      dto.driverId,
+      dto.orderId,
+      dto.lat,
+      dto.lng,
+      dto.heading,
+    );
+
+    return { success: true };
+  }
+  // @Post('location')
+  // async updateLocation(@Body() dto: { driverId: string; orderId: string; lat: number; lng: number; heading: number }) {
+  //   await this.driverAssignmentService.updateDriverLocation(dto.driverId, dto.orderId, dto.lat, dto.lng, dto.heading);
+  //   return { success: true };
+  // }
 }

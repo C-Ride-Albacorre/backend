@@ -104,6 +104,9 @@ export class DriverAssignmentProcessor extends WorkerHost {
           await this.driverAssignmentService.findAndNotifyDrivers(orderId, location);
         }
         break;
+        case 'driver-response-timeout':
+        await this.handleDriverTimeout(job);
+        break;
 
       // NEW: ETA update handler
       case 'update-eta':
@@ -150,4 +153,24 @@ export class DriverAssignmentProcessor extends WorkerHost {
       await service.redis.setex(`order:${orderId}:polyline`, 3600, polyline);
     }
   }
+
+  private async handleDriverTimeout(
+  job: Job<{ orderId: string; driverId: string }>
+) {
+  const { orderId, driverId } = job.data;
+  const service = this.driverAssignmentService;
+
+  // Check if this driver still holds the pending claim
+  const pendingDriverId = await service.redis.get(`order:${orderId}:pending`);
+  if (pendingDriverId === driverId) {
+    // Driver didn't accept – notify them via WebSocket
+    service.driverGateway?.emitRequestTimeout(driverId, orderId);
+
+    // Remove the pending key so that other drivers can be notified
+    await service.redis.del(`order:${orderId}:pending`);
+
+    // Try the next available driver (if any)
+    await service.tryNextDriver(orderId);
+  }
+}
 }

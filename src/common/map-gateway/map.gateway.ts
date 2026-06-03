@@ -34,19 +34,19 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
 
-  @SubscribeMessage('driver-location-update')
-  async handleDriverLocation(
-    @MessageBody()
-    data: {
-      driverId: string;
-      orderId: string;
-      lat: number;
-      lng: number;
-      heading: number;
-    },
-  ) {
-    await this.driverAssignmentService.handleDriverLocation(data);
-  }
+  // @SubscribeMessage('driver-location-update')
+  // async handleDriverLocation(
+  //   @MessageBody()
+  //   data: {
+  //     driverId: string;
+  //     orderId: string;
+  //     lat: number;
+  //     lng: number;
+  //     heading: number;
+  //   },
+  // ) {
+  //   await this.driverAssignmentService.handleDriverLocation(data);
+  // }
 
   ///
 
