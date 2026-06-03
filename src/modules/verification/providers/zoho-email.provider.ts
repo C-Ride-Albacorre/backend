@@ -129,7 +129,7 @@ export class ZohoEmailProvider implements IEmailProvider {
   ): Promise<any> {
     const subject = 'Your Verification Code';
     const html = this.generateOtpEmail(otp);
-
+     this.logger.log(`Sending order confirmation email to ${to}`);
     return this.sendEmail(to, subject, `Your OTP is: ${otp}`, html);
   }
 }

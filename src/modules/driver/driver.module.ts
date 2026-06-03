@@ -17,7 +17,7 @@ import { DriverOrderService } from './driver-order.service';
     ),
     forwardRef(() => OrderModule),
     forwardRef(() => UserModule),
-    NotificationModule,
+    forwardRef(() => NotificationModule),
   ],
   controllers: [DriverController],
   providers: [DriverService, DriverAssignmentService, DriverOrderService],

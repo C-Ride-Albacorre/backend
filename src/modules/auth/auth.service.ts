@@ -894,31 +894,6 @@ export class AuthService {
     };
   }
 
-  private async generateAuthResponseOld(user: User): Promise<AuthResponse> {
-    const tokens = await this.generateTokens(user);
-
-    // Hash and store refresh token if rotation is enabled
-    if (this.refreshTokenRotationEnabled) {
-      const refreshTokenHash = await bcrypt.hash(tokens.refreshToken, 12);
-      await this.userService.updateRefreshToken(user.id, refreshTokenHash);
-    }
-
-    // await this.userService.markUserLogin(user.id);
-    const loginMeta = await this.userService.markUserLogin(user.id);
-
-    return {
-      ...tokens,
-      identifier: null,
-      verificationMethod: null,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        isNewUser: loginMeta.isFirstLogin,
-      },
-    };
-  }
-
   private async generateTokens(user: User) {
     const accessTokenPayload = this.createAccessTokenPayload(user);
     const refreshTokenPayload = this.createRefreshTokenPayload(user);
@@ -1013,13 +988,6 @@ export class AuthService {
     return rest;
   }
 
-  // async login(dto: LoginDto) {
-  //   const { email, password } = dto;
-  //   const user = await this.validateUser(email, password);
-  //   if (!user) throw new UnauthorizedException('Invalid credentials');
-
-  //   return this.signJwt(user);
-  // }
 
   private signJwt(user: any) {
     const secret = this.config.get<string>('JWT_SECRET');

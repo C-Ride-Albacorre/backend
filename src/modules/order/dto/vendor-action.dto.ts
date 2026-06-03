@@ -1,3 +1,4 @@
+import { Optional } from '@nestjs/common';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsString } from 'class-validator';
 
@@ -5,8 +6,9 @@ export class VendorActionDto {
 @ApiProperty({
     enum: ['ACCEPT', 'DECLINE'],
     description: 'Vendor action type',
-    example: 'ACCEPT',
+    example: 'ACCEPT | DECLINE',
   })
+  @Optional()
   @IsEnum(['ACCEPT', 'DECLINE'])
   action: 'ACCEPT' | 'DECLINE';
 

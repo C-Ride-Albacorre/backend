@@ -2,7 +2,8 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { NotificationType, Role } from '@prisma/client';
 import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
-import { VendorNotificationGateway } from 'src/map-gateway/vendor-notification.gateway';
+import { VendorNotificationGateway } from 'src/common/map-gateway/vendor-notification.gateway';
+import { PushNotificationService } from './push-notification.service';
 
 @Injectable()
 export class NotificationService {
@@ -12,7 +13,8 @@ export class NotificationService {
     private prisma: PrismaService,
     private zohoEmailProvider: ZohoEmailProvider,
     private vendorGateway: VendorNotificationGateway,
-  ) {}
+    private pushService: PushNotificationService, // ← inject
+  ) { }
 
   /**
    * Notify all vendors associated with an order that a new order has been placed.
@@ -88,15 +90,12 @@ export class NotificationService {
       orderId,
       orderNumber,
     });
+    this.logger.log(`Sending order confirmation email for order ${orderNumber} to vendor ${vendorId}`);
     await this.zohoEmailProvider.sendOrderConfirmation(
       await this.getVendorEmail(vendorId),
       'New Order',
       `Order ${orderNumber} has been placed. Please login to accept or decline.`,
     );
-    // to: string,
-    // subject: string,
-    // body: string,
-    // html?: string,
   }
 
   private async getVendorEmail(vendorId: string): Promise<string> {
@@ -139,6 +138,14 @@ export class NotificationService {
   /**
    * Send order cancelled notification to customer (used in vendor decline flow).
    */
+  // notification.service.ts (partial update)
+
+  // ... other methods ...
+
+  /**
+   * Send order cancelled notification to customer (used in vendor decline, no drivers, admin cancel).
+   * Sends in-app notification, email, and push notification.
+   */
   async sendOrderCancelled(
     customerId: string,
     orderNumber: string,
@@ -146,9 +153,10 @@ export class NotificationService {
   ): Promise<void> {
     try {
       const body = reason
-        ? `Your order #${orderNumber} has been cancelled by the vendor. Reason: ${reason}`
+        ? `Your order #${orderNumber} has been cancelled. Reason: ${reason}`
         : `Your order #${orderNumber} has been cancelled.`;
 
+      // 1. In-app database notification
       await this.prisma.notification.create({
         data: {
           userId: customerId,
@@ -159,7 +167,7 @@ export class NotificationService {
         },
       });
 
-      // Send email
+      // 2. Email notification
       const user = await this.prisma.user.findUnique({
         where: { id: customerId },
         select: { email: true },
@@ -171,11 +179,22 @@ export class NotificationService {
           `<p>${body}</p><p>If you have any questions, please contact support.</p>`,
         );
       }
+
+      // 3. Push notification (mobile)
+      await this.pushService.sendToCustomer(customerId, {
+        title: 'Order Cancelled',
+        body,
+        data: { orderId: '?', orderNumber },
+        priority: 'high',
+      });
+
+      this.logger.log(`Cancellation notifications sent for order ${orderNumber} to customer ${customerId}`);
     } catch (error) {
       this.logger.error(
         `Failed to send order cancelled notification for order ${orderNumber}`,
         error.stack,
       );
+      // Non-critical – do not throw
     }
   }
 }

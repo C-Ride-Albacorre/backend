@@ -535,8 +535,8 @@ model DriverProfile {
   documents         DriverDocument[]
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   driverAssignments DriverAssignment[]
-  fcmToken          String? // Firebase Cloud Messaging token
-  deviceType        String? // 'ios', 'android', 'web'
+  // fcmToken          String? // Firebase Cloud Messaging token
+  // deviceType        String? // 'ios', 'android', 'web'
 
   @@index([userId])
   @@index([status])
