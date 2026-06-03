@@ -53,43 +53,43 @@ export class OrderService {
     private driverAssignment: DriverAssignmentService,
     private notification: NotificationService,
     @InjectQueue('order-events') private orderQueue: Queue,
-  ) {}
+  ) { }
 
   transitions: Record<
     string,
     { from: OrderStatus[]; to: OrderStatus; action: string }
   > = {
-    confirm_payment: {
-      from: [OrderStatus.ORDER_PLACED], // after payment verification
-      to: OrderStatus.ORDER_PLACED,
-      action: 'ORDER_PLACED',
-    },
-    vendor_accept: {
-      from: [OrderStatus.ORDER_PLACED],
-      to: OrderStatus.ORDER_ACCEPTED,
-      action: 'VENDOR_ACCEPT',
-    },
-    assign_driver: {
-      from: [OrderStatus.ORDER_ACCEPTED],
-      to: OrderStatus.ORDER_ASSIGNED,
-      action: 'ASSIGN_DRIVER',
-    },
-    pickup: {
-      from: [OrderStatus.ORDER_ASSIGNED],
-      to: OrderStatus.PICKED_UP,
-      action: 'PICKUP',
-    },
-    deliver: {
-      from: [OrderStatus.PICKED_UP],
-      to: OrderStatus.DELIVERED,
-      action: 'DELIVER',
-    },
-    cancel: {
-      from: [OrderStatus.ORDER_PLACED, OrderStatus.ORDER_ACCEPTED],
-      to: OrderStatus.CANCELLED,
-      action: 'CANCEL',
-    },
-  };
+      confirm_payment: {
+        from: [OrderStatus.ORDER_PLACED], // after payment verification
+        to: OrderStatus.ORDER_PLACED,
+        action: 'ORDER_PLACED',
+      },
+      vendor_accept: {
+        from: [OrderStatus.ORDER_PLACED],
+        to: OrderStatus.ORDER_ACCEPTED,
+        action: 'VENDOR_ACCEPT',
+      },
+      assign_driver: {
+        from: [OrderStatus.ORDER_ACCEPTED],
+        to: OrderStatus.ORDER_ASSIGNED,
+        action: 'ASSIGN_DRIVER',
+      },
+      pickup: {
+        from: [OrderStatus.ORDER_ASSIGNED],
+        to: OrderStatus.PICKED_UP,
+        action: 'PICKUP',
+      },
+      deliver: {
+        from: [OrderStatus.PICKED_UP],
+        to: OrderStatus.DELIVERED,
+        action: 'DELIVER',
+      },
+      cancel: {
+        from: [OrderStatus.ORDER_PLACED, OrderStatus.ORDER_ACCEPTED],
+        to: OrderStatus.CANCELLED,
+        action: 'CANCEL',
+      },
+    };
 
   async transition(
     orderId: string,
@@ -2290,12 +2290,12 @@ export class OrderService {
       updatedAt: order.updatedAt,
       deliveryOption: order.deliveryOption
         ? {
-            deliveryOptionId: order.deliveryOption.id,
-            name: order.deliveryOption.name,
-            baseFee: order.deliveryOption.baseFee,
-            estimatedDays: order.deliveryOption.estimatedDays,
-            description: order.deliveryOption.description,
-          }
+          deliveryOptionId: order.deliveryOption.id,
+          name: order.deliveryOption.name,
+          baseFee: order.deliveryOption.baseFee,
+          estimatedDays: order.deliveryOption.estimatedDays,
+          description: order.deliveryOption.description,
+        }
         : null,
     };
   }
@@ -2460,148 +2460,155 @@ export class OrderService {
 
   //////////////////
   async getVendorOrders(
-  vendorId: string,
-  filters: { status?: string; page?: number; limit?: number },
-) {
-  // 1. Get vendor stores
-  const stores = await this.prisma.store.findMany({
-    where: { userId: vendorId },
-    select: { id: true },
-  });
-
-  const storeIds = stores.map((s) => s.id);
-
-  if (!storeIds.length) {
-    return {
-      data: [],
-      total: 0,
-      page: filters.page || 1,
-      limit: filters.limit || 20,
-      totalPages: 0,
-    };
-  }
-
-  // 2. Pagination
-  const page = Math.max(filters.page || 1, 1);
-  const limit = Math.min(filters.limit || 20, 100);
-
-  // 3. Vendor order filter (STRICT)
-  const where: any = {
-    orderStatus: "CONFIRMED",
-    paymentStatus: "PAID",
-    items: {
-      some: {
-        storeId: { in: storeIds },
-      },
-    },
-  };
-
-  // optional extra filter
-  if (filters.status) {
-    where.orderStatus = filters.status; // overrides CONFIRMED if provided
-  }
-
-  // 4. Fetch orders
-  const [orders, total] = await Promise.all([
-    this.prisma.order.findMany({
-      where,
-      include: {
-        items: {
-          where: {
-            storeId: { in: storeIds },
-          },
-          include: {
-            store: true,
-            product: true,
-            variant: true,
-          },
-        },
-        user: true,
-      },
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
-
-    this.prisma.order.count({ where }),
-  ]);
-
-  // 5. Transform vendor-safe response
-  const data = orders.map((order) => {
-    const vendorItems = order.items;
-
-    const vendorSubtotal = vendorItems.reduce(
-      (sum, item) => sum + item.totalPrice,
-      0,
-    );
-
-    const vendorQuantity = vendorItems.reduce(
-      (sum, item) => sum + item.quantity,
-      0,
-    );
-
-    return {
-      id: order.id,
-      orderNumber: order.orderNumber,
-      orderCode: order.orderCode,
-      createdAt: order.createdAt,
-
-      orderStatus: order.orderStatus,
-      paymentStatus: order.paymentStatus,
-
-      user: order.user,
-
-      items: vendorItems,
-
-      vendorSummary: {
-        itemCount: vendorItems.length,
-        totalQuantity: vendorQuantity,
-        subtotal: vendorSubtotal,
-      },
-    };
-  });
-
-  return {
-    data,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  };
-}
-
-  async getVendorOrdersbk(
     vendorId: string,
-    filters: { status?: string; page?: number; limit?: number },
+    filters: { page?: number; limit?: number },
   ) {
+    // 1. Get vendor stores
     const stores = await this.prisma.store.findMany({
       where: { userId: vendorId },
       select: { id: true },
     });
+
     const storeIds = stores.map((s) => s.id);
-    if (!storeIds.length) return { data: [], total: 0 };
 
-    const page = filters.page || 1;
+    if (!storeIds.length) {
+      return {
+        data: [],
+        total: 0,
+        page: filters.page || 1,
+        limit: filters.limit || 20,
+        totalPages: 0,
+      };
+    }
+
+    // 2. Pagination
+    const page = Math.max(filters.page || 1, 1);
     const limit = Math.min(filters.limit || 20, 100);
-    const where: any = { items: { some: { storeId: { in: storeIds } } } };
-    if (filters.status) where.orderStatus = filters.status;
 
+    // 3. Vendor order filter (STRICT)
+    const where: any = {
+      orderStatus: "CONFIRMED",
+      paymentStatus: "PAID",
+      items: {
+        some: {
+          storeId: { in: storeIds },
+        },
+      },
+    };
+
+    // optional extra filter
+    // if (filters.status) {
+    //   where.orderStatus = filters.status; // overrides CONFIRMED if provided
+    // }
+
+    // 4. Fetch orders
+    // const [orders, total] = await Promise.all([
+    //   this.prisma.order.findMany({
+    //     where,
+    //     include: {
+    //       items: {
+    //         where: {
+    //           storeId: { in: storeIds },
+    //         },
+    //         include: {
+    //           store: true,
+    //           product: true,
+    //           variant: true,
+    //         },
+    //       },
+    //       user: true,
+    //     },
+    //     orderBy: { createdAt: "desc" },
+    //     skip: (page - 1) * limit,
+    //     take: limit,
+    //   }),
+
+    //   this.prisma.order.count({ where }),
+    // ]);
     const [orders, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
         include: {
-          items: { include: { store: true, product: true } },
+          items: {
+            where: {
+              storeId: { in: storeIds },
+            },
+            include: {
+              store: true,
+              variant: true,
+              product: {
+                include: {
+                  productImages: true,
+                },
+              },
+            },
+          },
           user: true,
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: {
+          createdAt: "desc",
+        },
         skip: (page - 1) * limit,
         take: limit,
       }),
+
       this.prisma.order.count({ where }),
     ]);
 
+    // 5. Transform vendor-safe response
+    const data = orders.map((order) => {
+      const vendorItems = order.items;
+
+      const vendorSubtotal = vendorItems.reduce(
+        (sum, item) => sum + item.totalPrice,
+        0,
+      );
+
+      const vendorQuantity = vendorItems.reduce(
+        (sum, item) => sum + item.quantity,
+        0,
+      );
+
+      return {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        orderCode: order.orderCode,
+        createdAt: order.createdAt,
+
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+
+        user: order.user,
+
+        items: vendorItems.map((item) => ({
+          id: item.id,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+
+          product: item.product
+            ? {
+              id: item.product.id,
+              productName: item.product.productName,
+              image:
+                item.product.productImages?.[0]?.imageUrl ?? null,
+            }
+            : null,
+
+          variant: item.variant,
+          store: item.store,
+        })),
+
+        vendorSummary: {
+          itemCount: vendorItems.length,
+          totalQuantity: vendorQuantity,
+          subtotal: vendorSubtotal,
+        },
+      };
+    });
+
     return {
-      data: orders,
+      data,
       total,
       page,
       limit,
@@ -2609,80 +2616,65 @@ export class OrderService {
     };
   }
 
-  async getVendorOrdersn(
-  vendorId: string,
-  filters: { status?: string; page?: number; limit?: number },
-) {
-  // 1. Get all stores owned by vendor
-  const stores = await this.prisma.store.findMany({
-    where: { userId: vendorId },
-    select: { id: true },
-  });
-
-  const storeIds = stores.map((s) => s.id);
-
-  if (!storeIds.length) {
-    return {
-      data: [],
-      total: 0,
-      page: filters.page || 1,
-      limit: filters.limit || 20,
-      totalPages: 0,
-    };
-  }
-
-  // 2. Pagination setup
-  const page = Math.max(filters.page || 1, 1);
-  const limit = Math.min(filters.limit || 20, 100);
-
-  // 3. Order-level filter (vendor must have at least one item in order)
-  const where: any = {
-    items: {
-      some: {
-        storeId: { in: storeIds },
+  async getVendorOrderById(
+    vendorId: string,
+    orderId: string,
+  ) {
+    const stores = await this.prisma.store.findMany({
+      where: {
+        userId: vendorId,
       },
-    },
-  };
+      select: {
+        id: true,
+      },
+    });
 
-  if (filters.status) {
-    where.orderStatus = filters.status;
-  }
+    const storeIds = stores.map((s) => s.id);
 
-  // 4. Fetch orders + ONLY vendor-related items
-  const [orders, total] = await Promise.all([
-    this.prisma.order.findMany({
-      where,
+    const order = await this.prisma.order.findFirst({
+      where: {
+        id: orderId,
+        orderStatus: "CONFIRMED",
+        paymentStatus: "PAID",
+        items: {
+          some: {
+            storeId: {
+              in: storeIds,
+            },
+          },
+        },
+      },
       include: {
+        user: true,
         items: {
           where: {
-            storeId: { in: storeIds },
+            storeId: {
+              in: storeIds,
+            },
           },
           include: {
             store: true,
-            product: true,
             variant: true,
+            product: {
+              include: {
+                productImages: true,
+              },
+            },
           },
         },
-        user: true,
       },
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
+    });
 
-    this.prisma.order.count({ where }),
-  ]);
+    if (!order) {
+      throw new NotFoundException("Order not found");
+    }
 
-  // 5. Transform response to vendor-safe format
-  const data = orders.map((order) => {
-    const vendorItems = order.items;
-
-    const vendorSubtotal = vendorItems.reduce(
+    const vendorSubtotal = order.items.reduce(
       (sum, item) => sum + item.totalPrice,
       0,
     );
 
-    const vendorQuantity = vendorItems.reduce(
+    const vendorQuantity = order.items.reduce(
       (sum, item) => sum + item.quantity,
       0,
     );
@@ -2691,34 +2683,48 @@ export class OrderService {
       id: order.id,
       orderNumber: order.orderNumber,
       orderCode: order.orderCode,
+
       createdAt: order.createdAt,
+
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
 
-      // customer info
+      recipientName: order.recipientName,
+      recipientPhone: order.recipientPhone,
+
+      deliveryInstructions: order.deliveryInstructions,
+
+      pickupLocation: order.pickupLocation,
+      dropoffLocation: order.dropoffLocation,
+
       user: order.user,
 
-      // vendor-specific items only
-      items: vendorItems,
+      items: order.items.map((item) => ({
+        id: item.id,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
 
-      // computed vendor metrics (IMPORTANT)
+        product: item.product
+          ? {
+            id: item.product.id,
+            productName: item.product.productName,
+            image:
+              item.product.productImages?.[0]?.imageUrl ?? null,
+          }
+          : null,
+
+        variant: item.variant,
+        store: item.store,
+      })),
+
       vendorSummary: {
-        itemCount: vendorItems.length,
+        itemCount: order.items.length,
         totalQuantity: vendorQuantity,
         subtotal: vendorSubtotal,
       },
     };
-  });
-
-  // 6. Return paginated response
-  return {
-    data,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  };
-}
+  }
 
   async handleVendorAction(
     orderId: string,

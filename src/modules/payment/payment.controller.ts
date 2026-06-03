@@ -21,7 +21,6 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-// import { MonnifyWebhookDto } from '../customer/dto/payment.dto';
 
 @ApiTags('payment')
 @Controller('payment')
@@ -81,6 +80,7 @@ export class PaymentController {
     console.log('frontendUrl:', frontendUrl); // <<-- log this
 
     if (!transactionReference && !paymentReference) {
+      this.logger.error('Missing transactionReference and paymentReference in callback');
       return res.redirect(
         `${frontendUrl}/payment/error?reason=missing_reference`,
       );
@@ -89,12 +89,14 @@ export class PaymentController {
     try {
       let result;
       if (transactionReference) {
+        this.logger.log(`Verifying payment for transactionReference: ${transactionReference}`);
         result =
           await this.monnifyService.verifyPaymentAndUpdate(
             transactionReference,
           );
       } else if (paymentReference) {
         // Handle paymentReference if needed
+        this.logger.log(`Verifying payment for paymentReference: ${paymentReference}`);
         result =
           await this.monnifyService.verifyByPaymentReference(paymentReference);
       }
@@ -104,67 +106,20 @@ export class PaymentController {
         orderId: result.orderId,
         orderNumber: result.orderNumber,
       });
+       const redirectUrl = `${frontendUrl}/payment/result?${params.toString()}`;
+      console.log('Redirect URL - SUCCESS:', redirectUrl);
 
-      return res.redirect(`${frontendUrl}/payment/result?${params.toString()}`);
+      return res.redirect(redirectUrl);
     } catch (error) {
       this.logger.error(`Callback error: ${error.message}`);
       const ref = transactionReference || paymentReference;
+      console.log('Redirect URL - ERROR:', `${frontendUrl}/payment/error?reason=verification_failed&ref=${ref}`);
       return res.redirect(
         `${frontendUrl}/payment/error?reason=verification_failed&ref=${ref}`,
       );
     }
   }
-  //FOR WEBHOOK
-  // async paymentCallback(
-  //   @Query('transactionReference') transactionReference: string,
-  //   @Res() res: Response,
-  // ) {
-  //   if (!transactionReference) {
-  //     return res.redirect(
-  //       `${this.configService.get('FRONTEND_URL')}/payment/error`,
-  //     );
-  //   }
-
-  //   return res.redirect(
-  //     `${this.configService.get('FRONTEND_URL')}/payment/result?transactionReference=${transactionReference}`,
-  //   );
-  // }
-  // async paymentCallback(
-  //   @Query('transactionReference') transactionReference: string,
-  //   @Res() res: Response,
-  // ) {
-  //   if (!transactionReference) {
-  //     // Redirect to frontend error page if no reference
-  //     return res.redirect(
-  //       `${this.configService.get('FRONTEND_URL')}/payment/error`,
-  //     );
-  //   }
-
-  //   try {
-  //     // Verify payment with Monnify and update DB
-  //     const result =
-  //       await this.monnifyService.verifyPaymentAndUpdate(transactionReference);
-
-  //     // Redirect to frontend result page with status info
-  //     return res.redirect(
-  //       `${this.configService.get('FRONTEND_URL')}/payment/result?status=${result.status}&orderId=${result.orderId}&orderNumber=${result.orderNumber}`,
-  //     );
-  //   } catch (error) {
-  //     // Redirect to frontend error page on failure
-  //     return res.redirect(
-  //       `${this.configService.get('FRONTEND_URL')}/payment/error`,
-  //     );
-  //   }
-  // }
-
-  // @Post('/webhook')
-  // async webhook(
-  //   @Body() body: MonnifyWebhookDto,
-  //   @Headers('monnify-signature') signature: string,
-  // ) {
-  //   return this.monnifyService.handleWebhook(body, signature);
-  // }
-
+  
   @Post('webhook')
   @HttpCode(200)
   async webhook(

@@ -22,11 +22,11 @@ import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../modules/redis/redis.provider';
 import { OrderStatus, AssignmentStatus, DriverStatus } from '@prisma/client';
-import { MapGateway } from 'src/map-gateway/map.gateway';
+import { MapGateway } from 'src/common/map-gateway/map.gateway';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
-import { VendorNotificationGateway } from 'src/map-gateway/vendor-notification.gateway';
+import { VendorNotificationGateway } from 'src/common/map-gateway/vendor-notification.gateway';
 import { OrderService } from '../order/order.service';
 
 export enum DriverDocumentType {

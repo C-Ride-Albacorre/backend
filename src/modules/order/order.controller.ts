@@ -11,6 +11,7 @@ import {
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -25,6 +26,7 @@ import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { Roles } from '../../common/decorators/role.decorator';
 import { UserRole } from '../../shared/enums';
 import { VendorActionDto } from './dto/vendor-action.dto';
+import { VendorOrderDto } from './dto/vendor-order.dto';
 
 // export class VendorActionDto {
 //   action: 'ACCEPT' | 'DECLINE';
@@ -44,13 +46,13 @@ export class OrderController {
     summary: 'List vendor orders',
     description: 'Retrieve all orders belonging to the authenticated vendor.',
   })
-  @ApiQuery({
-    name: 'status',
-    required: false,
-    type: String,
-    example: 'PENDING',
-    description: 'Filter orders by status',
-  })
+  // @ApiQuery({
+  //   name: 'status',
+  //   required: false,
+  //   type: String,
+  //   example: 'CONFIRMED',
+  //   description: 'Filter orders by status',
+  // })
   @ApiQuery({
     name: 'page',
     required: false,
@@ -75,7 +77,7 @@ export class OrderController {
   })
   async listOrders(
     @GetUser() user: any,
-    @Query('status') status?: string,
+    // @Query('status') status?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
@@ -87,10 +89,32 @@ export class OrderController {
 
 
     return this.orderService.getVendorOrders(user.id, {
-      status,
+      // status,
       page,
       limit,
     });
+  }
+
+
+  @Get(":id")
+  @ApiOperation({
+    summary: "Get single vendor order",
+  })
+  @ApiParam({
+    name: "id",
+    example: "1f24e2fa-4f69-4f44-a4d3-6c5ca4ecf315",
+  })
+  @ApiOkResponse({
+    type: VendorOrderDto,
+  })
+  getOrder(
+    @GetUser() user: any,
+    @Param("id") orderId: string,
+  ) {
+    return this.orderService.getVendorOrderById(
+      user.sub,
+      orderId,
+    );
   }
 
 
