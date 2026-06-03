@@ -3,6 +3,7 @@ import {
   Logger,
   Inject,
   BadRequestException,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -13,10 +14,11 @@ import { OrderStatus, AssignmentStatus, DriverStatus } from '@prisma/client';
 import { NotificationType, Role } from '@prisma/client';
 import axios from 'axios';
 import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
-import { VendorNotificationGateway } from 'src/common/map-gateway/vendor-notification.gateway';
-import { MapGateway } from 'src/common/map-gateway/map.gateway';
+import { VendorNotificationGateway } from '../../common/map-gateway/vendor-notification.gateway';
+import { MapGateway } from '../../common/map-gateway/map.gateway';
 import { PushNotificationService } from '../notification/push-notification.service';
 import { MessageBody, SubscribeMessage } from '@nestjs/websockets';
+import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 
 type TransitionContext = {
   actorId?: string;
@@ -50,6 +52,7 @@ const CLAIM_SCRIPT = `
 export class DriverAssignmentService {
   private readonly logger = new Logger(DriverAssignmentService.name);
   private readonly googleMapsApiKey: string;
+  private readonly driverSockets = new Map<string, string>();
 
   constructor(
     public prisma: PrismaService,
@@ -61,6 +64,8 @@ export class DriverAssignmentService {
     private vendorNotificationGateway: VendorNotificationGateway,
     public mapGateway: MapGateway,
     private pushService: PushNotificationService,
+    @Inject(forwardRef(() => DriverGateway))
+    public readonly driverGateway: DriverGateway,
   ) { }
 
   transitions: Record<
@@ -204,7 +209,339 @@ export class DriverAssignmentService {
     }
   }
 
-  async findAndNotifyDrivers(
+  async findAndNotifyDrivers(orderId: string, vendorLocation: { lat: number; lng: number }) {
+    const dispatchLockKey = `order:${orderId}:dispatch_lock`;
+    const pendingDriversKey = `order:${orderId}:pending_drivers`;
+
+    try {
+      const locked = await this.redis.set(dispatchLockKey, '1', 'EX', 120, 'NX');
+      if (!locked) return;
+
+      const drivers = await this.getNearbyDrivers(
+        vendorLocation.lat,
+        vendorLocation.lng,
+        5000,
+      );
+
+      if (!drivers.length) {
+        await this.handleNoDrivers(orderId);
+        return;
+      }
+
+      const pipeline = this.redis.pipeline();
+
+      for (const driver of drivers) {
+        const pendingKey = `order:${orderId}:pending:${driver.userId}`;
+
+        pipeline.setex(pendingKey, 60, 'pending');
+        pipeline.sadd(`driver:${driver.userId}:pending_claims`, orderId);
+        pipeline.sadd(pendingDriversKey, driver.userId);
+      }
+
+      await pipeline.exec();
+
+      for (const driver of drivers) {
+        await this.notificationQueue.add(
+          'notify-driver',
+          {
+            driverId: driver.userId,
+            orderId,
+            vendorLocation,
+          },
+          {
+            jobId: `notify-${orderId}-${driver.userId}`,
+            attempts: 2,
+            backoff: 1000,
+            removeOnComplete: true,
+          },
+        );
+
+        await this.assignmentQueue.add(
+          'driver-response-timeout',
+          {
+            orderId,
+            driverId: driver.userId,
+          },
+          {
+            delay: 60000,
+            jobId: `timeout-${orderId}-${driver.userId}`,
+            removeOnComplete: true,
+          },
+        );
+      }
+
+      await this.assignmentQueue.add(
+        'assignment-timeout',
+        { orderId },
+        {
+          delay: 60000,
+          jobId: `assignment-timeout-${orderId}`,
+          removeOnComplete: true,
+        },
+      );
+
+      this.logger.log(`Notified ${drivers.length} drivers for order ${orderId}`);
+    } catch (error) {
+      this.logger.error(`Failed driver assignment for ${orderId}`, error.stack);
+      throw error;
+    }
+  }
+
+   async findAndNotifyDrivers0(
+    orderId: string,
+    vendorLocation: { lat: number; lng: number },
+  ) {
+    try {
+      const drivers = await this.getNearbyDrivers(
+        vendorLocation.lat,
+        vendorLocation.lng,
+        5000, // 5 km radius
+      );
+
+      if (!drivers.length) {
+        await this.handleNoDrivers(orderId);
+        return;
+      }
+
+      // Clear any previous pending claims for this order (if any)
+      const existingKeys = await this.redis.keys(`order:${orderId}:pending:*`);
+      for (const key of existingKeys) {
+        await this.redis.del(key);
+      }
+
+      // For each driver, create a pending claim and track it
+      for (const driver of drivers) {
+        const pendingKey = `order:${orderId}:pending:${driver.userId}`;
+        // Driver has 60 seconds to claim this order
+        await this.redis.setex(pendingKey, 60, 'pending');
+        // Add order ID to driver's set of pending claims (for cleanup later)
+        await this.redis.sadd(`driver:${driver.userId}:pending_claims`, orderId);
+
+        // Queue push notification
+        await this.notificationQueue.add(
+          'notify-driver',
+          {
+            driverId: driver.userId,
+            orderId,
+            vendorLocation,
+          },
+          {
+            jobId: `notify-${orderId}-${driver.userId}`,
+            attempts: 2,
+            backoff: 1000,
+            removeOnComplete: true,
+          },
+        );
+
+        // Schedule a per‑driver timeout (if this driver doesn't accept within 60s)
+        await this.assignmentQueue.add(
+          'driver-response-timeout',
+          {
+            orderId,
+            driverId: driver.userId,
+          },
+          {
+            delay: 60000,
+            jobId: `timeout-${orderId}-${driver.userId}`,
+            removeOnComplete: true,
+          },
+        );
+      }
+
+      // Schedule an overall assignment timeout (fallback if no driver accepts)
+      await this.assignmentQueue.add(
+        'assignment-timeout',
+        {
+          orderId,
+        },
+        {
+          delay: 60000,
+          jobId: `assignment-timeout-${orderId}`,
+          removeOnComplete: true,
+        },
+      );
+
+      this.logger.log(
+        `Notified ${drivers.length} drivers for order ${orderId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed driver assignment for ${orderId}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
+  async findAndNotifyDrivers1(
+    orderId: string,
+    vendorLocation: { lat: number; lng: number },
+  ) {
+    try {
+      const drivers = await this.getNearbyDrivers(
+        vendorLocation.lat,
+        vendorLocation.lng,
+        5000, // 5 km radius
+      );
+
+      if (!drivers.length) {
+        await this.handleNoDrivers(orderId);
+        return;
+      }
+
+      // Clear any previous pending claims for this order (if any)
+      const existingKeys = await this.redis.keys(`order:${orderId}:pending:*`);
+      for (const key of existingKeys) {
+        await this.redis.del(key);
+      }
+
+      // For each driver, create a pending claim and track it
+      for (const driver of drivers) {
+        const pendingKey = `order:${orderId}:pending:${driver.userId}`;
+        // Driver has 60 seconds to claim this order
+        await this.redis.setex(pendingKey, 60, 'pending');
+        // Add order ID to driver's set of pending claims (for cleanup later)
+        await this.redis.sadd(`driver:${driver.userId}:pending_claims`, orderId);
+
+        // Queue push notification
+        await this.notificationQueue.add(
+          'notify-driver',
+          {
+            driverId: driver.userId,
+            orderId,
+            vendorLocation,
+          },
+          {
+            jobId: `notify-${orderId}-${driver.userId}`,
+            attempts: 2,
+            backoff: 1000,
+            removeOnComplete: true,
+          },
+        );
+
+        // Schedule a per‑driver timeout (if this driver doesn't accept within 60s)
+        await this.assignmentQueue.add(
+          'driver-response-timeout',
+          {
+            orderId,
+            driverId: driver.userId,
+          },
+          {
+            delay: 60000,
+            jobId: `timeout-${orderId}-${driver.userId}`,
+            removeOnComplete: true,
+          },
+        );
+      }
+
+      // Schedule an overall assignment timeout (fallback if no driver accepts)
+      await this.assignmentQueue.add(
+        'assignment-timeout',
+        {
+          orderId,
+        },
+        {
+          delay: 60000,
+          jobId: `assignment-timeout-${orderId}`,
+          removeOnComplete: true,
+        },
+      );
+
+      this.logger.log(
+        `Notified ${drivers.length} drivers for order ${orderId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed driver assignment for ${orderId}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
+  async findAndNotifyDriversRecent(
+    orderId: string,
+    vendorLocation: { lat: number; lng: number },
+  ) {
+    try {
+      const drivers = await this.getNearbyDrivers(
+        vendorLocation.lat,
+        vendorLocation.lng,
+        5000,
+      );
+
+      if (!drivers.length) {
+        await this.handleNoDrivers(orderId);
+        return;
+      }
+
+      const pendingKey = `order:${orderId}:pending`;
+
+      await this.redis.setex(
+        pendingKey,
+        120,
+        JSON.stringify({
+          status: 'awaiting_driver',
+          assignedDriverId: null,
+        }),
+      );
+
+      for (const driver of drivers) {
+        await this.notificationQueue.add(
+          'notify-driver',
+          {
+            driverId: driver.userId,
+            orderId,
+            vendorLocation,
+          },
+          {
+            jobId: `notify-${orderId}-${driver.userId}`,
+            attempts: 2,
+            backoff: 1000,
+            removeOnComplete: true,
+          },
+        );
+
+        await this.assignmentQueue.add(
+          'driver-response-timeout',
+          {
+            orderId,
+            driverId: driver.userId,
+          },
+          {
+            delay: 60000,
+            jobId: `timeout-${orderId}-${driver.userId}`,
+            removeOnComplete: true,
+          },
+        );
+      }
+
+      await this.assignmentQueue.add(
+        'assignment-timeout',
+        {
+          orderId,
+        },
+        {
+          delay: 60000,
+          jobId: `assignment-timeout-${orderId}`,
+          removeOnComplete: true,
+        },
+      );
+
+      this.logger.log(
+        `Notified ${drivers.length} drivers for order ${orderId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed driver assignment for ${orderId}`,
+        error.stack,
+      );
+
+      throw error;
+    }
+  }
+
+  async findAndNotifyDriversOld(
     orderId: string,
     vendorLocation: { lat: number; lng: number },
   ) {
@@ -289,6 +626,40 @@ export class DriverAssignmentService {
   }
 
   async driverAccepts(orderId: string, driverId: string): Promise<boolean> {
+  const pendingKey = `order:${orderId}:pending:${driverId}`;
+  const claimed = await this.redis.del(pendingKey);
+  if (!claimed) {
+    this.logger.warn(`Driver ${driverId} tried to claim already assigned order ${orderId}`);
+    return false;
+  }
+
+  await this.redis.srem(`driver:${driverId}:pending_claims`, orderId);
+
+  try {
+    await this.prisma.$transaction(async (tx) => {
+      // ... same transaction code ...
+    });
+
+    // === CLEANUP TIMEOUT JOBS ===
+    const notifiedDriversKey = `order:${orderId}:notified_drivers`;
+    const driverIds = await this.redis.smembers(notifiedDriversKey);
+    for (const id of driverIds) {
+      await this.assignmentQueue.remove(`timeout-${orderId}-${id}`).catch(() => null);
+    }
+    await this.assignmentQueue.remove(`assignment-timeout-${orderId}`).catch(() => null);
+    await this.redis.del(notifiedDriversKey);
+    // ============================
+
+    await this.startEtaAndNavigation(orderId, driverId);
+    this.logger.log(`Driver ${driverId} successfully assigned to order ${orderId}`);
+    return true;
+  } catch (error) {
+    this.logger.error(`Database transaction failed...`, error.stack);
+    throw error;
+  }
+}
+
+  async driverAcceptsold(orderId: string, driverId: string): Promise<boolean> {
     const pendingKey = `order:${orderId}:pending`;
     const claimKey = `order:${orderId}:claimed_by`;
 
@@ -374,54 +745,54 @@ export class DriverAssignmentService {
   }
 
   async startEtaAndNavigation(orderId: string, driverId: string) {
-  try {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { items: { include: { store: true } } },
-    });
-    if (!order) throw new Error('Order not found');
+    try {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { items: { include: { store: true } } },
+      });
+      if (!order) throw new Error('Order not found');
 
-    const driver = await this.prisma.driverProfile.findUnique({ where: { userId: driverId } });
-    if (!driver?.latitude || !driver?.longitude) throw new Error('Driver location missing');
+      const driver = await this.prisma.driverProfile.findUnique({ where: { userId: driverId } });
+      if (!driver?.latitude || !driver?.longitude) throw new Error('Driver location missing');
 
-    const pickupLocation = order.pickupLocation as any;
-    const store = order.items[0]?.store;
-    const vendorLat = store?.latitude ?? pickupLocation?.latitude ?? pickupLocation?.lat;
-    const vendorLng = store?.longitude ?? pickupLocation?.longitude ?? pickupLocation?.lng;
-    if (!vendorLat || !vendorLng) throw new Error('Vendor location missing');
+      const pickupLocation = order.pickupLocation as any;
+      const store = order.items[0]?.store;
+      const vendorLat = store?.latitude ?? pickupLocation?.latitude ?? pickupLocation?.lat;
+      const vendorLng = store?.longitude ?? pickupLocation?.longitude ?? pickupLocation?.lng;
+      if (!vendorLat || !vendorLng) throw new Error('Vendor location missing');
 
-    const origin = { lat: driver.latitude, lng: driver.longitude };
-    const destination = { lat: vendorLat, lng: vendorLng };
+      const origin = { lat: driver.latitude, lng: driver.longitude };
+      const destination = { lat: vendorLat, lng: vendorLng };
 
-    const { durationSec, polyline } = await this.getRouteDetails(origin, destination);
+      const { durationSec, polyline } = await this.getRouteDetails(origin, destination);
 
-    // Store leg state in Redis (TTL 2 hours)
-    await this.redis.setex(`order:${orderId}:leg`, 7200, 'to-vendor');
-    await this.redis.setex(`order:${orderId}:destination`, 7200, JSON.stringify(destination));
-    await this.redis.setex(`order:${orderId}:polyline`, 7200, polyline);
+      // Store leg state in Redis (TTL 2 hours)
+      await this.redis.setex(`order:${orderId}:leg`, 7200, 'to-vendor');
+      await this.redis.setex(`order:${orderId}:destination`, 7200, JSON.stringify(destination));
+      await this.redis.setex(`order:${orderId}:polyline`, 7200, polyline);
 
-    // Emit initial data
-    await this.mapGateway.emitEta(orderId, durationSec, 'to-vendor');
-    await this.mapGateway.emitPolyline(orderId, polyline, 'to-vendor');
-    await this.mapGateway.emitDriverLocation(orderId, {
-      lat: driver.latitude,
-      lng: driver.longitude,
-      heading: 0,
-    });
+      // Emit initial data
+      await this.mapGateway.emitEta(orderId, durationSec, 'to-vendor');
+      await this.mapGateway.emitPolyline(orderId, polyline, 'to-vendor');
+      await this.mapGateway.emitDriverLocation(orderId, {
+        lat: driver.latitude,
+        lng: driver.longitude,
+        heading: 0,
+      });
 
-    // Schedule periodic ETA updates (every 10 seconds)
-    await this.assignmentQueue.add(
-      'update-eta',
-      { orderId, driverId, leg: 'to-vendor' },
-      { repeat: { every: 10000, limit: 360 }, jobId: `eta-${orderId}` }
-    );
+      // Schedule periodic ETA updates (every 10 seconds)
+      await this.assignmentQueue.add(
+        'update-eta',
+        { orderId, driverId, leg: 'to-vendor' },
+        { repeat: { every: 10000, limit: 360 }, jobId: `eta-${orderId}` }
+      );
 
-    this.logger.log(`Navigation started for order ${orderId}, ETA ${durationSec}s`);
-  } catch (error) {
-    this.logger.error(`Failed to start navigation for order ${orderId}`, error.stack);
-    await this.sendGenericAlert(orderId, 'Navigation temporarily unavailable');
+      this.logger.log(`Navigation started for order ${orderId}, ETA ${durationSec}s`);
+    } catch (error) {
+      this.logger.error(`Failed to start navigation for order ${orderId}`, error.stack);
+      await this.sendGenericAlert(orderId, 'Navigation temporarily unavailable');
+    }
   }
-}
 
   private async startEtaAndNavigationOld(orderId: string, driverId: string) {
     try {
@@ -499,40 +870,40 @@ export class DriverAssignmentService {
   }
 
   async switchToCustomerLeg(orderId: string, driverId: string) {
-  const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-  if (!order) return;
-  const dropoff = order.dropoffLocation as any;
-  if (!dropoff?.lat || !dropoff?.lng) {
-    this.logger.error(`No dropoff location for order ${orderId}`);
-    return;
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) return;
+    const dropoff = order.dropoffLocation as any;
+    if (!dropoff?.lat || !dropoff?.lng) {
+      this.logger.error(`No dropoff location for order ${orderId}`);
+      return;
+    }
+
+    const driver = await this.prisma.driverProfile.findUnique({ where: { userId: driverId } });
+    if (!driver?.latitude || !driver?.longitude) return;
+
+    const origin = { lat: driver.latitude, lng: driver.longitude };
+    const destination = { lat: dropoff.lat, lng: dropoff.lng };
+    const { durationSec, polyline } = await this.getRouteDetails(origin, destination);
+
+    // Update Redis leg and destination
+    await this.redis.setex(`order:${orderId}:leg`, 7200, 'to-customer');
+    await this.redis.setex(`order:${orderId}:destination`, 7200, JSON.stringify(destination));
+    await this.redis.setex(`order:${orderId}:polyline`, 7200, polyline);
+
+    // Emit new ETA & polyline
+    await this.mapGateway.emitEta(orderId, durationSec, 'to-customer');
+    await this.mapGateway.emitPolyline(orderId, polyline, 'to-customer');
+
+    // Change the recurring job to use the new leg
+    await this.assignmentQueue.removeRepeatableByKey(`eta-${orderId}`);
+    await this.assignmentQueue.add(
+      'update-eta',
+      { orderId, driverId, leg: 'to-customer' },
+      { repeat: { every: 10000 }, jobId: `eta-${orderId}` }
+    );
+
+    this.logger.log(`Switched to customer leg for order ${orderId}, ETA ${durationSec}s`);
   }
-
-  const driver = await this.prisma.driverProfile.findUnique({ where: { userId: driverId } });
-  if (!driver?.latitude || !driver?.longitude) return;
-
-  const origin = { lat: driver.latitude, lng: driver.longitude };
-  const destination = { lat: dropoff.lat, lng: dropoff.lng };
-  const { durationSec, polyline } = await this.getRouteDetails(origin, destination);
-
-  // Update Redis leg and destination
-  await this.redis.setex(`order:${orderId}:leg`, 7200, 'to-customer');
-  await this.redis.setex(`order:${orderId}:destination`, 7200, JSON.stringify(destination));
-  await this.redis.setex(`order:${orderId}:polyline`, 7200, polyline);
-
-  // Emit new ETA & polyline
-  await this.mapGateway.emitEta(orderId, durationSec, 'to-customer');
-  await this.mapGateway.emitPolyline(orderId, polyline, 'to-customer');
-
-  // Change the recurring job to use the new leg
-  await this.assignmentQueue.removeRepeatableByKey(`eta-${orderId}`);
-  await this.assignmentQueue.add(
-    'update-eta',
-    { orderId, driverId, leg: 'to-customer' },
-    { repeat: { every: 10000 }, jobId: `eta-${orderId}` }
-  );
-
-  this.logger.log(`Switched to customer leg for order ${orderId}, ETA ${durationSec}s`);
-}
 
   async switchToCustomerLegOld(orderId: string, driverId: string) {
     // Called after driver confirms pickup (PICKED_UP status)
@@ -566,40 +937,40 @@ export class DriverAssignmentService {
   }
 
   // inside DriverAssignmentService
-public async getRouteDetails(
-  origin: { lat: number; lng: number },
-  destination: { lat: number; lng: number },
-): Promise<{ durationSec: number; polyline: string }> {
-  if (!this.googleMapsApiKey) {
-    // Fallback: no polyline, approximate duration
-    const durationSec = this.estimateEtaFallback(origin, destination);
-    return { durationSec, polyline: '' };
+  public async getRouteDetails(
+    origin: { lat: number; lng: number },
+    destination: { lat: number; lng: number },
+  ): Promise<{ durationSec: number; polyline: string }> {
+    if (!this.googleMapsApiKey) {
+      // Fallback: no polyline, approximate duration
+      const durationSec = this.estimateEtaFallback(origin, destination);
+      return { durationSec, polyline: '' };
+    }
+
+    try {
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&key=${this.googleMapsApiKey}`;
+      const response = await axios.get(url, { timeout: 5000 });
+      const route = response.data.routes[0];
+      if (!route) throw new Error('No route found');
+      const leg = route.legs[0];
+      return {
+        durationSec: leg.duration.value,
+        polyline: route.overview_polyline.points,
+      };
+    } catch (error) {
+      this.logger.warn(`Directions API failed, using fallback`, error.message);
+      const durationSec = this.estimateEtaFallback(origin, destination);
+      return { durationSec, polyline: '' };
+    }
   }
 
-  try {
-    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&key=${this.googleMapsApiKey}`;
-    const response = await axios.get(url, { timeout: 5000 });
-    const route = response.data.routes[0];
-    if (!route) throw new Error('No route found');
-    const leg = route.legs[0];
-    return {
-      durationSec: leg.duration.value,
-      polyline: route.overview_polyline.points,
-    };
-  } catch (error) {
-    this.logger.warn(`Directions API failed, using fallback`, error.message);
-    const durationSec = this.estimateEtaFallback(origin, destination);
-    return { durationSec, polyline: '' };
+  private estimateEtaFallback(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }): number {
+    // Simple straight-line distance at 60 km/h
+    const dx = (destination.lng - origin.lng) * 111320 * Math.cos(origin.lat * Math.PI / 180);
+    const dy = (destination.lat - origin.lat) * 110574;
+    const distanceMeters = Math.sqrt(dx * dx + dy * dy);
+    return Math.round(distanceMeters / 16.667); // seconds
   }
-}
-
-private estimateEtaFallback(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }): number {
-  // Simple straight-line distance at 60 km/h
-  const dx = (destination.lng - origin.lng) * 111320 * Math.cos(origin.lat * Math.PI / 180);
-  const dy = (destination.lat - origin.lat) * 110574;
-  const distanceMeters = Math.sqrt(dx * dx + dy * dy);
-  return Math.round(distanceMeters / 16.667); // seconds
-}
 
   // private async calculateEta(
   //   origin: { lat: number; lng: number },
@@ -652,114 +1023,114 @@ private estimateEtaFallback(origin: { lat: number; lng: number }, destination: {
   //   }
   // }
 
-async handleNoDrivers(orderId: string, attempt: number = 1) {
-  this.logger.warn(`No drivers found for order ${orderId}, attempt ${attempt}`);
+  async handleNoDrivers(orderId: string, attempt: number = 1) {
+    this.logger.warn(`No drivers found for order ${orderId}, attempt ${attempt}`);
 
-  const maxAttempts = 3;
-  const radii = [5000, 10000, 20000]; // meters – expand each retry
+    const maxAttempts = 3;
+    const radii = [5000, 10000, 20000]; // meters – expand each retry
 
-  if (attempt <= maxAttempts) {
-    const nextRadius = radii[attempt - 1] || 20000;
-    this.logger.log(`Retrying driver search for order ${orderId} with radius ${nextRadius}m`);
-    await this.assignmentQueue.add(
-      'retry-driver-search',
-      { orderId, radius: nextRadius, attempt: attempt + 1 },
-      { delay: 30000, jobId: `retry-${orderId}-${attempt}`, attempts: 1, removeOnComplete: true }
-    );
-    return;
-  }
-
-  // All retries exhausted – cancel the order
-  this.logger.error(`No drivers found after ${maxAttempts} attempts for order ${orderId}, cancelling order`);
-
-  await this.prisma.$transaction(async (tx) => {
-    // Mark assignment as failed
-    await tx.driverAssignment.update({
-      where: { orderId },
-      data: { assignmentStatus: AssignmentStatus.FAILED },
-    });
-
-    // Update order status to CANCELLED
-    await tx.order.update({
-      where: { id: orderId },
-      data: { orderStatus: OrderStatus.CANCELLED },
-    });
-
-    // Log activity
-    await tx.orderActivityLog.create({
-      data: {
-        orderId,
-        actorId: 'system',
-        action: 'NO_DRIVERS_AFTER_RETRIES',
-        toStatus: OrderStatus.CANCELLED,
-        reason: 'No available drivers after multiple attempts',
-      },
-    });
-  });
-
-  // Notify admin/dispatcher (existing method)
-  await this.notifyDispatcherNoDrivers(orderId);
-
-  // Notify customer about cancellation
-  await this.sendOrderCancelled(orderId, 'No drivers available in your area');
-}
-
-// Inside DriverAssignmentService
-private async sendOrderCancelled(orderId: string, reason?: string): Promise<void> {
-  try {
-    // Fetch order with customer details
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { user: { select: { id: true, email: true, firstName: true } } },
-    });
-    if (!order) {
-      this.logger.warn(`Order ${orderId} not found for cancellation notification`);
+    if (attempt <= maxAttempts) {
+      const nextRadius = radii[attempt - 1] || 20000;
+      this.logger.log(`Retrying driver search for order ${orderId} with radius ${nextRadius}m`);
+      await this.assignmentQueue.add(
+        'retry-driver-search',
+        { orderId, radius: nextRadius, attempt: attempt + 1 },
+        { delay: 30000, jobId: `retry-${orderId}-${attempt}`, attempts: 1, removeOnComplete: true }
+      );
       return;
     }
 
-    const customerId = order.userId;
-    const orderNumber = order.orderNumber;
-    const body = reason
-      ? `Your order #${orderNumber} has been cancelled. Reason: ${reason}`
-      : `Your order #${orderNumber} has been cancelled.`;
+    // All retries exhausted – cancel the order
+    this.logger.error(`No drivers found after ${maxAttempts} attempts for order ${orderId}, cancelling order`);
 
-    // 1. Create in-app notification
-    await this.prisma.notification.create({
-      data: {
-        userId: customerId,
-        type: NotificationType.ORDER_STATUS,
-        title: 'Order Cancelled',
-        body,
-        data: { orderId, orderNumber, reason },
-      },
+    await this.prisma.$transaction(async (tx) => {
+      // Mark assignment as failed
+      await tx.driverAssignment.update({
+        where: { orderId },
+        data: { assignmentStatus: AssignmentStatus.FAILED },
+      });
+
+      // Update order status to CANCELLED
+      await tx.order.update({
+        where: { id: orderId },
+        data: { orderStatus: OrderStatus.CANCELLED },
+      });
+
+      // Log activity
+      await tx.orderActivityLog.create({
+        data: {
+          orderId,
+          actorId: 'system',
+          action: 'NO_DRIVERS_AFTER_RETRIES',
+          toStatus: OrderStatus.CANCELLED,
+          reason: 'No available drivers after multiple attempts',
+        },
+      });
     });
 
-    // 2. Send email
-    if (order.user?.email) {
-      await this.zohoEmailProvider.sendEmail(
-        order.user.email,
-        `Order #${orderNumber} Cancelled`,
-        `<p>${body}</p><p>If you have any questions, please contact support.</p>`,
-      );
-    }
+    // Notify admin/dispatcher (existing method)
+    await this.notifyDispatcherNoDrivers(orderId);
 
-    // 3. Send push notification (if you have a customer push service)
-    if (this.pushService && typeof this.pushService.sendToCustomer === 'function') {
-      await this.pushService.sendToCustomer(customerId, {
-        title: 'Order Cancelled',
-        body,
-        data: { orderId },
-      });
-    } else {
-      this.logger.debug(`Push notification not sent – sendToCustomer not implemented`);
-    }
-
-    this.logger.log(`Cancellation notification sent for order ${orderId}`);
-  } catch (error) {
-    this.logger.error(`Failed to send cancellation notification for order ${orderId}`, error.stack);
-    // Do not throw – non-critical
+    // Notify customer about cancellation
+    await this.sendOrderCancelled(orderId, 'No drivers available in your area');
   }
-}
+
+  // Inside DriverAssignmentService
+  private async sendOrderCancelled(orderId: string, reason?: string): Promise<void> {
+    try {
+      // Fetch order with customer details
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { user: { select: { id: true, email: true, firstName: true } } },
+      });
+      if (!order) {
+        this.logger.warn(`Order ${orderId} not found for cancellation notification`);
+        return;
+      }
+
+      const customerId = order.userId;
+      const orderNumber = order.orderNumber;
+      const body = reason
+        ? `Your order #${orderNumber} has been cancelled. Reason: ${reason}`
+        : `Your order #${orderNumber} has been cancelled.`;
+
+      // 1. Create in-app notification
+      await this.prisma.notification.create({
+        data: {
+          userId: customerId,
+          type: NotificationType.ORDER_STATUS,
+          title: 'Order Cancelled',
+          body,
+          data: { orderId, orderNumber, reason },
+        },
+      });
+
+      // 2. Send email
+      if (order.user?.email) {
+        await this.zohoEmailProvider.sendEmail(
+          order.user.email,
+          `Order #${orderNumber} Cancelled`,
+          `<p>${body}</p><p>If you have any questions, please contact support.</p>`,
+        );
+      }
+
+      // 3. Send push notification (if you have a customer push service)
+      if (this.pushService && typeof this.pushService.sendToCustomer === 'function') {
+        await this.pushService.sendToCustomer(customerId, {
+          title: 'Order Cancelled',
+          body,
+          data: { orderId },
+        });
+      } else {
+        this.logger.debug(`Push notification not sent – sendToCustomer not implemented`);
+      }
+
+      this.logger.log(`Cancellation notification sent for order ${orderId}`);
+    } catch (error) {
+      this.logger.error(`Failed to send cancellation notification for order ${orderId}`, error.stack);
+      // Do not throw – non-critical
+    }
+  }
 
   /**
    * Notify all admins/dispatchers that no driver is available for an order.
@@ -1078,22 +1449,142 @@ private async sendOrderCancelled(orderId: string, reason?: string): Promise<void
   }
 
   async updateDriverLocation(driverId: string, orderId: string, lat: number, lng: number, heading: number) {
-  // Store latest location in Redis (GeoSet or simple key)
-  await this.redis.geoadd('driver:locations', lng, lat, driverId);
-  await this.redis.setex(`driver:${driverId}:loc`, 30, JSON.stringify({ lat, lng, heading }));
-  // Also store the current orderId for the driver
-  if (orderId) await this.redis.setex(`driver:${driverId}:order`, 3600, orderId);
+    // Store latest location in Redis (GeoSet or simple key)
+    await this.redis.geoadd('driver:locations', lng, lat, driverId);
+    await this.redis.setex(`driver:${driverId}:loc`, 30, JSON.stringify({ lat, lng, heading }));
+    // Also store the current orderId for the driver
+    if (orderId) await this.redis.setex(`driver:${driverId}:order`, 3600, orderId);
 
-  // Forward to customer's WebSocket
-  await this.mapGateway.emitDriverLocation(orderId, { lat, lng, heading });
-}
+    // Forward to customer's WebSocket
+    await this.mapGateway.emitDriverLocation(orderId, { lat, lng, heading });
+  }
 
-async stopEtaUpdates(orderId: string) {
-  const job = await this.assignmentQueue.getRepeatableJobs();
-  for (const j of job) {
-    if (j.id === `eta-${orderId}`) {
-      await this.assignmentQueue.removeRepeatableByKey(j.key);
+  async stopEtaUpdates(orderId: string) {
+    const job = await this.assignmentQueue.getRepeatableJobs();
+    for (const j of job) {
+      if (j.id === `eta-${orderId}`) {
+        await this.assignmentQueue.removeRepeatableByKey(j.key);
+      }
     }
   }
-}
+
+  setDriverSocket(driverId: string, socketId: string) {
+    this.driverSockets.set(driverId, socketId);
+  }
+
+  removeDriverSocket(driverId: string) {
+    this.driverSockets.delete(driverId);
+  }
+
+  // Replace the old push‑only notification with WebSocket + push
+  async notifyDriverViaWebSocket(driverId: string, orderId: string, vendorLocation: any, etaSeconds: number) {
+    // Emit WebSocket event if driver is connected
+    if (this.driverSockets.has(driverId)) {
+      this.driverGateway.emitNewOrderRequest(driverId, orderId, vendorLocation, etaSeconds);
+    }
+    // Also send push notification (FCM) as fallback
+    await this.pushService.sendToDriver(driverId, {
+      title: 'New Delivery Request',
+      body: `Order #${orderId} – ${Math.ceil(etaSeconds / 60)} min away`,
+      data: { orderId, type: 'delivery_request' },
+    });
+  }
+
+  // driver-assignment.service.ts
+  async tryNextDriver(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { store: true } } },
+    });
+    if (!order) return;
+
+    const pickupLocation = order.pickupLocation as any;
+    const store = order.items[0]?.store;
+    const vendorLat = store?.latitude ?? pickupLocation?.latitude ?? pickupLocation?.lat;
+    const vendorLng = store?.longitude ?? pickupLocation?.longitude ?? pickupLocation?.lng;
+
+    // Get previously notified drivers (store in Redis set)
+    const notifiedKey = `order:${orderId}:notified_drivers`;
+    const notifiedDrivers = await this.redis.smembers(notifiedKey);
+
+    // Fetch nearby drivers excluding those already notified
+    const allNearby = await this.getNearbyDrivers(vendorLat, vendorLng, 5000);
+    const remainingDrivers = allNearby.filter(d => !notifiedDrivers.includes(d.userId));
+
+    if (remainingDrivers.length === 0) {
+      // No more drivers – escalate to no‑drivers handler
+      await this.handleNoDrivers(orderId);
+      return;
+    }
+
+    // Notify only the next best driver (or a few) – you can reuse findAndNotifyDrivers
+    // but we need to avoid re‑notifying everyone. Let's just notify the first one for simplicity.
+    const nextDriver = remainingDrivers[0];
+    await this.notifyDriverViaWebSocket(nextDriver.userId, orderId, { lat: vendorLat, lng: vendorLng }, 0);
+    // Also set a new timeout for this driver
+    await this.assignmentQueue.add(
+      'driver-response-timeout',
+      { orderId, driverId: nextDriver.userId },
+      { delay: 60000, jobId: `timeout-${orderId}-${nextDriver.userId}` }
+    );
+  }
+
+  // driver-assignment.service.ts
+  async updateDriverStatus(driverId: string, status: DriverStatus): Promise<void> {
+    try {
+      // Validate status transition (optional but recommended)
+      const currentDriver = await this.prisma.driverProfile.findUnique({
+        where: { userId: driverId },
+        select: { status: true }, // if you store current orderId
+      });
+      if (!currentDriver) {
+        throw new Error(`Driver ${driverId} not found`);
+      }
+
+      // Prevent going offline if driver is BUSY (has an active order)
+      if (status === DriverStatus.OFFLINE && currentDriver.status === DriverStatus.BUSY) {
+        this.logger.warn(`Driver ${driverId} attempted to go offline while BUSY`);
+        throw new BadRequestException('Cannot go offline while handling an order');
+      }
+
+      // Update status in database
+      await this.prisma.driverProfile.update({
+        where: { userId: driverId },
+        data: { status },
+      });
+
+      // If going offline, clean up any pending assignments for this driver
+      if (status === DriverStatus.OFFLINE) {
+        // Remove driver from active Redis set (if you maintain one for nearby queries)
+        //await this.redis.srem('online_drivers', driverId);
+        await this.cleanupDriverPendingClaims(driverId);
+
+        // Clear any pending claim attempts (optional)
+        // You could also iterate through orders where this driver is the pending claimant
+        // but that's complex; usually the timeout will handle it.
+      } else if (status === DriverStatus.ONLINE) {
+        // Add driver to online set for geospatial queries
+        // Use geoadd if you store lat/lng separately, or just track online set
+        await this.redis.sadd('online_drivers', driverId);
+      }
+
+      this.logger.log(`Driver ${driverId} status updated to ${status}`);
+    } catch (error) {
+      this.logger.error(`Failed to update driver ${driverId} status`, error.stack);
+      throw error;
+    }
+  }
+
+  private async cleanupDriverPendingClaims(driverId: string) {
+    const orderIds = await this.redis.smembers(`driver:${driverId}:pending_claims`);
+    for (const orderId of orderIds) {
+      const key = `order:${orderId}:pending`;
+      const claimant = await this.redis.get(key);
+      if (claimant === driverId) {
+        await this.redis.del(key);
+      }
+      await this.redis.srem(`driver:${driverId}:pending_claims`, orderId);
+    }
+  }
+
 }

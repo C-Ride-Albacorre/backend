@@ -29,7 +29,7 @@ export class NotificationController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @Post('device/register')
+  @Post('/device/register-token')
   @ApiOperation({
     summary: 'Register FCM token for push notifications',
   })
@@ -54,7 +54,7 @@ export class NotificationController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @Post('device/unregister')
+  @Post('/device/unregister-token')
   @ApiOperation({
     summary: 'Remove FCM token (logout or uninstall)',
   })
