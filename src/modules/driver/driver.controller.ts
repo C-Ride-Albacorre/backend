@@ -41,6 +41,8 @@ import { User } from '@prisma/client';
 import { DriverOrderService } from './driver-order.service';
 import { DriverAssignmentService } from './driver-assignment.service';
 import { UpdateDriverLocationDto } from './dto/update-driver-location.dto';
+import { DriverStatusResponseDto } from './dto/driver-status-response.dto';
+import { UpdateDriverStatusDto } from './dto/update-driver-status.dto';
 
 @ApiTags('driver')
 @Controller('driver')
@@ -419,9 +421,29 @@ STEP 3 – Final Step: Review (Optional save before uploads)
 
     return { success: true };
   }
-  // @Post('location')
-  // async updateLocation(@Body() dto: { driverId: string; orderId: string; lat: number; lng: number; heading: number }) {
-  //   await this.driverAssignmentService.updateDriverLocation(dto.driverId, dto.orderId, dto.lat, dto.lng, dto.heading);
-  //   return { success: true };
-  // }
+  
+  @Post('status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Set driver online/offline status' })
+  @ApiResponse({
+    status: 200,
+    description: 'Driver status updated successfully',
+    type: DriverStatusResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Invalid status transition (e.g., offline while busy)' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async updateStatus(
+    @Req() req,
+    @Body() dto: UpdateDriverStatusDto,
+  ): Promise<DriverStatusResponseDto> {
+    const driverId = req.user.id; // assuming JWT payload contains user id
+    await this.driverAssignmentService.updateDriverStatus(driverId, dto.status);
+
+    return {
+      driverId,
+      status: dto.status,
+      message: `Driver status updated to ${dto.status}`,
+    };
+  }
+
 }
