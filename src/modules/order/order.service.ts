@@ -2750,19 +2750,32 @@ export class OrderService {
     );
     if (!isVendorStore) throw new ForbiddenException('Not your store');
 
-    const existingAction = await this.prisma.vendorOrderAction.findUnique({
-      where: { orderId },
+    const existingAction = await this.prisma.order.findUnique({
+      where: { id: orderId },
     });
-    if (existingAction?.status !== VendorActionStatus.PENDING) {
+    if (existingAction?.orderStatus !== OrderStatus.PENDING) {
       throw new ForbiddenException('Order already responded to');
     }
 
+    // const existingAction = await this.prisma.vendorOrderAction.findUnique({
+    //   where: { orderId },
+    // });
+    // if (existingAction?.status !== VendorActionStatus.PENDING) {
+    //   throw new ForbiddenException('Order already responded to');
+    // }
+
     if (dto.action === 'ACCEPT') {
       // Update vendor action
-      await this.prisma.vendorOrderAction.update({
-        where: { orderId },
-        data: { status: VendorActionStatus.ACCEPTED, respondedAt: new Date() },
+       await this.prisma.order.update({
+        where: { id: orderId },
+        data: { orderStatus: OrderStatus.ORDER_ACCEPTED, respondedAt: new Date() },
+        
       });
+      // await this.prisma.vendorOrderAction.update({
+      //   where: { orderId },
+      //   data: { status: VendorActionStatus.ACCEPTED, respondedAt: new Date() },
+        
+      // });
       // Transition order to ACCEPTED
       // await this.orderStatus.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
       await this.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
@@ -2775,14 +2788,22 @@ export class OrderService {
       await this.driverAssignment.initiateDriverSearch(orderId, pickupLocation);
     } else {
       // DECLINE
-      await this.prisma.vendorOrderAction.update({
-        where: { orderId },
+       await this.prisma.order.update({
+        where: { id: orderId },
         data: {
-          status: VendorActionStatus.DECLINED,
+          orderStatus: OrderStatus.CANCELLED,
           reason: dto.reason,
           respondedAt: new Date(),
         },
       });
+      // await this.prisma.vendorOrderAction.update({
+      //   where: { orderId },
+      //   data: {
+      //     status: VendorActionStatus.DECLINED,
+      //     reason: dto.reason,
+      //     respondedAt: new Date(),
+      //   },
+      // });
       await this.transition(orderId, OrderStatus.CANCELLED, {
         actorId: vendorId,
         actorRole: Role.VENDOR,
