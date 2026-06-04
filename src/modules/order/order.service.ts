@@ -2754,6 +2754,7 @@ export class OrderService {
       where: { id: orderId },
     });
     if (existingAction?.orderStatus === OrderStatus.ORDER_ACCEPTED || existingAction?.orderStatus === OrderStatus.CANCELLED) {
+      this.logger.warn(`Vendor ${vendorId} attempted to respond to order ${orderId} which is already ${existingAction.orderStatus}`);
       throw new ForbiddenException(`Order already responded to with status ${existingAction.orderStatus}`);
     }
 
@@ -2766,16 +2767,16 @@ export class OrderService {
 
     if (dto.action === 'ACCEPT') {
       // Update vendor action
-       await this.prisma.order.update({
+      await this.prisma.order.update({
         where: { id: orderId },
         data: { orderStatus: OrderStatus.ORDER_ACCEPTED, respondedAt: new Date() },
-        
+
       });
       this.logger.log(`Vendor ${vendorId} accepted order ${orderId}`);
       // await this.prisma.vendorOrderAction.update({
       //   where: { orderId },
       //   data: { status: VendorActionStatus.ACCEPTED, respondedAt: new Date() },
-        
+
       // });
       // Transition order to ACCEPTED
       // await this.orderStatus.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
@@ -2787,9 +2788,14 @@ export class OrderService {
       // const pickupLocation = JSON.parse(order.pickupLocation || '{}');
       const pickupLocation = (order.pickupLocation as any) || {};
       await this.driverAssignment.initiateDriverSearch(orderId, pickupLocation);
+
+      return {
+        success: true,
+        message: 'Order accepted. Searching for a driver.',
+      };
     } else {
       // DECLINE
-       await this.prisma.order.update({
+      await this.prisma.order.update({
         where: { id: orderId },
         data: {
           orderStatus: OrderStatus.CANCELLED,
