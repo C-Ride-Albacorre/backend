@@ -456,6 +456,7 @@ model Order {
   orderActivityLogs    OrderActivityLog[]
   vendorOrderAction    VendorOrderAction?
   driverAssignment     DriverAssignment?
+  reason               String?
   respondedAt          DateTime?
 
   @@index([orderCode])
