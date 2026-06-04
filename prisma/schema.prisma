@@ -316,15 +316,15 @@ model Package {
   weight      Float?
   dimensions  Json?
   storeId     String?
-  store       Store?    @relation(fields: [storeId], references: [id])
+  store       Store?      @relation(fields: [storeId], references: [id])
 
   //imageUrl    String?     // ✅ ADD THIS
-  basePrice   Float
-  isActive    Boolean     @default(true)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  cartItems   CartItem[]
-  orderItems  OrderItem[]
+  basePrice  Float
+  isActive   Boolean     @default(true)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  cartItems  CartItem[]
+  orderItems OrderItem[]
 
   @@index([type])
   @@index([isActive])
@@ -458,6 +458,12 @@ model Order {
   driverAssignment     DriverAssignment?
   reason               String?
   respondedAt          DateTime?
+  vendorAcceptedAt     DateTime?
+  vendorDeclinedAt     DateTime?
+  driverAssignedAt     DateTime?
+  pickedUpAt           DateTime?
+  deliveredAt          DateTime?
+  canceledAt           DateTime?
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -495,7 +501,7 @@ model OrderItem {
 
 model IdempotencyRecord {
   key       String   @id
-  status    String   // PROCESSING, COMPLETED, FAILED
+  status    String // PROCESSING, COMPLETED, FAILED
   orderId   String?  @map("order_id")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -504,9 +510,9 @@ model IdempotencyRecord {
 }
 
 model StoreDailyCounter {
-  storeId    String   @map("store_id")
-  date       String   // YYYY-MM-DD
-  orderCount Int      @default(0) @map("order_count")
+  storeId    String @map("store_id")
+  date       String // YYYY-MM-DD
+  orderCount Int    @default(0) @map("order_count")
 
   @@id([storeId, date])
   @@map("store_daily_counters")
