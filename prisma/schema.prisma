@@ -456,6 +456,7 @@ model Order {
   orderActivityLogs    OrderActivityLog[]
   vendorOrderAction    VendorOrderAction?
   driverAssignment     DriverAssignment?
+  respondedAt          DateTime?
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -711,6 +712,7 @@ enum OrderStatus {
   REFUNDED
   ORDER_PLACED // new - after customer checkout
   ORDER_ACCEPTED // new - vendor accepted
+  ORDER_DECLINED // new - vendor declined
   ORDER_ASSIGNED // new - driver assigned
 }
 
