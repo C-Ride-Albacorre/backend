@@ -73,7 +73,7 @@ export class MonnifyService {
         throw new Error('Monnify login failed');
       }
     } catch (error) {
-      this.logger.error(`Failed to get access token: ${error.message}`);
+      this.logger.error(`Failed to get access token: ${error instanceof Error ? error.stack : String(error)}`);
       throw new HttpException(
         'Payment service unavailable',
         HttpStatus.SERVICE_UNAVAILABLE,
@@ -179,7 +179,7 @@ export class MonnifyService {
 
         return response.data as MonnifyPaymentResponse;
       } catch (error) {
-        this.logger.error(`Monnify API call failed: ${error.message}`);
+        this.logger.error(`Monnify API call failed: ${error instanceof Error ? error.stack : String(error)}`);
         // Rollback is automatic because transaction will abort
         throw new HttpException(
           this.extractMonnifyErrorMessage(error),
@@ -428,7 +428,7 @@ export class MonnifyService {
       }
       return response.data;
     } catch (error) {
-      this.logger.error(`Verification failed: ${error.message}`);
+      this.logger.error(`Verification failed: ${error instanceof Error ? error.stack : String(error)}`);
       throw new HttpException(
         'Payment verification failed',
         HttpStatus.BAD_REQUEST,
@@ -478,7 +478,7 @@ export class MonnifyService {
         monnifyData = response.data.responseBody;
       }
     } catch (error) {
-      this.logger.warn(`Could not fetch real-time status: ${error.message}`);
+      this.logger.warn(`Could not fetch real-time status: ${error instanceof Error ? error.stack : String(error)}`);
     }
     return {
       order,
