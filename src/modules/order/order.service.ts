@@ -2578,7 +2578,15 @@ export class OrderService {
         orderStatus: order.orderStatus,
         paymentStatus: order.paymentStatus,
 
-        user: order.user,
+        user: {
+          firstName: order.user.firstName,
+          lastName: order.user.lastName,
+          email: order.user.email,
+          phone: order.user.phoneNumber,
+          counryCode: order.user.countryCode,
+          isVerified: order.user.isVerified,
+          profilePicture: order.user.profilePicture,
+        },
 
         items: vendorItems.map((item) => ({
           id: item.id,
