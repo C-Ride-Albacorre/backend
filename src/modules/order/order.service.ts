@@ -1,4 +1,3 @@
-// src/customer/services/order.service.ts
 import {
   Injectable,
   Logger,
@@ -26,19 +25,17 @@ import {
 import { CartService } from '../cart/cart.service';
 import Helper from 'src/shared/utils/helpers';
 import { DateTime } from 'luxon';
-// import { v4 as uuidv4 } from 'uuid';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { NotificationService } from '../notification/notification.service';
-import { DriverService } from '../driver/driver.service';
 import { DriverAssignmentService } from '../driver/driver-assignment.service';
-import { CartSummaryDto } from '../cart/dto/cart-summary.dto';
 
 type TransitionContext = {
   actorId?: string;
   actorRole?: Role;
   reason?: string;
   metadata?: any;
+  respondedAt?: Date;
 };
 
 @Injectable()
@@ -128,6 +125,7 @@ export class OrderService {
               note: rule.action,
               actorId: context.actorId,
               reason: context.reason,
+              respondedAt: context.respondedAt,
             },
           },
           ...(targetStatus === OrderStatus.ORDER_ACCEPTED && {
@@ -2767,23 +2765,35 @@ export class OrderService {
 
     if (dto.action === 'ACCEPT') {
       // Update vendor action
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: { orderStatus: OrderStatus.ORDER_ACCEPTED, respondedAt: new Date() },
-
-      });
-      this.logger.log(`Vendor ${vendorId} accepted order ${orderId}`);
-      // await this.prisma.vendorOrderAction.update({
-      //   where: { orderId },
-      //   data: { status: VendorActionStatus.ACCEPTED, respondedAt: new Date() },
-
-      // });
-      // Transition order to ACCEPTED
-      // await this.orderStatus.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
       await this.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
         actorId: vendorId,
         actorRole: Role.VENDOR,
+        respondedAt: new Date()
       });
+
+      // await this.prisma.order.update({
+      //   where: { id: orderId },
+      //   data: {
+      //     respondedAt: new Date(),
+      //   },
+      // });
+      // await this.prisma.order.update({
+      //   where: { id: orderId },
+      //   data: { orderStatus: OrderStatus.ORDER_ACCEPTED, respondedAt: new Date() },
+
+      // });
+      // this.logger.log(`Vendor ${vendorId} accepted order ${orderId}`);
+      // // await this.prisma.vendorOrderAction.update({
+      // //   where: { orderId },
+      // //   data: { status: VendorActionStatus.ACCEPTED, respondedAt: new Date() },
+
+      // // });
+      // // Transition order to ACCEPTED
+      // // await this.orderStatus.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
+      // await this.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
+      //   actorId: vendorId,
+      //   actorRole: Role.VENDOR,
+      // });
       // Initiate driver search (background)
       // const pickupLocation = JSON.parse(order.pickupLocation || '{}');
       const pickupLocation = (order.pickupLocation as any) || {};
@@ -2791,7 +2801,7 @@ export class OrderService {
 
       return {
         success: true,
-        message: 'Order accepted. Searching for a driver.',
+        message: 'Order accepted. Searching for a driver...',
       };
     } else {
       // DECLINE
