@@ -805,10 +805,14 @@ export class AuthService {
           break;
 
         case 'VENDOR':
-          if (!user.approvedAt || user.status !== 'APPROVED') {
-            this.logger.warn(`Unapproved/inactive vendor: ${user.id}`);
+          if (!user.isActive) {
+            this.logger.warn(`Inactive user: ${user.id}`);
+            throw new UnauthorizedException('Account is deactivated');
+          }
+          if (!user.isEmailVerified && !user.isPhoneVerified) {
+            this.logger.warn(`Unverified vendor: ${user.id}`);
             throw new UnauthorizedException(
-              'Vendor account not approved or inactive',
+              'Account not verified. Please verify your email and phone number.',
             );
           }
           break;
