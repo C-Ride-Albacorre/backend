@@ -2756,7 +2756,7 @@ export class OrderService {
     //   this.logger.warn(`Vendor ${vendorId} attempted to respond to order ${orderId} which is already ${existingAction.orderStatus}`);
     //   throw new ForbiddenException(`Order already responded to with status ${existingAction.orderStatus}`);
     // }
-   if (existingAction?.orderStatus!== OrderStatus.PENDING) {
+   if (existingAction?.orderStatus!== OrderStatus.CONFIRMED) {
   throw new ConflictException(`Order already processed: ${existingAction.orderStatus}`);
 }
     // const existingAction = await this.prisma.vendorOrderAction.findUnique({
