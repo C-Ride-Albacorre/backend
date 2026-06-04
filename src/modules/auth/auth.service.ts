@@ -817,6 +817,19 @@ export class AuthService {
           }
           break;
 
+          case 'DISPATCHER':
+          if (!user.isActive) {
+            this.logger.warn(`Inactive user: ${user.id}`);
+            throw new UnauthorizedException('Account is deactivated');
+          }
+          if (!user.isEmailVerified && !user.isPhoneVerified) {
+            this.logger.warn(`Unverified dispatcher: ${user.id}`);
+            throw new UnauthorizedException(
+              'Account not verified. Please verify your email and phone number.',
+            );
+          }
+          break;
+
         case 'ADMIN':
           if (!user.isActive) {
             this.logger.warn(`Inactive admin: ${user.id}`);
