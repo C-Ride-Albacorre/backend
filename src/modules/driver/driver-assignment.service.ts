@@ -74,11 +74,11 @@ export class DriverAssignmentService {
   > = {
       confirm_payment: {
         from: [OrderStatus.ORDER_PLACED], // after payment verification
-        to: OrderStatus.ORDER_PLACED,
-        action: 'ORDER_PLACED',
+        to: OrderStatus.CONFIRMED,
+        action: 'CONFIRMED',
       },
       vendor_accept: {
-        from: [OrderStatus.ORDER_PLACED],
+        from: [OrderStatus.CONFIRMED],
         to: OrderStatus.ORDER_ACCEPTED,
         action: 'VENDOR_ACCEPT',
       },
@@ -98,7 +98,10 @@ export class DriverAssignmentService {
         action: 'DELIVER',
       },
       cancel: {
-        from: [OrderStatus.ORDER_PLACED, OrderStatus.ORDER_ACCEPTED],
+        from: [OrderStatus.ORDER_PLACED,
+        OrderStatus.CONFIRMED,
+        OrderStatus.ORDER_ACCEPTED
+      ],
         to: OrderStatus.CANCELLED,
         action: 'CANCEL',
       },
@@ -282,12 +285,12 @@ export class DriverAssignmentService {
 
       this.logger.log(`Notified ${drivers.length} drivers for order ${orderId}`);
     } catch (error) {
-      this.logger.error(`Failed driver assignment for ${orderId}`, error.stack);
+      this.logger.error(`Failed driver assignment for ${orderId}`, error instanceof Error ? error.stack : String(error));
       throw error;
     }
   }
 
-   async findAndNotifyDrivers0(
+  async findAndNotifyDrivers0(
     orderId: string,
     vendorLocation: { lat: number; lng: number },
   ) {
@@ -367,7 +370,7 @@ export class DriverAssignmentService {
     } catch (error) {
       this.logger.error(
         `Failed driver assignment for ${orderId}`,
-        error.stack,
+        error instanceof Error ? error.stack : String(error)
       );
       throw error;
     }
@@ -453,7 +456,7 @@ export class DriverAssignmentService {
     } catch (error) {
       this.logger.error(
         `Failed driver assignment for ${orderId}`,
-        error.stack,
+        error instanceof Error ? error.stack : String(error)
       );
       throw error;
     }
@@ -534,9 +537,7 @@ export class DriverAssignmentService {
     } catch (error) {
       this.logger.error(
         `Failed driver assignment for ${orderId}`,
-        error.stack,
-      );
-
+         error instanceof Error ? error.stack : String(error));
       throw error;
     }
   }
@@ -594,7 +595,7 @@ export class DriverAssignmentService {
     } catch (error) {
       this.logger.error(
         `Error in findAndNotifyDrivers for order ${orderId}`,
-        error.stack,
+        error instanceof Error ? error.stack : String(error)
       );
       throw error;
     }
@@ -626,38 +627,38 @@ export class DriverAssignmentService {
   }
 
   async driverAccepts(orderId: string, driverId: string): Promise<boolean> {
-  const pendingKey = `order:${orderId}:pending:${driverId}`;
-  const claimed = await this.redis.del(pendingKey);
-  if (!claimed) {
-    this.logger.warn(`Driver ${driverId} tried to claim already assigned order ${orderId}`);
-    return false;
-  }
-
-  await this.redis.srem(`driver:${driverId}:pending_claims`, orderId);
-
-  try {
-    await this.prisma.$transaction(async (tx) => {
-      // ... same transaction code ...
-    });
-
-    // === CLEANUP TIMEOUT JOBS ===
-    const notifiedDriversKey = `order:${orderId}:notified_drivers`;
-    const driverIds = await this.redis.smembers(notifiedDriversKey);
-    for (const id of driverIds) {
-      await this.assignmentQueue.remove(`timeout-${orderId}-${id}`).catch(() => null);
+    const pendingKey = `order:${orderId}:pending:${driverId}`;
+    const claimed = await this.redis.del(pendingKey);
+    if (!claimed) {
+      this.logger.warn(`Driver ${driverId} tried to claim already assigned order ${orderId}`);
+      return false;
     }
-    await this.assignmentQueue.remove(`assignment-timeout-${orderId}`).catch(() => null);
-    await this.redis.del(notifiedDriversKey);
-    // ============================
 
-    await this.startEtaAndNavigation(orderId, driverId);
-    this.logger.log(`Driver ${driverId} successfully assigned to order ${orderId}`);
-    return true;
-  } catch (error) {
-    this.logger.error(`Database transaction failed...`, error.stack);
-    throw error;
+    await this.redis.srem(`driver:${driverId}:pending_claims`, orderId);
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // ... same transaction code ...
+      });
+
+      // === CLEANUP TIMEOUT JOBS ===
+      const notifiedDriversKey = `order:${orderId}:notified_drivers`;
+      const driverIds = await this.redis.smembers(notifiedDriversKey);
+      for (const id of driverIds) {
+        await this.assignmentQueue.remove(`timeout-${orderId}-${id}`).catch(() => null);
+      }
+      await this.assignmentQueue.remove(`assignment-timeout-${orderId}`).catch(() => null);
+      await this.redis.del(notifiedDriversKey);
+      // ============================
+
+      await this.startEtaAndNavigation(orderId, driverId);
+      this.logger.log(`Driver ${driverId} successfully assigned to order ${orderId}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Database transaction failed...`, error instanceof Error ? error.stack : String(error));
+      throw error;
+    }
   }
-}
 
   async driverAcceptsold(orderId: string, driverId: string): Promise<boolean> {
     const pendingKey = `order:${orderId}:pending`;
@@ -735,7 +736,7 @@ export class DriverAssignmentService {
     } catch (error) {
       this.logger.error(
         `Database transaction failed for driver ${driverId} on order ${orderId}`,
-        error.stack,
+        error instanceof Error ? error.stack : String(error)
       );
       // Release the claim in Redis? Not needed – the order is now in inconsistent state.
       // Better to delete the claim key so that another driver can try.
@@ -789,7 +790,7 @@ export class DriverAssignmentService {
 
       this.logger.log(`Navigation started for order ${orderId}, ETA ${durationSec}s`);
     } catch (error) {
-      this.logger.error(`Failed to start navigation for order ${orderId}`, error.stack);
+      this.logger.error(`Failed to start navigation for order ${orderId}`, error instanceof Error ? error.stack : String(error));
       await this.sendGenericAlert(orderId, 'Navigation temporarily unavailable');
     }
   }
@@ -859,7 +860,7 @@ export class DriverAssignmentService {
     } catch (error) {
       this.logger.error(
         `Failed to start ETA/navigation for order ${orderId}`,
-        error.stack,
+        error instanceof Error ? error.stack : String(error)
       );
       // Fallback: still notify vendor/customer via push?
       await this.sendGenericAlert(
@@ -958,7 +959,7 @@ export class DriverAssignmentService {
         polyline: route.overview_polyline.points,
       };
     } catch (error) {
-      this.logger.warn(`Directions API failed, using fallback`, error.message);
+      this.logger.warn(`Directions API failed, using fallback`, error instanceof Error ? error.stack : String(error));
       const durationSec = this.estimateEtaFallback(origin, destination);
       return { durationSec, polyline: '' };
     }
@@ -1127,7 +1128,7 @@ export class DriverAssignmentService {
 
       this.logger.log(`Cancellation notification sent for order ${orderId}`);
     } catch (error) {
-      this.logger.error(`Failed to send cancellation notification for order ${orderId}`, error.stack);
+      this.logger.error(`Failed to send cancellation notification for order ${orderId}`, error instanceof Error ? error.stack : String(error));
       // Do not throw – non-critical
     }
   }
@@ -1570,7 +1571,7 @@ export class DriverAssignmentService {
 
       this.logger.log(`Driver ${driverId} status updated to ${status}`);
     } catch (error) {
-      this.logger.error(`Failed to update driver ${driverId} status`, error.stack);
+      this.logger.error(`Failed to update driver ${driverId} status`, error instanceof Error ? error.stack : String(error));
       throw error;
     }
   }

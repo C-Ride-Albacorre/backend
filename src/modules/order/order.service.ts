@@ -58,11 +58,11 @@ export class OrderService {
   > = {
       confirm_payment: {
         from: [OrderStatus.ORDER_PLACED], // after payment verification
-        to: OrderStatus.ORDER_PLACED,
-        action: 'ORDER_PLACED',
+        to: OrderStatus.CONFIRMED,
+        action: 'CONFIRMED',
       },
       vendor_accept: {
-        from: [OrderStatus.ORDER_PLACED],
+        from: [OrderStatus.CONFIRMED],
         to: OrderStatus.ORDER_ACCEPTED,
         action: 'VENDOR_ACCEPT',
       },
@@ -82,7 +82,7 @@ export class OrderService {
         action: 'DELIVER',
       },
       cancel: {
-        from: [OrderStatus.ORDER_PLACED, OrderStatus.ORDER_ACCEPTED],
+        from: [OrderStatus.ORDER_PLACED, OrderStatus.CONFIRMED, OrderStatus.ORDER_ACCEPTED],
         to: OrderStatus.CANCELLED,
         action: 'CANCEL',
       },
