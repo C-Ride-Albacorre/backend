@@ -2753,8 +2753,8 @@ export class OrderService {
     const existingAction = await this.prisma.order.findUnique({
       where: { id: orderId },
     });
-    if (existingAction?.orderStatus !== OrderStatus.PENDING) {
-      throw new ForbiddenException('Order already responded to');
+    if (existingAction?.orderStatus === OrderStatus.ORDER_ACCEPTED || existingAction?.orderStatus === OrderStatus.CANCELLED) {
+      throw new ForbiddenException(`Order already responded to with status ${existingAction.orderStatus}`);
     }
 
     // const existingAction = await this.prisma.vendorOrderAction.findUnique({
@@ -2771,6 +2771,7 @@ export class OrderService {
         data: { orderStatus: OrderStatus.ORDER_ACCEPTED, respondedAt: new Date() },
         
       });
+      this.logger.log(`Vendor ${vendorId} accepted order ${orderId}`);
       // await this.prisma.vendorOrderAction.update({
       //   where: { orderId },
       //   data: { status: VendorActionStatus.ACCEPTED, respondedAt: new Date() },
