@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import {
@@ -2751,11 +2752,13 @@ export class OrderService {
     const existingAction = await this.prisma.order.findUnique({
       where: { id: orderId },
     });
-    if (existingAction?.orderStatus === OrderStatus.ORDER_ACCEPTED || existingAction?.orderStatus === OrderStatus.CANCELLED) {
-      this.logger.warn(`Vendor ${vendorId} attempted to respond to order ${orderId} which is already ${existingAction.orderStatus}`);
-      throw new ForbiddenException(`Order already responded to with status ${existingAction.orderStatus}`);
-    }
-
+    // if (existingAction?.orderStatus === OrderStatus.ORDER_ACCEPTED || existingAction?.orderStatus === OrderStatus.CANCELLED) {
+    //   this.logger.warn(`Vendor ${vendorId} attempted to respond to order ${orderId} which is already ${existingAction.orderStatus}`);
+    //   throw new ForbiddenException(`Order already responded to with status ${existingAction.orderStatus}`);
+    // }
+   if (existingAction?.orderStatus!== OrderStatus.PENDING) {
+  throw new ConflictException(`Order already processed: ${order.status}`);
+}
     // const existingAction = await this.prisma.vendorOrderAction.findUnique({
     //   where: { orderId },
     // });

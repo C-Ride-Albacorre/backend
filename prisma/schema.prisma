@@ -792,10 +792,21 @@ model DriverAssignment {
   @@index([driverId])
 }
 
+// enum AssignmentStatus {
+//   PENDING // waiting for drivers to accept
+//   ASSIGNED // driver accepted
+//   REASSIGNING // fallback after timeout
+//   FAILED
+// }
+
 enum AssignmentStatus {
-  PENDING // waiting for drivers to accept
-  ASSIGNED // driver accepted
-  REASSIGNING // fallback after timeout
+  PENDING
+  SEARCHING
+  ASSIGNED
+  REASSIGNING
+  ACCEPTED
+  REJECTED
+  EXPIRED
   FAILED
 }
 
