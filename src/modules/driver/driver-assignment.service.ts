@@ -193,8 +193,10 @@ export class DriverAssignmentService {
     try {
       // Create assignment record
       const assignment = await this.prisma.driverAssignment.create({
-        data: { orderId, assignmentStatus: AssignmentStatus.PENDING },
+        data: { orderId, assignmentStatus: AssignmentStatus.PENDING  },
       });
+
+
 
       // Enqueue the search job
       await this.assignmentQueue.add(
