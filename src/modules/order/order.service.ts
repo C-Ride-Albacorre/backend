@@ -2808,14 +2808,14 @@ export class OrderService {
       };
     } else {
       // DECLINE
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: {
-          orderStatus: OrderStatus.CANCELLED,
-          reason: dto.reason,
-          respondedAt: new Date(),
-        },
-      });
+      // await this.prisma.order.update({
+      //   where: { id: orderId },
+      //   data: {
+      //     orderStatus: OrderStatus.CANCELLED,
+      //     reason: dto.reason,
+      //     respondedAt: new Date(),
+      //   },
+      // });
       // await this.prisma.vendorOrderAction.update({
       //   where: { orderId },
       //   data: {
@@ -2828,6 +2828,7 @@ export class OrderService {
         actorId: vendorId,
         actorRole: Role.VENDOR,
         reason: dto.reason,
+        respondedAt: new Date(),
       });
       await this.notification.sendOrderCancelled(
         order.userId,
