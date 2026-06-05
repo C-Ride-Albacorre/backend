@@ -789,6 +789,41 @@ export class DriverService {
     }
 
     return {
+      personalInfo: {
+        id: driver.id,
+        firstName: driver.firstName,
+        lastName: driver.lastName,
+        email: driver.email,
+        phoneNumber: driver.phoneNumber,
+        profileImage: driver.profilePicture,
+        countryCode: driver.countryCode,
+        createdAt: driver.createdAt,
+        active: driver.isActive,
+        verifiedAt: driver.verifiedAt,
+        approvedAt: driver.approvedAt,
+      },
+      profile: driver.driverProfile,
+      stats: {
+        totalDeliveries: driver.driverProfile?.totalDeliveries || 0,
+        rating: driver.driverProfile?.rating || 0,
+        status: driver.driverProfile?.status,
+      },
+    };
+  }
+
+  async getDriverDashboardbk(driverId: string) {
+    const driver = await this.prisma.user.findUnique({
+      where: { id: driverId },
+      include: {
+        driverProfile: true,
+      },
+    });
+
+    if (!driver || driver.status !== 'ACTIVE') {
+      throw new BadRequestException('Driver account is not active');
+    }
+
+    return {
       profile: driver.driverProfile,
       stats: {
         totalDeliveries: driver.driverProfile?.totalDeliveries || 0,
