@@ -44,7 +44,7 @@ export class OrderController {
   @Get()
   @ApiOperation({
     summary: 'List vendor orders',
-    description: 'Retrieve all orders belonging to the authenticated vendor.',
+    description: 'Retrieve all PAID and CONFIRMED orders belonging to the authenticated vendor.',
   })
   // @ApiQuery({
   //   name: 'status',
@@ -81,7 +81,7 @@ export class OrderController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-        console.log('Vendor ID:', user);
+        //console.log('Vendor ID:', user);
 
     // if (user.role !== Role.VENDOR) {
     //   throw new ForbiddenException();
