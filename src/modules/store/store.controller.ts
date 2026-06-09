@@ -32,7 +32,7 @@ import {
 } from './dto/store.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 
-@ApiTags('vendor/stores')
+@ApiTags('Vendor Stores')
 @Controller('vendor/stores')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
