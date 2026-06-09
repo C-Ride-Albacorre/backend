@@ -53,7 +53,7 @@ import {
 import { DispatcherFilterDto } from './dto/dispatcher-filter.dto';
 import { ApproveDispatcherDto } from './dto/approve-dispatcher.dto';
 
-@ApiTags('admin')
+@ApiTags('Admin')
 @ApiBearerAuth()
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)

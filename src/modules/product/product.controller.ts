@@ -19,7 +19,7 @@ import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { ProductService } from './product.service';
 import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 
-@ApiTags('vendor/products')
+@ApiTags('Vendor Products')
 @Controller('vendor/stores/:storeId/products')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()

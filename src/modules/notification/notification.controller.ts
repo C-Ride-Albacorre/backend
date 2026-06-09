@@ -18,8 +18,8 @@ import { RegisterDeviceDto } from './dto/register.dto';
 import { NotificationService } from './notification.service';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 
+@ApiTags('Notification')
 @Controller('notification')
-@ApiTags('notification')
 export class NotificationController {
   constructor(
     private readonly notificationService: NotificationService,

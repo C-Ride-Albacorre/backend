@@ -37,7 +37,7 @@ import { RolesGuard } from '../../common/guards/role.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { CartService } from '../cart/cart.service';
 
-@ApiTags('customer')
+@ApiTags('Customer')
 @Controller('customer')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.CUSTOMER)

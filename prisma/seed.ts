@@ -31,6 +31,8 @@ async function main() {
       role: UserRole.SUPER_ADMIN,
       isActive: true,
       isVerified: true,
+      isEmailVerified: true,
+      isPhoneVerified: true,
       verifiedAt: new Date(),
     },
   });

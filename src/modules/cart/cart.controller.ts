@@ -27,7 +27,7 @@ import { JwtOptionalGuard } from 'src/common/guards/jwt-optional.guard';
 import { PrismaService } from 'src/shared/services/prisma.service';
 
 @Public()
-@ApiTags('cart')
+@ApiTags('Cart')
 @Controller('cart')
 @UseGuards(JwtOptionalGuard)
 @ApiBearerAuth()
