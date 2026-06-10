@@ -149,6 +149,7 @@ export class AuthService {
         role: UserRole.ADMIN,
         isActive: true,
         isVerified: true,
+        isEmailVerified: true,
         verifiedAt: new Date(),
       },
       // select: {

@@ -101,7 +101,7 @@ export class DriverAssignmentService {
         from: [OrderStatus.ORDER_PLACED,
         OrderStatus.CONFIRMED,
         OrderStatus.ORDER_ACCEPTED
-      ],
+        ],
         to: OrderStatus.CANCELLED,
         action: 'CANCEL',
       },
@@ -193,7 +193,7 @@ export class DriverAssignmentService {
     try {
       // Create assignment record
       const assignment = await this.prisma.driverAssignment.create({
-        data: { orderId, assignmentStatus: AssignmentStatus.PENDING  },
+        data: { orderId, assignmentStatus: AssignmentStatus.PENDING },
       });
 
 
@@ -539,7 +539,7 @@ export class DriverAssignmentService {
     } catch (error) {
       this.logger.error(
         `Failed driver assignment for ${orderId}`,
-         error instanceof Error ? error.stack : String(error));
+        error instanceof Error ? error.stack : String(error));
       throw error;
     }
   }
@@ -629,6 +629,106 @@ export class DriverAssignmentService {
   }
 
   async driverAccepts(orderId: string, driverId: string): Promise<boolean> {
+    const pendingKey = `order:${orderId}:pending:${driverId}`;
+    const driverPendingSet = `driver:${driverId}:pending_claims`;
+    const notifiedDriversKey = `order:${orderId}:notified_drivers`;
+
+    // 1. Atomically claim the pending slot (only this driver can claim its own key)
+    const claimed = await this.redis.del(pendingKey);
+    if (!claimed) {
+      this.logger.warn(`Driver ${driverId} tried to claim already assigned or expired order ${orderId}`);
+      return false;
+    }
+
+    // Remove from driver's pending set (best effort – can be done after transaction, but safe here)
+    await this.redis.srem(driverPendingSet, orderId);
+
+    try {
+      // 2. Execute the assignment transaction with retry for transient DB errors
+      await this.prisma.$transaction(async (tx) => {
+        // Optional: Prevent driver from accepting if already busy (double assignment)
+        const driver = await tx.driverProfile.findUnique({
+          where: { userId: driverId },
+          select: { status: true },
+        });
+        if (driver?.status === DriverStatus.BUSY) {
+          throw new Error(`Driver ${driverId} is already BUSY`);
+        }
+
+        // Update assignment record (must exist, created during order broadcast)
+        const assignment = await tx.driverAssignment.update({
+          where: { orderId },
+          data: {
+            driverId,
+            assignmentStatus: AssignmentStatus.ASSIGNED,
+            assignedAt: new Date(),
+          },
+        });
+
+        // Update order status (and optionally the assigned driver field)
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            orderStatus: OrderStatus.ORDER_ASSIGNED,
+            //assignedDriverId: driverId,   // uncomment if needed
+          },
+        });
+
+        // Mark driver as busy
+        await tx.driverProfile.update({
+          where: { userId: driverId },
+          data: { status: DriverStatus.BUSY },
+        });
+
+        // Log the acceptance (correct role: DRIVER)
+        await tx.orderActivityLog.create({
+          data: {
+            orderId,
+            actorId: driverId,
+            actorRole: Role.DISPATCHER,
+            action: 'DRIVER_ACCEPTED',
+            toStatus: OrderStatus.ORDER_ASSIGNED,
+          },
+        });
+      }, {
+        timeout: 5000,            // 5s transaction timeout
+        isolationLevel: 'ReadCommitted',
+        maxWait: 2000,            // retry if contention
+      });
+
+      // 3. Cleanup all timeout jobs AFTER successful DB commit
+      const driverIds = await this.redis.smembers(notifiedDriversKey);
+      for (const id of driverIds) {
+        await this.assignmentQueue.remove(`timeout-${orderId}-${id}`).catch(() => null);
+      }
+      await this.assignmentQueue.remove(`assignment-timeout-${orderId}`).catch(() => null);
+      await this.redis.del(notifiedDriversKey);
+
+      // 4. Start ETA & navigation (non‑critical, but fire‑and‑forget with error capture)
+      this.startEtaAndNavigation(orderId, driverId).catch(err => {
+        this.logger.error(`Failed to start ETA/navigation for order ${orderId}, driver ${driverId}`, err);
+      });
+
+      this.logger.log(`Driver ${driverId} successfully assigned to order ${orderId}`);
+      return true;
+
+    } catch (error) {
+      // 5. Rollback Redis claim because the DB transaction failed
+      //    Restore the pending key with its original TTL (you must know the TTL – here we assume 60s)
+      await this.redis.setex(pendingKey, 60, '1');
+      // Also re-add to driver's pending set
+      await this.redis.sadd(driverPendingSet, orderId);
+
+      // Log the failure with full stack
+      this.logger.error(
+        `Database transaction failed for driver ${driverId} on order ${orderId}`,
+        error instanceof Error ? error.stack : String(error)
+      );
+      throw error; // Re-throw so the caller knows acceptance failed
+    }
+  }
+
+  async driverAcceptsNew(orderId: string, driverId: string): Promise<boolean> {
     const pendingKey = `order:${orderId}:pending:${driverId}`;
     const claimed = await this.redis.del(pendingKey);
     if (!claimed) {
@@ -872,7 +972,7 @@ export class DriverAssignmentService {
     }
   }
 
-  async switchToCustomerLeg(orderId: string, driverId: string) {
+  async switchToCustomerLegOld(orderId: string, driverId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) return;
     const dropoff = order.dropoffLocation as any;
@@ -908,36 +1008,91 @@ export class DriverAssignmentService {
     this.logger.log(`Switched to customer leg for order ${orderId}, ETA ${durationSec}s`);
   }
 
-  async switchToCustomerLegOld(orderId: string, driverId: string) {
-    // Called after driver confirms pickup (PICKED_UP status)
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-    });
-    if (!order) return;
+  async switchToCustomerLeg(orderId: string, driverId: string): Promise<void> {
+    // Fetch order and driver with required fields
+    const [order, driver] = await Promise.all([
+      this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { dropoffLocation: true, orderStatus: true },
+      }),
+      this.prisma.driverProfile.findUnique({
+        where: { userId: driverId },
+        select: { latitude: true, longitude: true },
+      }),
+    ]);
 
-    const dropoff = order.dropoffLocation as any;
-    if (!dropoff?.lat || !dropoff?.lng) {
-      this.logger.error(`No dropoff location for order ${orderId}`);
-      return;
+    if (!order) {
+      throw new Error(`Order ${orderId} not found`);
+    }
+    if (!driver?.latitude || !driver?.longitude) {
+      throw new Error(`Driver ${driverId} has no valid location`);
     }
 
-    const driver = await this.prisma.driverProfile.findUnique({
-      where: { userId: driverId },
-    });
-    if (!driver?.latitude || !driver?.longitude) return;
+    const dropoff = order.dropoffLocation as { lat: number; lng: number } | null;
+    if (!dropoff?.lat || !dropoff?.lng) {
+      throw new Error(`Order ${orderId} has no valid dropoff location`);
+    }
 
-    const etaToCustomer = await this.getRouteDetails(
-      { lat: driver.latitude, lng: driver.longitude },
-      { lat: dropoff.lat, lng: dropoff.lng },
-    );
-    //await this.mapGateway.emitEta(orderId, etaToCustomer.durationSec, 'to-customer');
+    // Optional: verify order is in correct state (PICKED_UP or transitioning)
+    if (order.orderStatus !== OrderStatus.PICKED_UP && order.orderStatus !== OrderStatus.ORDER_ASSIGNED) {
+      this.logger.warn(`Switching leg for order ${orderId} in unexpected status: ${order.orderStatus}`);
+    }
 
-    await this.mapGateway.emitEta(orderId, etaToCustomer.durationSec, 'to-customer');
-    await this.redis.setex(`order:${orderId}:leg`, 3600, 'to-customer');
-    this.logger.log(
-      `Switched to customer leg for order ${orderId}, ETA: ${etaToCustomer}s`,
+    // Get route details with retry & fallback
+    const origin = { lat: driver.latitude, lng: driver.longitude };
+    const destination = { lat: dropoff.lat, lng: dropoff.lng };
+    const { durationSec, polyline } = await this.getRouteDetailsWithRetry(origin, destination, 2);
+
+    // Use longer TTL (e.g., 6 hours) for long trips
+    const TTL_SECONDS = 6 * 3600; // 6 hours
+
+    // Update Redis atomically (use multi to avoid partial updates)
+    const multi = this.redis.multi();
+    multi.setex(`order:${orderId}:leg`, TTL_SECONDS, 'to-customer');
+    multi.setex(`order:${orderId}:destination`, TTL_SECONDS, JSON.stringify(destination));
+    if (polyline) {
+      multi.setex(`order:${orderId}:polyline`, TTL_SECONDS, polyline);
+    } else {
+      // Store a placeholder to avoid breaking frontend
+      multi.setex(`order:${orderId}:polyline`, TTL_SECONDS, '');
+    }
+    await multi.exec();
+
+    // Emit to frontend (non‑critical – fire and forget)
+    Promise.resolve(this.mapGateway.emitEta(orderId, durationSec, 'to-customer')).catch(err =>
+      this.logger.error(`Failed to emit ETA for order ${orderId}`, err)
     );
+    if (polyline) {
+      Promise.resolve(this.mapGateway.emitPolyline(orderId, polyline, 'to-customer')).catch(err =>
+        this.logger.error(`Failed to emit polyline for order ${orderId}`, err)
+      );
+    }
+
+    // Manage recurring ETA job (idempotent removal + addition)
+    await this.upsertEtaRecurringJob(orderId, driverId, durationSec);
   }
+
+  private async upsertEtaRecurringJob(orderId: string, driverId: string, initialDurationSec: number): Promise<void> {
+  const jobSchedulerId = `eta-${orderId}`; // The same identifier used as repeat key
+
+  // Remove existing scheduler if any (ignore errors – scheduler may not exist)
+  await this.assignmentQueue.removeJobScheduler(jobSchedulerId).catch(() => null);
+
+  // Add the new repeatable job – BullMQ will create a job scheduler internally
+  await this.assignmentQueue.add(
+    'update-eta',
+    { orderId, driverId, leg: 'to-customer' },
+    {
+      repeat: {
+        every: 10000,
+        key: jobSchedulerId,   // Critical: ties to the scheduler ID
+      },
+      jobId: `${jobSchedulerId}:${Date.now()}`, // Unique job ID for each execution
+      removeOnComplete: true,
+      removeOnFail: false,
+    }
+  );
+}
 
   // inside DriverAssignmentService
   public async getRouteDetails(
@@ -952,13 +1107,16 @@ export class DriverAssignmentService {
 
     try {
       const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&key=${this.googleMapsApiKey}`;
-      const response = await axios.get(url, { timeout: 5000 });
-      const route = response.data.routes[0];
+      const response = await axios.get(url, { timeout: 8000 });
+      const route = response.data.routes?.[0];
       if (!route) throw new Error('No route found');
-      const leg = route.legs[0];
+      const leg = route?.legs?.[0];
+      if (!leg?.duration?.value) {
+        throw new Error('No valid duration in API response');
+      }
       return {
         durationSec: leg.duration.value,
-        polyline: route.overview_polyline.points,
+        polyline: route.overview_polyline?.points ?? '',
       };
     } catch (error) {
       this.logger.warn(`Directions API failed, using fallback`, error instanceof Error ? error.stack : String(error));
@@ -967,13 +1125,95 @@ export class DriverAssignmentService {
     }
   }
 
+
   private estimateEtaFallback(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }): number {
+    const R = 6371000; // Earth radius in meters
+    const φ1 = origin.lat * Math.PI / 180;
+    const φ2 = destination.lat * Math.PI / 180;
+    const Δφ = (destination.lat - origin.lat) * Math.PI / 180;
+    const Δλ = (destination.lng - origin.lng) * Math.PI / 180;
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) *
+      Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distanceMeters = R * c;
+    // Assume 40 km/h average urban speed (more realistic)
+    const speedMps = 11.111; // 40 km/h
+    return Math.round(distanceMeters / speedMps);
+  }
+
+  private estimateEtaFallbacold(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }): number {
     // Simple straight-line distance at 60 km/h
     const dx = (destination.lng - origin.lng) * 111320 * Math.cos(origin.lat * Math.PI / 180);
     const dy = (destination.lat - origin.lat) * 110574;
     const distanceMeters = Math.sqrt(dx * dx + dy * dy);
     return Math.round(distanceMeters / 16.667); // seconds
   }
+
+  private async getRouteDetailsWithRetry(
+    origin: { lat: number; lng: number },
+    destination: { lat: number; lng: number },
+    retries = 2
+  ): Promise<{ durationSec: number; polyline: string }> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return await this.getRouteDetails(origin, destination);
+      } catch (error) {
+        if (attempt === retries) {
+          this.logger.warn(`Route API failed after ${retries} attempts, using fallback`, error);
+          const durationSec = this.estimateEtaFallback(origin, destination);
+          return { durationSec, polyline: '' };
+        }
+        // Exponential backoff before retry
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+    // Fallback (should never reach here)
+    return { durationSec: this.estimateEtaFallback(origin, destination), polyline: '' };
+  }
+
+  // public async getRouteDetails(
+  //   origin: { lat: number; lng: number },
+  //   destination: { lat: number; lng: number },
+  // ): Promise<{ durationSec: number; polyline: string }> {
+  //   if (!this.googleMapsApiKey) {
+  //     const durationSec = this.estimateEtaFallback(origin, destination);
+  //     return { durationSec, polyline: '' };
+  //   }
+
+  //   const url = `https://maps.googleapis.com/maps/api/directions/json`;
+  //   const params = {
+  //     origin: `${origin.lat},${origin.lng}`,
+  //     destination: `${destination.lat},${destination.lng}`,
+  //     key: this.googleMapsApiKey,
+  //   };
+  //   const response = await axios.get(url, { params, timeout: 8000 }); // increased timeout
+  //   const route = response.data.routes?.[0];
+  //   const leg = route?.legs?.[0];
+  //   if (!leg?.duration?.value) {
+  //     throw new Error('No valid duration in API response');
+  //   }
+  //   return {
+  //     durationSec: leg.duration.value,
+  //     polyline: route.overview_polyline?.points ?? '',
+  //   };
+  // }
+
+  // private estimateEtaFallback(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }): number {
+  //   const R = 6371000; // Earth radius in meters
+  //   const φ1 = origin.lat * Math.PI / 180;
+  //   const φ2 = destination.lat * Math.PI / 180;
+  //   const Δφ = (destination.lat - origin.lat) * Math.PI / 180;
+  //   const Δλ = (destination.lng - origin.lng) * Math.PI / 180;
+  //   const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+  //             Math.cos(φ1) * Math.cos(φ2) *
+  //             Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  //   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  //   const distanceMeters = R * c;
+  //   // Assume 40 km/h average urban speed (more realistic)
+  //   const speedMps = 11.111; // 40 km/h
+  //   return Math.round(distanceMeters / speedMps);
+  // }
 
   // private async calculateEta(
   //   origin: { lat: number; lng: number },
@@ -1462,14 +1702,14 @@ export class DriverAssignmentService {
     await this.mapGateway.emitDriverLocation(orderId, { lat, lng, heading });
   }
 
-  async stopEtaUpdates(orderId: string) {
-    const job = await this.assignmentQueue.getRepeatableJobs();
-    for (const j of job) {
-      if (j.id === `eta-${orderId}`) {
-        await this.assignmentQueue.removeRepeatableByKey(j.key);
-      }
-    }
-  }
+
+  async stopEtaUpdates(orderId: string): Promise<void> {
+  const schedulerId = `eta-${orderId}`;
+  await this.assignmentQueue.removeJobScheduler(schedulerId).catch(() => {
+    // Scheduler may not exist – that's fine
+    this.logger.debug(`No scheduler found for ${schedulerId}`);
+  });
+}
 
   setDriverSocket(driverId: string, socketId: string) {
     this.driverSockets.set(driverId, socketId);

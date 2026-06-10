@@ -659,7 +659,11 @@ export class UserService {
       return null;
     }
 
-    if (!user.isVerified) {
+    // if (!user.isVerified) {
+    //   throw new Error('USER_NOT_VERIFIED');
+    // }
+
+     if (!user.isEmailVerified || !user.isPhoneVerified) {
       throw new Error('USER_NOT_VERIFIED');
     }
 

@@ -22,7 +22,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-@ApiTags('payment')
+@ApiTags('Payment')
 @Controller('payment')
 export class PaymentController {
   private readonly logger = new Logger(PaymentController.name);

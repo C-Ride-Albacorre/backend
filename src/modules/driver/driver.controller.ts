@@ -44,7 +44,7 @@ import { UpdateDriverLocationDto } from './dto/update-driver-location.dto';
 import { DriverStatusResponseDto } from './dto/driver-status-response.dto';
 import { UpdateDriverStatusDto } from './dto/update-driver-status.dto';
 
-@ApiTags('driver')
+@ApiTags('Dispacther')
 @Controller('driver')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()
