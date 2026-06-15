@@ -18,7 +18,7 @@ import { CustomerModule } from '../customer/customer.module';
 
 @Module({
   imports: [
-    forwardRef(() => AuthModule), // 👈 REQUIRED
+    forwardRef(() => AuthModule),
     CustomerModule,
   ],
   controllers: [UserController],

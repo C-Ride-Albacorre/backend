@@ -19,6 +19,7 @@ import { DriverModule } from './modules/driver/driver.module';
 import { CartModule } from './modules/cart/cart.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { BullModule } from '@nestjs/bullmq';
+import { ChatModule } from './modules/chat/chat.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { BullModule } from '@nestjs/bullmq';
     DriverModule,
     CartModule,
     NotificationModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],
