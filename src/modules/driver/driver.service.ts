@@ -852,11 +852,133 @@ export class DriverService {
   //////////////DRIVER TRACKING////////////
 
   /**
+   * Find available orders within a given radius of a driver's location.
+   * Uses PostgreSQL earthdistance module with GiST index for efficient geo‑queries.
+   * @param driverLat - Latitude of the driver (WGS84)
+   * @param driverLng - Longitude of the driver (WGS84)
+   * @param radiusKm - Search radius in kilometers (default 10)
+   * @returns List of orders with store details and distance, optionally enriched with items.
+   */
+  async findAvailableOrders(
+    driverLat: number,
+    driverLng: number,
+    radiusKm: number = 10,
+  ) {
+    // 1. Input validation
+    if (!this.isValidLatitude(driverLat) || !this.isValidLongitude(driverLng)) {
+      throw new Error('Invalid driver coordinates. Latitude must be between -90 and 90, longitude between -180 and 180.');
+    }
+
+    const radiusMeters = radiusKm * 1000;
+
+    // 2. Raw query with earth_box pre‑filter (uses GiST index if available)
+    const availableOrders = await this.prisma.$queryRaw<Array<any>>`
+      SELECT
+        o.id,
+        o.order_number,
+        o.total_amount,
+        o.pickup_location,
+        o.dropoff_location,
+        o.created_at,
+        s.id AS store_id,
+        s.store_name,
+        s.latitude AS store_lat,
+        s.longitude AS store_lng,
+        earth_distance(
+          ll_to_earth(s.latitude, s.longitude),
+          ll_to_earth(${driverLat}, ${driverLng})
+        ) AS distance_meters
+      FROM orders o
+      JOIN stores s ON s.id = o.store_id
+      WHERE o.order_status = 'ORDER_ACCEPTED'
+        AND s.latitude IS NOT NULL
+        AND s.longitude IS NOT NULL
+        -- bounding‑box pre‑filter (approx, uses index)
+        AND earth_box(ll_to_earth(${driverLat}, ${driverLng}), ${radiusMeters}) @>
+            ll_to_earth(s.latitude, s.longitude)
+        -- exact distance filter
+        AND earth_distance(
+          ll_to_earth(s.latitude, s.longitude),
+          ll_to_earth(${driverLat}, ${driverLng})
+        ) <= ${radiusMeters}
+      ORDER BY distance_meters ASC
+      LIMIT 20
+    `;
+
+    // 3. (Optional) Enrich with order items summary
+    if (availableOrders.length === 0) {
+      return [];
+    }
+
+    const orderIds = availableOrders.map(order => String(order.id));
+    const itemsSummary = await this.getOrderItemsSummary(orderIds);
+
+    // Merge items into each order
+    return availableOrders.map(order => ({
+      ...order,
+      items: itemsSummary[order.id] || [],
+    }));
+  }
+
+  /**
+   * Fetch a summary of items for multiple orders (e.g., item names, quantities).
+   * Returns a map: orderId -> array of item summaries.
+   */
+  private async getOrderItemsSummary(orderIds: string[]): Promise<Record<string, any[]>> {
+    const items = await this.prisma.orderItem.findMany({
+      where: { orderId: { in: orderIds } },
+      select: {
+        orderId: true,
+        quantity: true,
+        unitPrice: true,
+        productId: true,
+      },
+    });
+
+    const productIds = [...new Set(items.map(item => item.productId).filter(Boolean))];
+    const products = productIds.length
+      ? await this.prisma.product.findMany({
+          where: { id: { in: productIds } },
+          select: {
+            id: true,
+            productName: true,
+          },
+        })
+      : [];
+
+    const productNameById = products.reduce((acc, product) => {
+      acc[product.id] = product.productName;
+      return acc;
+    }, {} as Record<string, string>);
+
+    const summary: Record<number, any[]> = {};
+    for (const item of items) {
+      if (!summary[item.orderId]) summary[item.orderId] = [];
+      summary[item.orderId].push({
+        productName: item.productId ? productNameById[item.productId] || 'Unknown Product' : 'Unknown Product',
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      });
+    }
+    return summary;
+  }
+
+  // Helper validators
+  private isValidLatitude(lat: number): boolean {
+    return typeof lat === 'number' && !isNaN(lat) && lat >= -90 && lat <= 90;
+  }
+
+  private isValidLongitude(lng: number): boolean {
+    return typeof lng === 'number' && !isNaN(lng) && lng >= -180 && lng <= 180;
+  }
+
+
+  /**
    * Find orders that are available for pickup (ORDER_ACCEPTED) and whose vendor
    * is within a certain radius (default 10km) of the driver's current location.
    * Returns orders sorted by distance (closest first).
    */
-  async findAvailableOrders(
+  async findAvailableOrdersForMultipleStores(
     driverLat: number,
     driverLng: number,
     radiusKm: number = 10,
