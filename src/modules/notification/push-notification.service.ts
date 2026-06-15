@@ -258,6 +258,21 @@ async unregisterToken(userId: string) {
   this.logger.log(`Unregistered FCM token for user ${userId}`);
 }
 
+async sendToUser(userId: string, payload: PushNotificationPayload): Promise<boolean> {
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: { fcmToken: true },
+  });
+  if (!user?.fcmToken) return false;
+  const message = {
+    notification: { title: payload.title, body: payload.body },
+    data: payload.data || {},
+    token: user.fcmToken,
+  };
+  await admin.messaging().send(message);
+  return true;
+}
+
   /**
    * Store or update a driver's FCM token.
    */
