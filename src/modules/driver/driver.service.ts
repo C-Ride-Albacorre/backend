@@ -861,153 +861,147 @@ export class DriverService {
    */
 
 
-async findAvailableOrders(
-  driverLat: number,
-  driverLng: number,
-  radiusKm = 10,
-) {
-  if (
-    !this.isValidLatitude(driverLat) ||
-    !this.isValidLongitude(driverLng)
+  async findAvailableOrders(
+    driverLat: number,
+    driverLng: number,
+    radiusKm = 10,
   ) {
-    throw new Error(
-      'Invalid driver coordinates. Latitude must be between -90 and 90 and longitude between -180 and 180.',
-    );
-  }
+    if (
+      !this.isValidLatitude(driverLat) ||
+      !this.isValidLongitude(driverLng)
+    ) {
+      throw new Error(
+        'Invalid driver coordinates. Latitude must be between -90 and 90 and longitude between -180 and 180.',
+      );
+    }
 
-  const radiusMeters = radiusKm * 1000;
+    const radiusMeters = radiusKm * 1000;
 
-  const availableOrders = await this.prisma.$queryRaw<
-    Array<{
-      order_id: string;
-      order_number: string;
-      total_amount: number;
-      pickup_location: any;
-      dropoff_location: any;
-      created_at: Date;
-      store_id: string;
-      store_name: string;
-      store_lat: number;
-      store_lng: number;
-      distance_meters: number;
-    }>
-  >`
-    WITH order_store_distances AS (
-      SELECT
-        o.id AS order_id,
-        o."orderNumber" AS order_number,
-        o."totalAmount" AS total_amount,
-        o."pickupLocation" AS pickup_location,
-        o."dropoffLocation" AS dropoff_location,
-        o."createdAt" AS created_at,
+    const availableOrders = await this.prisma.$queryRaw<
+      Array<{
+        order_id: string;
+        order_number: string;
+        total_amount: number;
+        pickup_location: any;
+        dropoff_location: any;
+        created_at: Date;
+        store_id: string;
+        store_name: string;
+        store_lat: number;
+        store_lng: number;
+        distance_meters: number;
+      }>
+    >`
+WITH order_store_distances AS (
+  SELECT
+    o.id AS order_id,
+    o."orderNumber" AS order_number,
+    o."totalAmount" AS total_amount,
+    o."pickupLocation" AS pickup_location,
+    o."dropoffLocation" AS dropoff_location,
+    o."createdAt" AS created_at,
 
-        s.id AS store_id,
-        s."storeName" AS store_name,
-        s.latitude AS store_lat,
-        s.longitude AS store_lng,
+    s.id AS store_id,
+    s."storeName" AS store_name,
+    s.latitude AS store_lat,
+    s.longitude AS store_lng,
 
-        earth_distance(
-          ll_to_earth(s.latitude, s.longitude),
-          ll_to_earth(${driverLat}, ${driverLng})
-        ) AS distance_meters,
+    (
+      6371000 * acos(
+        cos(radians(${driverLat}))
+        * cos(radians(s.latitude))
+        * cos(radians(s.longitude) - radians(${driverLng}))
+        + sin(radians(${driverLat}))
+        * sin(radians(s.latitude))
+      )
+    ) AS distance_meters,
 
-        ROW_NUMBER() OVER (
-          PARTITION BY o.id
-          ORDER BY earth_distance(
-            ll_to_earth(s.latitude, s.longitude),
-            ll_to_earth(${driverLat}, ${driverLng})
-          )
-        ) AS rn
-
-      FROM "Order" o
-      INNER JOIN "OrderItem" oi
-        ON oi."orderId" = o.id
-
-      INNER JOIN "Store" s
-        ON s.id = oi."storeId"
-
-      WHERE o."orderStatus" = 'ORDER_ACCEPTED'
-        AND s.latitude IS NOT NULL
-        AND s.longitude IS NOT NULL
-
-        AND earth_box(
-          ll_to_earth(${driverLat}, ${driverLng}),
-          ${radiusMeters}
-        ) @> ll_to_earth(
-          s.latitude,
-          s.longitude
+    ROW_NUMBER() OVER (
+      PARTITION BY o.id
+      ORDER BY (
+        6371000 * acos(
+          cos(radians(${driverLat}))
+          * cos(radians(s.latitude))
+          * cos(radians(s.longitude) - radians(${driverLng}))
+          + sin(radians(${driverLat}))
+          * sin(radians(s.latitude))
         )
-    )
+      )
+    ) AS rn
 
-    SELECT
-      order_id,
-      order_number,
-      total_amount,
-      pickup_location,
-      dropoff_location,
-      created_at,
-      store_id,
-      store_name,
-      store_lat,
-      store_lng,
-      distance_meters
-    FROM order_store_distances
-    WHERE rn = 1
-      AND distance_meters <= ${radiusMeters}
-    ORDER BY distance_meters ASC
-    LIMIT 20;
-  `;
+  FROM "Order" o
+  JOIN "OrderItem" oi
+    ON oi."orderId" = o.id
+  JOIN "Store" s
+    ON s.id = oi."storeId"
 
-  if (!availableOrders.length) {
-    return [];
+  WHERE o."orderStatus" = 'ORDER_ACCEPTED'
+    AND s.latitude IS NOT NULL
+    AND s.longitude IS NOT NULL
+
+    -- Bounding box pre-filter (~10km)
+    AND s.latitude BETWEEN ${driverLat - 0.1} AND ${driverLat + 0.1}
+    AND s.longitude BETWEEN ${driverLng - 0.1} AND ${driverLng + 0.1}
+)
+
+SELECT *
+FROM order_store_distances
+WHERE rn = 1
+  AND distance_meters <= ${radiusKm * 1000}
+ORDER BY distance_meters ASC
+LIMIT 20;
+`;
+
+    if (!availableOrders.length) {
+      return [];
+    }
+
+    const orderIds = availableOrders.map(
+      (order) => order.order_id,
+    );
+
+    const itemsSummary =
+      await this.getOrderItemsSummary(orderIds);
+
+    return availableOrders.map((order) => ({
+      ...order,
+      items:
+        itemsSummary[order.order_id] || [],
+    }));
   }
 
-  const orderIds = availableOrders.map(
-    (order) => order.order_id,
-  );
-
-  const itemsSummary =
-    await this.getOrderItemsSummary(orderIds);
-
-  return availableOrders.map((order) => ({
-    ...order,
-    items:
-      itemsSummary[order.order_id] || [],
-  }));
-}
-
-private async getOrderItemsSummary(
-  orderIds: string[],
-): Promise<Record<string, any[]>> {
-  const items =
-    await this.prisma.orderItem.findMany({
-      where: {
-        orderId: {
-          in: orderIds,
+  private async getOrderItemsSummary(
+    orderIds: string[],
+  ): Promise<Record<string, any[]>> {
+    const items =
+      await this.prisma.orderItem.findMany({
+        where: {
+          orderId: {
+            in: orderIds,
+          },
         },
-      },
-      select: {
-        orderId: true,
-        quantity: true,
-        unitPrice: true,
-        productId: true,
-      },
-    });
+        select: {
+          orderId: true,
+          quantity: true,
+          unitPrice: true,
+          productId: true,
+        },
+      });
 
-  const productIds = [
-    ...new Set(
-      items
-        .map((item) => item.productId)
-        .filter(
-          (id): id is string =>
-            Boolean(id),
-        ),
-    ),
-  ];
+    const productIds = [
+      ...new Set(
+        items
+          .map((item) => item.productId)
+          .filter(
+            (id): id is string =>
+              Boolean(id),
+          ),
+      ),
+    ];
 
-  const products =
-    productIds.length > 0
-      ? await this.prisma.product.findMany({
+    const products =
+      productIds.length > 0
+        ? await this.prisma.product.findMany({
           where: {
             id: {
               in: productIds,
@@ -1018,90 +1012,90 @@ private async getOrderItemsSummary(
             productName: true,
           },
         })
-      : [];
+        : [];
 
-  const productNameById =
-    products.reduce(
-      (
-        acc,
-        product,
-      ) => {
-        acc[product.id] =
-          product.productName;
-        return acc;
-      },
-      {} as Record<
-        string,
-        string
-      >,
-    );
+    const productNameById =
+      products.reduce(
+        (
+          acc,
+          product,
+        ) => {
+          acc[product.id] =
+            product.productName;
+          return acc;
+        },
+        {} as Record<
+          string,
+          string
+        >,
+      );
 
-  const summary: Record<
-    string,
-    any[]
-  > = {};
+    const summary: Record<
+      string,
+      any[]
+    > = {};
 
-  for (const item of items) {
-    if (
-      !summary[item.orderId]
-    ) {
-      summary[item.orderId] =
-        [];
-    }
+    for (const item of items) {
+      if (
+        !summary[item.orderId]
+      ) {
+        summary[item.orderId] =
+          [];
+      }
 
-    summary[item.orderId].push({
-      productName:
-        item.productId
-          ? productNameById[
-              item.productId
+      summary[item.orderId].push({
+        productName:
+          item.productId
+            ? productNameById[
+            item.productId
             ] ||
             'Unknown Product'
-          : 'Unknown Product',
-      quantity:
-        item.quantity,
-      unitPrice:
-        item.unitPrice,
-    });
+            : 'Unknown Product',
+        quantity:
+          item.quantity,
+        unitPrice:
+          item.unitPrice,
+      });
+    }
+
+    return summary;
   }
 
-  return summary;
-}
+  private isValidLatitude(
+    lat: number,
+  ): boolean {
+    return (
+      typeof lat === 'number' &&
+      !isNaN(lat) &&
+      lat >= -90 &&
+      lat <= 90
+    );
+  }
 
-private isValidLatitude(
-  lat: number,
-): boolean {
-  return (
-    typeof lat === 'number' &&
-    !isNaN(lat) &&
-    lat >= -90 &&
-    lat <= 90
-  );
-}
-
-private isValidLongitude(
-  lng: number,
-): boolean {
-  return (
-    typeof lng === 'number' &&
-    !isNaN(lng) &&
-    lng >= -180 &&
-    lng <= 180
-  );
-}
+  private isValidLongitude(
+    lng: number,
+  ): boolean {
+    return (
+      typeof lng === 'number' &&
+      !isNaN(lng) &&
+      lng >= -180 &&
+      lng <= 180
+    );
+  }
 
 
 
   async findAvailableOrdersbk(
-  driverLat: number,
-  driverLng: number,
-  radiusKm: number = 10,
-) {
-  if (!this.isValidLatitude(driverLat) || !this.isValidLongitude(driverLng)) {
-    throw new Error('Invalid driver coordinates.');
-  }
+    driverLat: number,
+    driverLng: number,
+    radiusKm: number = 10,
+  ) {
+    if (!this.isValidLatitude(driverLat) || !this.isValidLongitude(driverLng)) {
+      throw new Error('Invalid driver coordinates.');
+    }
 
-  // First, find stores within radius using Prisma
-  const storesInRadius = await this.prisma.$queryRaw<Array<{ id: string }>>`
+    // First, find stores within radius using Prisma
+    const storesInRadius = await this.prisma.$queryRaw<Array<{ id: string }>>`
     SELECT id
     FROM "Store"
     WHERE latitude IS NOT NULL
@@ -1114,107 +1108,107 @@ private isValidLongitude(
       ) <= ${radiusKm * 1000}
   `;
 
-  const storeIds = storesInRadius.map(store => store.id);
+    const storeIds = storesInRadius.map(store => store.id);
 
-  if (storeIds.length === 0) {
-    return [];
-  }
+    if (storeIds.length === 0) {
+      return [];
+    }
 
-  // Then find orders that have items from these stores
-  const orders = await this.prisma.order.findMany({
-    where: {
-      orderStatus: 'ORDER_ACCEPTED',
-      items: {
-        some: {
-          storeId: { in: storeIds }
+    // Then find orders that have items from these stores
+    const orders = await this.prisma.order.findMany({
+      where: {
+        orderStatus: 'ORDER_ACCEPTED',
+        items: {
+          some: {
+            storeId: { in: storeIds }
+          }
         }
-      }
-    },
-    include: {
-      items: {
-        include: {
-          store: {
-            select: {
-              id: true,
-              storeName: true,
-              latitude: true,
-              longitude: true,
+      },
+      include: {
+        items: {
+          include: {
+            store: {
+              select: {
+                id: true,
+                storeName: true,
+                latitude: true,
+                longitude: true,
+              }
             }
           }
         }
+      },
+      take: 20,
+      orderBy: {
+        createdAt: 'asc'
       }
-    },
-    take: 20,
-    orderBy: {
-      createdAt: 'asc'
-    }
-  });
+    });
 
-  // Calculate distances and format response
-  return orders.map(order => {
-    // Get the nearest store from the order items
-    const stores = order.items
-      .map(item => item.store)
-      .filter((store): store is NonNullable<typeof store> => store !== null && store.latitude !== null && store.longitude !== null);
+    // Calculate distances and format response
+    return orders.map(order => {
+      // Get the nearest store from the order items
+      const stores = order.items
+        .map(item => item.store)
+        .filter((store): store is NonNullable<typeof store> => store !== null && store.latitude !== null && store.longitude !== null);
 
-    if (stores.length === 0) return null;
+      if (stores.length === 0) return null;
 
-    // Find the closest store in this order
-    let closestStore = stores[0];
-    let closestDistance = this.calculateDistance(
-      driverLat, driverLng,
-      closestStore.latitude!,
-      closestStore.longitude!
-    );
-
-    for (const store of stores) {
-      const distance = this.calculateDistance(
+      // Find the closest store in this order
+      let closestStore = stores[0];
+      let closestDistance = this.calculateDistance(
         driverLat, driverLng,
-        store.latitude!,
-        store.longitude!
+        closestStore.latitude!,
+        closestStore.longitude!
       );
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestStore = store;
+
+      for (const store of stores) {
+        const distance = this.calculateDistance(
+          driverLat, driverLng,
+          store.latitude!,
+          store.longitude!
+        );
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestStore = store;
+        }
       }
-    }
 
-    return {
-      id: order.id,
-      order_number: order.orderNumber,
-      total_amount: order.totalAmount,
-      pickup_location: order.pickupLocation,
-      dropoff_location: order.dropoffLocation,
-      created_at: order.createdAt,
-      store_id: closestStore.id,
-      store_name: closestStore.storeName,
-      store_lat: closestStore.latitude,
-      store_lng: closestStore.longitude,
-      distance_meters: closestDistance,
-      items: order.items.map(item => ({
-        productName: item.productId || 'Unknown',
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      })),
-    };
-  }).filter(order => order !== null);
-}
+      return {
+        id: order.id,
+        order_number: order.orderNumber,
+        total_amount: order.totalAmount,
+        pickup_location: order.pickupLocation,
+        dropoff_location: order.dropoffLocation,
+        created_at: order.createdAt,
+        store_id: closestStore.id,
+        store_name: closestStore.storeName,
+        store_lat: closestStore.latitude,
+        store_lng: closestStore.longitude,
+        distance_meters: closestDistance,
+        items: order.items.map(item => ({
+          productName: item.productId || 'Unknown',
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        })),
+      };
+    }).filter(order => order !== null);
+  }
 
-// Helper to calculate distance between two points
-private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000; // Earth's radius in meters
-  const dLat = this.toRadians(lat2 - lat1);
-  const dLon = this.toRadians(lon2 - lon1);
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(this.toRadians(lat1)) * Math.cos(this.toRadians(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+  // Helper to calculate distance between two points
+  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = this.toRadians(lat2 - lat1);
+    const dLon = this.toRadians(lon2 - lon1);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRadians(lat1)) * Math.cos(this.toRadians(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
 
-private toRadians(degrees: number): number {
-  return degrees * (Math.PI / 180);
-}
+  private toRadians(degrees: number): number {
+    return degrees * (Math.PI / 180);
+  }
 
   async findAvailableOrders1(
     driverLat: number,
@@ -1261,8 +1255,8 @@ private toRadians(degrees: number): number {
     //   ORDER BY distance_meters ASC
     //   LIMIT 20
     // `;
-    
-  const availableOrders = await this.prisma.$queryRaw<Array<any>>`
+
+    const availableOrders = await this.prisma.$queryRaw<Array<any>>`
     SELECT
       o.id,
       o.order_number,
