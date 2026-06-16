@@ -48,6 +48,7 @@ model User {
   orders                Order[]
   stores                Store[]
   documents             VendorDocument[]
+  notifications         Notification[]
 
   @@index([email])
   @@index([phoneNumber])
@@ -453,6 +454,11 @@ model Order {
   deliveryOption       DeliveryOption? @relation(fields: [deliveryOptionId], references: [id])
   user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   items                OrderItem[]
+  vendorOrderAction    VendorOrderAction?
+
+    orderActivityLogs    OrderActivityLog[]
+
+  driverAssignment     DriverAssignment?
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -555,34 +561,29 @@ model DriverDocument {
 }
 
 model OrderActivityLog {
-  id         String    @id @default(uuid())
+  id         String       @id @default(uuid())
   orderId    String
-  actorId    String?
-  actorRole  String?
-  action     String
-  fromStatus String?
-  toStatus   String?
-  reason     String?
-  metadata   Json?
-  createdAt  DateTime? @default(now()) @db.Timestamp(6)
+  actorId    String? // userId (vendor, driver, customer, system)
+  actorRole  Role?
+  action     String // ACCEPTED, DECLINED, ASSIGNED, PICKED_UP, DELIVERED, etc.
+  fromStatus OrderStatus?
+  toStatus   OrderStatus?
+  reason     String? // decline reason
+  metadata   Json? // extra data like driver location, eta
+  createdAt  DateTime     @default(now())
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
+  @@index([createdAt])
 }
 
-model VendorOrderAction {
-  id          String    @id @default(uuid())
-  orderId     String
-  vendorId    String
-  status      String?   @default("PENDING")
-  reason      String?
-  respondedAt DateTime? @db.Timestamp(6)
-}
 
 model DriverAssignment {
-  id                  String    @id @default(uuid())
-  orderId             String
+  id                  String   @id @default(uuid())
+  orderId             String   @unique
   driverId            String?
-  assignmentStatus    String?   @default("PENDING")
+  order               Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignmentStatus    String?  @default("PENDING")
   assignedAt          DateTime? @db.Timestamp(6)
   etaSeconds          Int?
   pickupConfirmedAt   DateTime? @db.Timestamp(6)
@@ -591,18 +592,6 @@ model DriverAssignment {
   @@index([driverId])
 }
 
-model Notification {
-  id        String    @id @default(uuid())
-  userId    String
-  type      String
-  title     String
-  body      String
-  data      Json?
-  isRead    Boolean?  @default(false)
-  createdAt DateTime? @default(now()) @db.Timestamp(6)
-
-  @@index([userId, isRead])
-}
 
 model ChatMessage {
   id         String      @id @default(uuid())
@@ -615,6 +604,48 @@ model ChatMessage {
   readAt     DateTime?
   createdAt  DateTime    @default(now())
   order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json? // additional payload (orderId, deep link)
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+model VendorOrderAction {
+  id          String             @id @default(uuid())
+  orderId     String             @unique
+  vendorId    String
+  status      VendorActionStatus @default(PENDING)
+  reason      String?
+  respondedAt DateTime?
+  order       Order              @relation(fields: [orderId], references: [id])
+
+  @@index([vendorId])
+}
+
+enum VendorActionStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum NotificationType {
+  ORDER_STATUS
+  VENDOR_ACTION_REQUIRED
+  DRIVER_ASSIGNMENT
+  PICKUP_ALERT
+  RATING_REQUEST
 }
 
 enum CartStatus {
