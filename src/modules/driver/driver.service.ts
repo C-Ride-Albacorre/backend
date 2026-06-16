@@ -860,8 +860,97 @@ export class DriverService {
    * @returns List of orders with store details and distance, optionally enriched with items.
    */
 
+async findAvailableOrders(
+  driverLat: number,
+  driverLng: number,
+  radiusKm: number = 10,
+) {
+  if (!this.isValidLatitude(driverLat) || !this.isValidLongitude(driverLng)) {
+    throw new Error(
+      'Invalid driver coordinates. Latitude must be between -90 and 90, longitude between -180 and 180.',
+    );
+  }
 
-  async findAvailableOrders(
+  const radiusMeters = radiusKm * 1000;
+
+  const availableOrders = await this.prisma.$queryRaw<
+    Array<{
+      id: string;
+      order_number: string;
+      total_amount: number;
+      pickup_location: string;
+      dropoff_location: string;
+      created_at: Date;
+      store_id: string;
+      store_name: string;
+      store_lat: number;
+      store_lng: number;
+      distance_meters: number;
+    }>
+  >`
+    WITH order_store_distances AS (
+      SELECT
+        o.id AS order_id,
+        o.order_number,
+        o.total_amount,
+        o.pickup_location,
+        o.dropoff_location,
+        o.created_at,
+
+        s.id AS store_id,
+        s.store_name,
+        s.latitude AS store_lat,
+        s.longitude AS store_lng,
+
+        earth_distance(
+          ll_to_earth(s.latitude, s.longitude),
+          ll_to_earth(${driverLat}, ${driverLng})
+        ) AS distance_meters,
+
+        ROW_NUMBER() OVER (
+          PARTITION BY o.id
+          ORDER BY earth_distance(
+            ll_to_earth(s.latitude, s.longitude),
+            ll_to_earth(${driverLat}, ${driverLng})
+          )
+        ) AS rn
+      FROM "Order" o
+      JOIN "OrderItem" oi ON oi."orderId" = o.id
+      JOIN "Store" s ON s.id = oi."storeId"
+      WHERE o.order_status = 'ORDER_ACCEPTED'
+        AND s.latitude IS NOT NULL
+        AND s.longitude IS NOT NULL
+
+        -- index-friendly prefilter
+        AND earth_box(
+          ll_to_earth(${driverLat}, ${driverLng}),
+          ${radiusMeters}
+        ) @> ll_to_earth(s.latitude, s.longitude)
+    )
+
+    SELECT *
+    FROM order_store_distances
+    WHERE rn = 1
+      AND distance_meters <= ${radiusMeters}
+    ORDER BY distance_meters ASC
+    LIMIT 20;
+  `;
+
+  if (availableOrders.length === 0) {
+    return [];
+  }
+
+  const orderIds = availableOrders.map(o => o.id);
+
+  const itemsSummary = await this.getOrderItemsSummary(orderIds);
+
+  return availableOrders.map(order => ({
+    ...order,
+    items: itemsSummary[order.id] || [],
+  }));
+}
+
+  async findAvailableOrdersbk(
   driverLat: number,
   driverLng: number,
   radiusKm: number = 10,
