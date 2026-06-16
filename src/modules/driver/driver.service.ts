@@ -860,14 +860,18 @@ export class DriverService {
    * @returns List of orders with store details and distance, optionally enriched with items.
    */
 
+
 async findAvailableOrders(
   driverLat: number,
   driverLng: number,
-  radiusKm: number = 10,
+  radiusKm = 10,
 ) {
-  if (!this.isValidLatitude(driverLat) || !this.isValidLongitude(driverLng)) {
+  if (
+    !this.isValidLatitude(driverLat) ||
+    !this.isValidLongitude(driverLng)
+  ) {
     throw new Error(
-      'Invalid driver coordinates. Latitude must be between -90 and 90, longitude between -180 and 180.',
+      'Invalid driver coordinates. Latitude must be between -90 and 90 and longitude between -180 and 180.',
     );
   }
 
@@ -875,11 +879,11 @@ async findAvailableOrders(
 
   const availableOrders = await this.prisma.$queryRaw<
     Array<{
-      id: string;
+      order_id: string;
       order_number: string;
       total_amount: number;
-      pickup_location: string;
-      dropoff_location: string;
+      pickup_location: any;
+      dropoff_location: any;
       created_at: Date;
       store_id: string;
       store_name: string;
@@ -891,14 +895,14 @@ async findAvailableOrders(
     WITH order_store_distances AS (
       SELECT
         o.id AS order_id,
-        o.order_number,
-        o.total_amount,
-        o.pickup_location,
-        o.dropoff_location,
-        o.created_at,
+        o."orderNumber" AS order_number,
+        o."totalAmount" AS total_amount,
+        o."pickupLocation" AS pickup_location,
+        o."dropoffLocation" AS dropoff_location,
+        o."createdAt" AS created_at,
 
         s.id AS store_id,
-        s.store_name,
+        s."storeName" AS store_name,
         s.latitude AS store_lat,
         s.longitude AS store_lng,
 
@@ -914,21 +918,39 @@ async findAvailableOrders(
             ll_to_earth(${driverLat}, ${driverLng})
           )
         ) AS rn
+
       FROM "Order" o
-      JOIN "OrderItem" oi ON oi."orderId" = o.id
-      JOIN "Store" s ON s.id = oi."storeId"
-      WHERE o.order_status = 'ORDER_ACCEPTED'
+      INNER JOIN "OrderItem" oi
+        ON oi."orderId" = o.id
+
+      INNER JOIN "Store" s
+        ON s.id = oi."storeId"
+
+      WHERE o."orderStatus" = 'ORDER_ACCEPTED'
         AND s.latitude IS NOT NULL
         AND s.longitude IS NOT NULL
 
-        -- index-friendly prefilter
         AND earth_box(
           ll_to_earth(${driverLat}, ${driverLng}),
           ${radiusMeters}
-        ) @> ll_to_earth(s.latitude, s.longitude)
+        ) @> ll_to_earth(
+          s.latitude,
+          s.longitude
+        )
     )
 
-    SELECT *
+    SELECT
+      order_id,
+      order_number,
+      total_amount,
+      pickup_location,
+      dropoff_location,
+      created_at,
+      store_id,
+      store_name,
+      store_lat,
+      store_lng,
+      distance_meters
     FROM order_store_distances
     WHERE rn = 1
       AND distance_meters <= ${radiusMeters}
@@ -936,19 +958,138 @@ async findAvailableOrders(
     LIMIT 20;
   `;
 
-  if (availableOrders.length === 0) {
+  if (!availableOrders.length) {
     return [];
   }
 
-  const orderIds = availableOrders.map(o => o.id);
+  const orderIds = availableOrders.map(
+    (order) => order.order_id,
+  );
 
-  const itemsSummary = await this.getOrderItemsSummary(orderIds);
+  const itemsSummary =
+    await this.getOrderItemsSummary(orderIds);
 
-  return availableOrders.map(order => ({
+  return availableOrders.map((order) => ({
     ...order,
-    items: itemsSummary[order.id] || [],
+    items:
+      itemsSummary[order.order_id] || [],
   }));
 }
+
+private async getOrderItemsSummary(
+  orderIds: string[],
+): Promise<Record<string, any[]>> {
+  const items =
+    await this.prisma.orderItem.findMany({
+      where: {
+        orderId: {
+          in: orderIds,
+        },
+      },
+      select: {
+        orderId: true,
+        quantity: true,
+        unitPrice: true,
+        productId: true,
+      },
+    });
+
+  const productIds = [
+    ...new Set(
+      items
+        .map((item) => item.productId)
+        .filter(
+          (id): id is string =>
+            Boolean(id),
+        ),
+    ),
+  ];
+
+  const products =
+    productIds.length > 0
+      ? await this.prisma.product.findMany({
+          where: {
+            id: {
+              in: productIds,
+            },
+          },
+          select: {
+            id: true,
+            productName: true,
+          },
+        })
+      : [];
+
+  const productNameById =
+    products.reduce(
+      (
+        acc,
+        product,
+      ) => {
+        acc[product.id] =
+          product.productName;
+        return acc;
+      },
+      {} as Record<
+        string,
+        string
+      >,
+    );
+
+  const summary: Record<
+    string,
+    any[]
+  > = {};
+
+  for (const item of items) {
+    if (
+      !summary[item.orderId]
+    ) {
+      summary[item.orderId] =
+        [];
+    }
+
+    summary[item.orderId].push({
+      productName:
+        item.productId
+          ? productNameById[
+              item.productId
+            ] ||
+            'Unknown Product'
+          : 'Unknown Product',
+      quantity:
+        item.quantity,
+      unitPrice:
+        item.unitPrice,
+    });
+  }
+
+  return summary;
+}
+
+private isValidLatitude(
+  lat: number,
+): boolean {
+  return (
+    typeof lat === 'number' &&
+    !isNaN(lat) &&
+    lat >= -90 &&
+    lat <= 90
+  );
+}
+
+private isValidLongitude(
+  lng: number,
+): boolean {
+  return (
+    typeof lng === 'number' &&
+    !isNaN(lng) &&
+    lng >= -180 &&
+    lng <= 180
+  );
+}
+
+
 
   async findAvailableOrdersbk(
   driverLat: number,
@@ -1171,53 +1312,53 @@ private toRadians(degrees: number): number {
    * Fetch a summary of items for multiple orders (e.g., item names, quantities).
    * Returns a map: orderId -> array of item summaries.
    */
-  private async getOrderItemsSummary(orderIds: string[]): Promise<Record<string, any[]>> {
-    const items = await this.prisma.orderItem.findMany({
-      where: { orderId: { in: orderIds } },
-      select: {
-        orderId: true,
-        quantity: true,
-        unitPrice: true,
-        productId: true,
-      },
-    });
+  // private async getOrderItemsSummary(orderIds: string[]): Promise<Record<string, any[]>> {
+  //   const items = await this.prisma.orderItem.findMany({
+  //     where: { orderId: { in: orderIds } },
+  //     select: {
+  //       orderId: true,
+  //       quantity: true,
+  //       unitPrice: true,
+  //       productId: true,
+  //     },
+  //   });
 
-    const productIds = [...new Set(items.map(item => item.productId).filter(Boolean))];
-    const products = productIds.length
-      ? await this.prisma.product.findMany({
-          where: { id: { in: productIds } },
-          select: {
-            id: true,
-            productName: true,
-          },
-        })
-      : [];
+  //   const productIds = [...new Set(items.map(item => item.productId).filter(Boolean))];
+  //   const products = productIds.length
+  //     ? await this.prisma.product.findMany({
+  //         where: { id: { in: productIds } },
+  //         select: {
+  //           id: true,
+  //           productName: true,
+  //         },
+  //       })
+  //     : [];
 
-    const productNameById = products.reduce((acc, product) => {
-      acc[product.id] = product.productName;
-      return acc;
-    }, {} as Record<string, string>);
+  //   const productNameById = products.reduce((acc, product) => {
+  //     acc[product.id] = product.productName;
+  //     return acc;
+  //   }, {} as Record<string, string>);
 
-    const summary: Record<number, any[]> = {};
-    for (const item of items) {
-      if (!summary[item.orderId]) summary[item.orderId] = [];
-      summary[item.orderId].push({
-        productName: item.productId ? productNameById[item.productId] || 'Unknown Product' : 'Unknown Product',
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-      });
-    }
-    return summary;
-  }
+  //   const summary: Record<number, any[]> = {};
+  //   for (const item of items) {
+  //     if (!summary[item.orderId]) summary[item.orderId] = [];
+  //     summary[item.orderId].push({
+  //       productName: item.productId ? productNameById[item.productId] || 'Unknown Product' : 'Unknown Product',
+  //       quantity: item.quantity,
+  //       unitPrice: item.unitPrice,
+  //     });
+  //   }
+  //   return summary;
+  // }
 
-  // Helper validators
-  private isValidLatitude(lat: number): boolean {
-    return typeof lat === 'number' && !isNaN(lat) && lat >= -90 && lat <= 90;
-  }
+  // // Helper validators
+  // private isValidLatitude(lat: number): boolean {
+  //   return typeof lat === 'number' && !isNaN(lat) && lat >= -90 && lat <= 90;
+  // }
 
-  private isValidLongitude(lng: number): boolean {
-    return typeof lng === 'number' && !isNaN(lng) && lng >= -180 && lng <= 180;
-  }
+  // private isValidLongitude(lng: number): boolean {
+  //   return typeof lng === 'number' && !isNaN(lng) && lng >= -180 && lng <= 180;
+  // }
 
 
   /**
