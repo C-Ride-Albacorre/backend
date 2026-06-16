@@ -417,8 +417,8 @@ model CartItem {
 }
 
 model Order {
-  id                   String          @id @default(uuid())
-  orderNumber          String          @unique
+  id                   String             @id @default(uuid())
+  orderNumber          String             @unique
   userId               String
   orderType            OrderType
   subtotal             Float
@@ -427,21 +427,21 @@ model Order {
   taxAmount            Float
   totalAmount          Float
   deliveryOptionId     String?
-  dropoffLocation      Json?           @db.Json
+  dropoffLocation      Json?              @db.Json
   recipientName        String
   recipientPhone       String
   deliveryInstructions String?
-  paymentStatus        PaymentStatus   @default(PENDING)
+  paymentStatus        PaymentStatus      @default(PENDING)
   paymentMethod        PaymentMethod?
-  paymentReference     String?         @unique
-  monnifyReference     String?         @unique
-  orderStatus          OrderStatus     @default(PENDING)
+  paymentReference     String?            @unique
+  monnifyReference     String?            @unique
+  orderStatus          OrderStatus        @default(PENDING)
   statusHistory        Json?
   metadata             Json?
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
   pickupLocation       Json?
-  orderCode            String          @unique
+  orderCode            String             @unique
   respondedAt          DateTime?
   reason               String?
   canceledAt           DateTime?
@@ -451,13 +451,11 @@ model Order {
   vendorAcceptedAt     DateTime?
   vendorDeclinedAt     DateTime?
   chatMessages         ChatMessage[]
-  deliveryOption       DeliveryOption? @relation(fields: [deliveryOptionId], references: [id])
-  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveryOption       DeliveryOption?    @relation(fields: [deliveryOptionId], references: [id])
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   items                OrderItem[]
   vendorOrderAction    VendorOrderAction?
-
-    orderActivityLogs    OrderActivityLog[]
-
+  orderActivityLogs    OrderActivityLog[]
   driverAssignment     DriverAssignment?
 
   @@index([orderCode])
@@ -577,13 +575,12 @@ model OrderActivityLog {
   @@index([createdAt])
 }
 
-
 model DriverAssignment {
-  id                  String   @id @default(uuid())
-  orderId             String   @unique
+  id                  String    @id @default(uuid())
+  orderId             String    @unique
   driverId            String?
-  order               Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  assignmentStatus    String?  @default("PENDING")
+  order               Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignmentStatus    String?   @default("PENDING")
   assignedAt          DateTime? @db.Timestamp(6)
   etaSeconds          Int?
   pickupConfirmedAt   DateTime? @db.Timestamp(6)
@@ -591,7 +588,6 @@ model DriverAssignment {
 
   @@index([driverId])
 }
-
 
 model ChatMessage {
   id         String      @id @default(uuid())
@@ -605,7 +601,6 @@ model ChatMessage {
   createdAt  DateTime    @default(now())
   order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
-
 
 model Notification {
   id        String           @id @default(uuid())
@@ -841,9 +836,4 @@ enum MessageType {
   TEXT
   IMAGE
   LOCATION
-}
-
-enum VehicleType_new {
-  CAR
-  EV
 }
