@@ -11,7 +11,6 @@ model User {
   id                    String             @id @default(uuid())
   email                 String?            @unique
   phoneNumber           String?            @unique
-  countryCode           String? // e.g. "NG", "US", "GB"
   password              String?
   firstName             String
   lastName              String
@@ -38,6 +37,9 @@ model User {
   approvedBy            String?
   rejectionReason       String?
   isNewUser             Boolean            @default(false)
+  countryCode           String?
+  fcmToken              String?
+  deviceType            String?
   businessInfo          BusinessInfo?
   cart                  Cart?
   customerLocations     CustomerLocation[]
@@ -46,9 +48,6 @@ model User {
   orders                Order[]
   stores                Store[]
   documents             VendorDocument[]
-  notifications         Notification[]
-  fcmToken              String? // Firebase Cloud Messaging token
-  deviceType            String? // 'ios', 'android', 'web'
 
   @@index([email])
   @@index([phoneNumber])
@@ -131,7 +130,6 @@ model Store {
   storeAddress     String
   phoneNumber      String
   email            String
-  dailyOrderLimit  Int?
   preparationTime  Int?
   deliveryFee      Float?
   storeLogo        String?
@@ -146,10 +144,11 @@ model Store {
   categoryId       String
   latitude         Float?
   longitude        Float?
+  dailyOrderLimit  Int?
   operatingHours   OperatingHour[]
   orderItems       OrderItem[]
-  products         Product[]
   packages         Package[]
+  products         Product[]
   category         Category        @relation(fields: [categoryId], references: [id])
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -277,13 +276,13 @@ model Subcategory {
   id           String    @id @default(uuid())
   name         String
   description  String?
-  icon         String?
-  image        String?
   categoryId   String
   isActive     Boolean   @default(true)
   displayOrder Int       @default(0)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  icon         String?
+  image        String?
   products     Product[]
   category     Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
@@ -315,16 +314,14 @@ model Package {
   type        PackageType
   weight      Float?
   dimensions  Json?
+  basePrice   Float
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
   storeId     String?
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
   store       Store?      @relation(fields: [storeId], references: [id])
-
-  //imageUrl    String?     // ✅ ADD THIS
-  basePrice  Float
-  isActive   Boolean     @default(true)
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-  cartItems  CartItem[]
-  orderItems OrderItem[]
 
   @@index([type])
   @@index([isActive])
@@ -375,25 +372,19 @@ model TaxSetting {
   @@index([appliesTo])
 }
 
-enum CartStatus {
-  ACTIVE
-  CHECKED_OUT
-  ABANDONED
-}
-
 model Cart {
   id           String     @id @default(uuid())
-  userId       String?    @unique // nullable for guests
-  sessionId    String?    @unique // for guest users
+  userId       String?    @unique
+  sessionId    String?    @unique
   totalAmount  Float      @default(0)
   expiresAt    DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+  abandonedAt  DateTime?
+  checkedOutAt DateTime?
+  status       CartStatus @default(ACTIVE)
   user         User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
   items        CartItem[]
-  status       CartStatus @default(ACTIVE)
-  checkedOutAt DateTime?
-  abandonedAt  DateTime?
 
   @@index([userId])
   @@index([sessionId])
@@ -425,9 +416,8 @@ model CartItem {
 }
 
 model Order {
-  id                   String             @id @default(uuid())
-  orderNumber          String             @unique
-  orderCode            String             @unique
+  id                   String          @id @default(uuid())
+  orderNumber          String          @unique
   userId               String
   orderType            OrderType
   subtotal             Float
@@ -436,35 +426,33 @@ model Order {
   taxAmount            Float
   totalAmount          Float
   deliveryOptionId     String?
-  pickupLocation       Json?
-  dropoffLocation      Json?
+  dropoffLocation      Json?           @db.Json
   recipientName        String
   recipientPhone       String
   deliveryInstructions String?
-  paymentStatus        PaymentStatus      @default(PENDING)
+  paymentStatus        PaymentStatus   @default(PENDING)
   paymentMethod        PaymentMethod?
-  paymentReference     String?            @unique
-  monnifyReference     String?            @unique
-  orderStatus          OrderStatus        @default(PENDING)
+  paymentReference     String?         @unique
+  monnifyReference     String?         @unique
+  orderStatus          OrderStatus     @default(PENDING)
   statusHistory        Json?
   metadata             Json?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  deliveryOption       DeliveryOption?    @relation(fields: [deliveryOptionId], references: [id])
-  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items                OrderItem[]
-  orderActivityLogs    OrderActivityLog[]
-  vendorOrderAction    VendorOrderAction?
-  driverAssignment     DriverAssignment?
-  reason               String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  pickupLocation       Json?
+  orderCode            String          @unique
   respondedAt          DateTime?
-  vendorAcceptedAt     DateTime?
-  vendorDeclinedAt     DateTime?
+  reason               String?
+  canceledAt           DateTime?
+  deliveredAt          DateTime?
   driverAssignedAt     DateTime?
   pickedUpAt           DateTime?
-  deliveredAt          DateTime?
-  canceledAt           DateTime?
+  vendorAcceptedAt     DateTime?
+  vendorDeclinedAt     DateTime?
   chatMessages         ChatMessage[]
+  deliveryOption       DeliveryOption? @relation(fields: [deliveryOptionId], references: [id])
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items                OrderItem[]
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -490,10 +478,10 @@ model OrderItem {
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
   order               Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  package             Package?     @relation(fields: [packageId], references: [id], onDelete: SetNull)
-  product             Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
-  store               Store?       @relation(fields: [storeId], references: [id], onDelete: SetNull)
-  variant             Variant?     @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  package             Package?     @relation(fields: [packageId], references: [id])
+  product             Product?     @relation(fields: [productId], references: [id])
+  store               Store?       @relation(fields: [storeId], references: [id])
+  variant             Variant?     @relation(fields: [variantId], references: [id])
 
   @@index([orderId])
   @@index([productId])
@@ -502,7 +490,7 @@ model OrderItem {
 
 model IdempotencyRecord {
   key       String   @id
-  status    String // PROCESSING, COMPLETED, FAILED
+  status    String
   orderId   String?  @map("order_id")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -512,7 +500,7 @@ model IdempotencyRecord {
 
 model StoreDailyCounter {
   storeId    String @map("store_id")
-  date       String // YYYY-MM-DD
+  date       String
   orderCount Int    @default(0) @map("order_count")
 
   @@id([storeId, date])
@@ -520,32 +508,29 @@ model StoreDailyCounter {
 }
 
 model DriverProfile {
-  id                String             @id @default(uuid())
-  userId            String             @unique
+  id                String           @id @default(uuid())
+  userId            String           @unique
   address           String?
   city              String?
   state             String?
-  country           String?            @default("NG")
+  country           String?          @default("NG")
   postalCode        String?
-  vehicleType       VehicleType        @default(CAR)
+  vehicleType       VehicleType      @default(CAR)
   vehicleMake       String?
   vehicleModel      String?
   year              Int?
-  licensePlate      String?            @unique
-  rating            Float?             @default(0)
-  ratingCount       Int?               @default(0)
-  totalDeliveries   Int?               @default(0)
-  status            DriverStatus       @default(OFFLINE)
+  licensePlate      String?          @unique
+  rating            Float?           @default(0)
+  ratingCount       Int?             @default(0)
+  totalDeliveries   Int?             @default(0)
+  status            DriverStatus     @default(OFFLINE)
   latitude          Float?
   longitude         Float?
   locationUpdatedAt DateTime?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
   documents         DriverDocument[]
-  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  driverAssignments DriverAssignment[]
-  // fcmToken          String? // Firebase Cloud Messaging token
-  // deviceType        String? // 'ios', 'android', 'web'
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
@@ -564,18 +549,87 @@ model DriverDocument {
   rejectionReason String?
   verifiedAt      DateTime?
   verifiedBy      String?
-  driver          DriverProfile      @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  driver          DriverProfile      @relation(fields: [driverId], references: [id])
 
   @@unique([driverId, documentType])
+}
+
+model OrderActivityLog {
+  id         String    @id @default(uuid())
+  orderId    String
+  actorId    String?
+  actorRole  String?
+  action     String
+  fromStatus String?
+  toStatus   String?
+  reason     String?
+  metadata   Json?
+  createdAt  DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([orderId])
+}
+
+model VendorOrderAction {
+  id          String    @id @default(uuid())
+  orderId     String
+  vendorId    String
+  status      String?   @default("PENDING")
+  reason      String?
+  respondedAt DateTime? @db.Timestamp(6)
+}
+
+model DriverAssignment {
+  id                  String    @id @default(uuid())
+  orderId             String
+  driverId            String?
+  assignmentStatus    String?   @default("PENDING")
+  assignedAt          DateTime? @db.Timestamp(6)
+  etaSeconds          Int?
+  pickupConfirmedAt   DateTime? @db.Timestamp(6)
+  deliveryConfirmedAt DateTime? @db.Timestamp(6)
+
+  @@index([driverId])
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  data      Json?
+  isRead    Boolean?  @default(false)
+  createdAt DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([userId, isRead])
+}
+
+model ChatMessage {
+  id         String      @id @default(uuid())
+  orderId    String
+  senderId   String
+  senderRole Role
+  message    String
+  type       MessageType @default(TEXT)
+  isRead     Boolean     @default(false)
+  readAt     DateTime?
+  createdAt  DateTime    @default(now())
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+enum CartStatus {
+  ACTIVE
+  CHECKED_OUT
+  ABANDONED
 }
 
 enum DriverStatus {
   OFFLINE
   ONLINE
   BUSY
+  SUSPENDED
   REJECTED
   APPROVED
-  SUSPENDED
 }
 
 enum DriverDocumentType {
@@ -718,10 +772,10 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
   REFUNDED
-  ORDER_PLACED // new - after customer checkout
-  ORDER_ACCEPTED // new - vendor accepted
-  ORDER_DECLINED // new - vendor declined
-  ORDER_ASSIGNED // new - driver assigned
+  ORDER_PLACED
+  ORDER_ACCEPTED
+  ORDER_ASSIGNED
+  ORDER_DECLINED
 }
 
 enum PaymentStatus {
@@ -741,65 +795,6 @@ enum PaymentMethod {
   WALLET
 }
 
-// New models
-model OrderActivityLog {
-  id         String       @id @default(uuid())
-  orderId    String
-  actorId    String? // userId (vendor, driver, customer, system)
-  actorRole  Role?
-  action     String // ACCEPTED, DECLINED, ASSIGNED, PICKED_UP, DELIVERED, etc.
-  fromStatus OrderStatus?
-  toStatus   OrderStatus?
-  reason     String? // decline reason
-  metadata   Json? // extra data like driver location, eta
-  createdAt  DateTime     @default(now())
-  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
-  @@index([orderId])
-  @@index([createdAt])
-}
-
-model VendorOrderAction {
-  id          String             @id @default(uuid())
-  orderId     String             @unique
-  vendorId    String
-  status      VendorActionStatus @default(PENDING)
-  reason      String?
-  respondedAt DateTime?
-  order       Order              @relation(fields: [orderId], references: [id])
-
-  @@index([vendorId])
-}
-
-enum VendorActionStatus {
-  PENDING
-  ACCEPTED
-  DECLINED
-}
-
-model DriverAssignment {
-  id                  String           @id @default(uuid())
-  orderId             String           @unique
-  driverId            String?
-  assignmentStatus    AssignmentStatus @default(PENDING)
-  assignedAt          DateTime?
-  etaSeconds          Int? // from driver to vendor at assignment time
-  pickupConfirmedAt   DateTime?
-  deliveryConfirmedAt DateTime?
-  order               Order            @relation(fields: [orderId], references: [id])
-  driver              DriverProfile?   @relation(fields: [driverId], references: [id])
-
-  @@index([assignmentStatus])
-  @@index([driverId])
-}
-
-// enum AssignmentStatus {
-//   PENDING // waiting for drivers to accept
-//   ASSIGNED // driver accepted
-//   REASSIGNING // fallback after timeout
-//   FAILED
-// }
-
 enum AssignmentStatus {
   PENDING
   SEARCHING
@@ -811,44 +806,13 @@ enum AssignmentStatus {
   FAILED
 }
 
-model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  type      NotificationType
-  title     String
-  body      String
-  data      Json? // additional payload (orderId, deep link)
-  isRead    Boolean          @default(false)
-  createdAt DateTime         @default(now())
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, isRead])
-  @@index([createdAt])
-}
-
-enum NotificationType {
-  ORDER_STATUS
-  VENDOR_ACTION_REQUIRED
-  DRIVER_ASSIGNMENT
-  PICKUP_ALERT
-  RATING_REQUEST
-}
-
-model ChatMessage {
-  id         String      @id @default(uuid())
-  orderId    String
-  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  senderId   String // user id (customer or driver)
-  senderRole Role // CUSTOMER or DRIVER
-  message    String      @db.Text
-  type       MessageType @default(TEXT)
-  isRead     Boolean     @default(false)
-  readAt     DateTime?
-  createdAt  DateTime    @default(now())
-}
-
 enum MessageType {
   TEXT
   IMAGE
   LOCATION
+}
+
+enum VehicleType_new {
+  CAR
+  EV
 }

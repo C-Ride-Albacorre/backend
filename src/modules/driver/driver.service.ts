@@ -872,38 +872,69 @@ export class DriverService {
     const radiusMeters = radiusKm * 1000;
 
     // 2. Raw query with earth_box pre‑filter (uses GiST index if available)
-    const availableOrders = await this.prisma.$queryRaw<Array<any>>`
-      SELECT
-        o.id,
-        o.order_number,
-        o.total_amount,
-        o.pickup_location,
-        o.dropoff_location,
-        o.created_at,
-        s.id AS store_id,
-        s.store_name,
-        s.latitude AS store_lat,
-        s.longitude AS store_lng,
-        earth_distance(
-          ll_to_earth(s.latitude, s.longitude),
-          ll_to_earth(${driverLat}, ${driverLng})
-        ) AS distance_meters
-      FROM orders o
-      JOIN stores s ON s.id = o.store_id
-      WHERE o.order_status = 'ORDER_ACCEPTED'
-        AND s.latitude IS NOT NULL
-        AND s.longitude IS NOT NULL
-        -- bounding‑box pre‑filter (approx, uses index)
-        AND earth_box(ll_to_earth(${driverLat}, ${driverLng}), ${radiusMeters}) @>
-            ll_to_earth(s.latitude, s.longitude)
-        -- exact distance filter
-        AND earth_distance(
-          ll_to_earth(s.latitude, s.longitude),
-          ll_to_earth(${driverLat}, ${driverLng})
-        ) <= ${radiusMeters}
-      ORDER BY distance_meters ASC
-      LIMIT 20
-    `;
+    // const availableOrders = await this.prisma.$queryRaw<Array<any>>`
+    //   SELECT
+    //     o.id,
+    //     o.order_number,
+    //     o.total_amount,
+    //     o.pickup_location,
+    //     o.dropoff_location,
+    //     o.created_at,
+    //     s.id AS store_id,
+    //     s.store_name,
+    //     s.latitude AS store_lat,
+    //     s.longitude AS store_lng,
+    //     earth_distance(
+    //       ll_to_earth(s.latitude, s.longitude),
+    //       ll_to_earth(${driverLat}, ${driverLng})
+    //     ) AS distance_meters
+    //   FROM orders o
+    //   JOIN stores s ON s.id = o.store_id
+    //   WHERE o.order_status = 'ORDER_ACCEPTED'
+    //     AND s.latitude IS NOT NULL
+    //     AND s.longitude IS NOT NULL
+    //     -- bounding‑box pre‑filter (approx, uses index)
+    //     AND earth_box(ll_to_earth(${driverLat}, ${driverLng}), ${radiusMeters}) @>
+    //         ll_to_earth(s.latitude, s.longitude)
+    //     -- exact distance filter
+    //     AND earth_distance(
+    //       ll_to_earth(s.latitude, s.longitude),
+    //       ll_to_earth(${driverLat}, ${driverLng})
+    //     ) <= ${radiusMeters}
+    //   ORDER BY distance_meters ASC
+    //   LIMIT 20
+    // `;
+    
+  const availableOrders = await this.prisma.$queryRaw<Array<any>>`
+    SELECT
+      o.id,
+      o.order_number,
+      o.total_amount,
+      o.pickup_location,
+      o.dropoff_location,
+      o.created_at,
+      s.id AS store_id,
+      s.store_name,
+      s.latitude AS store_lat,
+      s.longitude AS store_lng,
+      earth_distance(
+        ll_to_earth(s.latitude, s.longitude),
+        ll_to_earth(${driverLat}, ${driverLng})
+      ) AS distance_meters
+    FROM "Order" o
+    JOIN "Store" s ON s.id = o.store_id
+    WHERE o.order_status = 'ORDER_ACCEPTED'
+      AND s.latitude IS NOT NULL
+      AND s.longitude IS NOT NULL
+      AND earth_box(ll_to_earth(${driverLat}, ${driverLng}), ${radiusMeters}) @>
+          ll_to_earth(s.latitude, s.longitude)
+      AND earth_distance(
+        ll_to_earth(s.latitude, s.longitude),
+        ll_to_earth(${driverLat}, ${driverLng})
+      ) <= ${radiusMeters}
+    ORDER BY distance_meters ASC
+    LIMIT 20
+  `;
 
     // 3. (Optional) Enrich with order items summary
     if (availableOrders.length === 0) {
