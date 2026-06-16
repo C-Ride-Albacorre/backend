@@ -21,6 +21,10 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
 import { SuccessResponseInterceptor } from './common/filters/success-response.interceptor';
 
 async function bootstrap() {
+  (BigInt.prototype as any).toJSON = function () {
+    return this.toString();
+  };
+
   const logger = WinstonModule.createLogger({
     level: process.env.LOG_LEVEL || 'info',
     transports: [new winston.transports.Console()],
