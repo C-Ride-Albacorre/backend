@@ -1,11 +1,20 @@
 -- CreateEnum
-CREATE TYPE "DriverStatus" AS ENUM ('OFFLINE', 'ONLINE', 'BUSY', 'SUSPENDED');
+CREATE TYPE "VendorActionStatus" AS ENUM ('PENDING', 'ACCEPTED', 'DECLINED');
+
+-- CreateEnum
+CREATE TYPE "NotificationType" AS ENUM ('ORDER_STATUS', 'VENDOR_ACTION_REQUIRED', 'DRIVER_ASSIGNMENT', 'PICKUP_ALERT', 'RATING_REQUEST');
+
+-- CreateEnum
+CREATE TYPE "CartStatus" AS ENUM ('ACTIVE', 'CHECKED_OUT', 'ABANDONED');
+
+-- CreateEnum
+CREATE TYPE "DriverStatus" AS ENUM ('OFFLINE', 'ONLINE', 'BUSY', 'SUSPENDED', 'REJECTED', 'APPROVED');
 
 -- CreateEnum
 CREATE TYPE "DriverDocumentType" AS ENUM ('DRIVER_LICENSE', 'VEHICLE_INSURANCE', 'VEHICLE_REGISTRATION');
 
 -- CreateEnum
-CREATE TYPE "VehicleType" AS ENUM ('CAR', 'MOTORCYCLE', 'TRUCK', 'VAN', 'BICYCLE', 'OTHER');
+CREATE TYPE "VehicleType" AS ENUM ('CAR', 'EV');
 
 -- CreateEnum
 CREATE TYPE "Role" AS ENUM ('CUSTOMER', 'VENDOR', 'DISPATCHER', 'ADMIN', 'SUPER_ADMIN');
@@ -59,13 +68,19 @@ CREATE TYPE "CartItemType" AS ENUM ('PRODUCT', 'PACKAGE', 'DOCUMENT');
 CREATE TYPE "OrderType" AS ENUM ('VENDOR', 'PACKAGE', 'DOCUMENT', 'MIXED');
 
 -- CreateEnum
-CREATE TYPE "OrderStatus" AS ENUM ('PENDING', 'PROCESSING', 'CONFIRMED', 'PICKED_UP', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED', 'REFUNDED');
+CREATE TYPE "OrderStatus" AS ENUM ('PENDING', 'PROCESSING', 'CONFIRMED', 'PICKED_UP', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED', 'REFUNDED', 'ORDER_PLACED', 'ORDER_ACCEPTED', 'ORDER_ASSIGNED', 'ORDER_DECLINED');
 
 -- CreateEnum
 CREATE TYPE "PaymentStatus" AS ENUM ('INITIATING', 'PENDING', 'PAID', 'FAILED', 'REFUNDED', 'PARTIALLY_REFUNDED');
 
 -- CreateEnum
 CREATE TYPE "PaymentMethod" AS ENUM ('CARD', 'BANK_TRANSFER', 'USSD', 'QR_CODE', 'WALLET');
+
+-- CreateEnum
+CREATE TYPE "AssignmentStatus" AS ENUM ('PENDING', 'SEARCHING', 'ASSIGNED', 'REASSIGNING', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'FAILED');
+
+-- CreateEnum
+CREATE TYPE "MessageType" AS ENUM ('TEXT', 'IMAGE', 'LOCATION');
 
 -- CreateTable
 CREATE TABLE "User" (
@@ -98,6 +113,9 @@ CREATE TABLE "User" (
     "approvedBy" TEXT,
     "rejectionReason" TEXT,
     "isNewUser" BOOLEAN NOT NULL DEFAULT false,
+    "countryCode" TEXT,
+    "fcmToken" TEXT,
+    "deviceType" TEXT,
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
@@ -181,7 +199,6 @@ CREATE TABLE "Store" (
     "storeAddress" TEXT NOT NULL,
     "phoneNumber" TEXT NOT NULL,
     "email" TEXT NOT NULL,
-    "minimumOrder" DOUBLE PRECISION DEFAULT 0,
     "preparationTime" INTEGER,
     "deliveryFee" DOUBLE PRECISION,
     "storeLogo" TEXT,
@@ -196,6 +213,7 @@ CREATE TABLE "Store" (
     "categoryId" TEXT NOT NULL,
     "latitude" DOUBLE PRECISION,
     "longitude" DOUBLE PRECISION,
+    "dailyOrderLimit" INTEGER,
 
     CONSTRAINT "Store_pkey" PRIMARY KEY ("id")
 );
@@ -312,6 +330,8 @@ CREATE TABLE "Subcategory" (
     "displayOrder" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "icon" TEXT,
+    "image" TEXT,
 
     CONSTRAINT "Subcategory_pkey" PRIMARY KEY ("id")
 );
@@ -343,6 +363,7 @@ CREATE TABLE "Package" (
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "storeId" TEXT,
 
     CONSTRAINT "Package_pkey" PRIMARY KEY ("id")
 );
@@ -395,12 +416,15 @@ CREATE TABLE "TaxSetting" (
 -- CreateTable
 CREATE TABLE "Cart" (
     "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
+    "userId" TEXT,
     "sessionId" TEXT,
     "totalAmount" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "expiresAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "abandonedAt" TIMESTAMP(3),
+    "checkedOutAt" TIMESTAMP(3),
+    "status" "CartStatus" NOT NULL DEFAULT 'ACTIVE',
 
     CONSTRAINT "Cart_pkey" PRIMARY KEY ("id")
 );
@@ -436,8 +460,7 @@ CREATE TABLE "Order" (
     "taxAmount" DOUBLE PRECISION NOT NULL,
     "totalAmount" DOUBLE PRECISION NOT NULL,
     "deliveryOptionId" TEXT,
-    "pickupLocation" TEXT,
-    "dropoffLocation" TEXT NOT NULL,
+    "dropoffLocation" JSON,
     "recipientName" TEXT NOT NULL,
     "recipientPhone" TEXT NOT NULL,
     "deliveryInstructions" TEXT,
@@ -450,6 +473,16 @@ CREATE TABLE "Order" (
     "metadata" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "pickupLocation" JSONB,
+    "orderCode" TEXT NOT NULL,
+    "respondedAt" TIMESTAMP(3),
+    "reason" TEXT,
+    "canceledAt" TIMESTAMP(3),
+    "deliveredAt" TIMESTAMP(3),
+    "driverAssignedAt" TIMESTAMP(3),
+    "pickedUpAt" TIMESTAMP(3),
+    "vendorAcceptedAt" TIMESTAMP(3),
+    "vendorDeclinedAt" TIMESTAMP(3),
 
     CONSTRAINT "Order_pkey" PRIMARY KEY ("id")
 );
@@ -472,6 +505,26 @@ CREATE TABLE "OrderItem" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "OrderItem_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "idempotency_records" (
+    "key" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "order_id" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "idempotency_records_pkey" PRIMARY KEY ("key")
+);
+
+-- CreateTable
+CREATE TABLE "store_daily_counters" (
+    "store_id" TEXT NOT NULL,
+    "date" TEXT NOT NULL,
+    "order_count" INTEGER NOT NULL DEFAULT 0,
+
+    CONSTRAINT "store_daily_counters_pkey" PRIMARY KEY ("store_id","date")
 );
 
 -- CreateTable
@@ -516,6 +569,77 @@ CREATE TABLE "DriverDocument" (
     "verifiedBy" TEXT,
 
     CONSTRAINT "DriverDocument_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "OrderActivityLog" (
+    "id" TEXT NOT NULL,
+    "orderId" TEXT NOT NULL,
+    "actorId" TEXT,
+    "actorRole" "Role",
+    "action" TEXT NOT NULL,
+    "fromStatus" "OrderStatus",
+    "toStatus" "OrderStatus",
+    "reason" TEXT,
+    "metadata" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "OrderActivityLog_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DriverAssignment" (
+    "id" TEXT NOT NULL,
+    "orderId" TEXT NOT NULL,
+    "driverId" TEXT,
+    "assignmentStatus" TEXT DEFAULT 'PENDING',
+    "assignedAt" TIMESTAMP(6),
+    "etaSeconds" INTEGER,
+    "pickupConfirmedAt" TIMESTAMP(6),
+    "deliveryConfirmedAt" TIMESTAMP(6),
+
+    CONSTRAINT "DriverAssignment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ChatMessage" (
+    "id" TEXT NOT NULL,
+    "orderId" TEXT NOT NULL,
+    "senderId" TEXT NOT NULL,
+    "senderRole" "Role" NOT NULL,
+    "message" TEXT NOT NULL,
+    "type" "MessageType" NOT NULL DEFAULT 'TEXT',
+    "isRead" BOOLEAN NOT NULL DEFAULT false,
+    "readAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ChatMessage_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Notification" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "type" "NotificationType" NOT NULL,
+    "title" TEXT NOT NULL,
+    "body" TEXT NOT NULL,
+    "data" JSONB,
+    "isRead" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Notification_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "VendorOrderAction" (
+    "id" TEXT NOT NULL,
+    "orderId" TEXT NOT NULL,
+    "vendorId" TEXT NOT NULL,
+    "status" "VendorActionStatus" NOT NULL DEFAULT 'PENDING',
+    "reason" TEXT,
+    "respondedAt" TIMESTAMP(3),
+
+    CONSTRAINT "VendorOrderAction_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -678,6 +802,12 @@ CREATE UNIQUE INDEX "Order_paymentReference_key" ON "Order"("paymentReference");
 CREATE UNIQUE INDEX "Order_monnifyReference_key" ON "Order"("monnifyReference");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Order_orderCode_key" ON "Order"("orderCode");
+
+-- CreateIndex
+CREATE INDEX "Order_orderCode_idx" ON "Order"("orderCode");
+
+-- CreateIndex
 CREATE INDEX "Order_orderNumber_idx" ON "Order"("orderNumber");
 
 -- CreateIndex
@@ -719,14 +849,38 @@ CREATE INDEX "DriverProfile_vehicleType_idx" ON "DriverProfile"("vehicleType");
 -- CreateIndex
 CREATE UNIQUE INDEX "DriverDocument_driverId_documentType_key" ON "DriverDocument"("driverId", "documentType");
 
+-- CreateIndex
+CREATE INDEX "OrderActivityLog_orderId_idx" ON "OrderActivityLog"("orderId");
+
+-- CreateIndex
+CREATE INDEX "OrderActivityLog_createdAt_idx" ON "OrderActivityLog"("createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DriverAssignment_orderId_key" ON "DriverAssignment"("orderId");
+
+-- CreateIndex
+CREATE INDEX "DriverAssignment_driverId_idx" ON "DriverAssignment"("driverId");
+
+-- CreateIndex
+CREATE INDEX "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead");
+
+-- CreateIndex
+CREATE INDEX "Notification_createdAt_idx" ON "Notification"("createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "VendorOrderAction_orderId_key" ON "VendorOrderAction"("orderId");
+
+-- CreateIndex
+CREATE INDEX "VendorOrderAction_vendorId_idx" ON "VendorOrderAction"("vendorId");
+
 -- AddForeignKey
-ALTER TABLE "OAuthProvider" ADD CONSTRAINT "OAuthProvider_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "OAuthProvider" ADD CONSTRAINT "OAuthProvider_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "BusinessInfo" ADD CONSTRAINT "BusinessInfo_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "VendorDocument" ADD CONSTRAINT "VendorDocument_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "VendorDocument" ADD CONSTRAINT "VendorDocument_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Store" ADD CONSTRAINT "Store_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -759,6 +913,9 @@ ALTER TABLE "CustomerLocation" ADD CONSTRAINT "CustomerLocation_userId_fkey" FOR
 ALTER TABLE "Subcategory" ADD CONSTRAINT "Subcategory_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Package" ADD CONSTRAINT "Package_storeId_fkey" FOREIGN KEY ("storeId") REFERENCES "Store"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Cart" ADD CONSTRAINT "Cart_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -777,7 +934,7 @@ ALTER TABLE "CartItem" ADD CONSTRAINT "CartItem_variantId_fkey" FOREIGN KEY ("va
 ALTER TABLE "Order" ADD CONSTRAINT "Order_deliveryOptionId_fkey" FOREIGN KEY ("deliveryOptionId") REFERENCES "DeliveryOption"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Order" ADD CONSTRAINT "Order_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Order" ADD CONSTRAINT "Order_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "OrderItem" ADD CONSTRAINT "OrderItem_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -799,3 +956,18 @@ ALTER TABLE "DriverProfile" ADD CONSTRAINT "DriverProfile_userId_fkey" FOREIGN K
 
 -- AddForeignKey
 ALTER TABLE "DriverDocument" ADD CONSTRAINT "DriverDocument_driverId_fkey" FOREIGN KEY ("driverId") REFERENCES "DriverProfile"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "OrderActivityLog" ADD CONSTRAINT "OrderActivityLog_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DriverAssignment" ADD CONSTRAINT "DriverAssignment_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ChatMessage" ADD CONSTRAINT "ChatMessage_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "VendorOrderAction" ADD CONSTRAINT "VendorOrderAction_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
