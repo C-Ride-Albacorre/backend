@@ -859,7 +859,134 @@ export class DriverService {
    * @param radiusKm - Search radius in kilometers (default 10)
    * @returns List of orders with store details and distance, optionally enriched with items.
    */
+
+
   async findAvailableOrders(
+  driverLat: number,
+  driverLng: number,
+  radiusKm: number = 10,
+) {
+  if (!this.isValidLatitude(driverLat) || !this.isValidLongitude(driverLng)) {
+    throw new Error('Invalid driver coordinates.');
+  }
+
+  // First, find stores within radius using Prisma
+  const storesInRadius = await this.prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM "Store"
+    WHERE latitude IS NOT NULL
+      AND longitude IS NOT NULL
+      AND earth_box(ll_to_earth(${driverLat}, ${driverLng}), ${radiusKm * 1000}) @>
+          ll_to_earth(latitude, longitude)
+      AND earth_distance(
+        ll_to_earth(latitude, longitude),
+        ll_to_earth(${driverLat}, ${driverLng})
+      ) <= ${radiusKm * 1000}
+  `;
+
+  const storeIds = storesInRadius.map(store => store.id);
+
+  if (storeIds.length === 0) {
+    return [];
+  }
+
+  // Then find orders that have items from these stores
+  const orders = await this.prisma.order.findMany({
+    where: {
+      orderStatus: 'ORDER_ACCEPTED',
+      items: {
+        some: {
+          storeId: { in: storeIds }
+        }
+      }
+    },
+    include: {
+      items: {
+        include: {
+          store: {
+            select: {
+              id: true,
+              storeName: true,
+              latitude: true,
+              longitude: true,
+            }
+          }
+        }
+      }
+    },
+    take: 20,
+    orderBy: {
+      createdAt: 'asc'
+    }
+  });
+
+  // Calculate distances and format response
+  return orders.map(order => {
+    // Get the nearest store from the order items
+    const stores = order.items
+      .map(item => item.store)
+      .filter((store): store is NonNullable<typeof store> => store !== null && store.latitude !== null && store.longitude !== null);
+
+    if (stores.length === 0) return null;
+
+    // Find the closest store in this order
+    let closestStore = stores[0];
+    let closestDistance = this.calculateDistance(
+      driverLat, driverLng,
+      closestStore.latitude!,
+      closestStore.longitude!
+    );
+
+    for (const store of stores) {
+      const distance = this.calculateDistance(
+        driverLat, driverLng,
+        store.latitude!,
+        store.longitude!
+      );
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestStore = store;
+      }
+    }
+
+    return {
+      id: order.id,
+      order_number: order.orderNumber,
+      total_amount: order.totalAmount,
+      pickup_location: order.pickupLocation,
+      dropoff_location: order.dropoffLocation,
+      created_at: order.createdAt,
+      store_id: closestStore.id,
+      store_name: closestStore.storeName,
+      store_lat: closestStore.latitude,
+      store_lng: closestStore.longitude,
+      distance_meters: closestDistance,
+      items: order.items.map(item => ({
+        productName: item.productId || 'Unknown',
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+    };
+  }).filter(order => order !== null);
+}
+
+// Helper to calculate distance between two points
+private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000; // Earth's radius in meters
+  const dLat = this.toRadians(lat2 - lat1);
+  const dLon = this.toRadians(lon2 - lon1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(this.toRadians(lat1)) * Math.cos(this.toRadians(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+private toRadians(degrees: number): number {
+  return degrees * (Math.PI / 180);
+}
+
+  async findAvailableOrders1(
     driverLat: number,
     driverLng: number,
     radiusKm: number = 10,
