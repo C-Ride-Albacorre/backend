@@ -231,7 +231,7 @@ STEP 3 – Final Step: Review (Optional save before uploads)
 
   //////////// DRIVER ASSIGNMENT AND TRACKING ////////////////////
 
-  @Get('available')
+  @Get('available-orders')
   @ApiOperation({
     summary: 'Get available nearby orders for driver',
     description: 'Returns a list of available orders near the driver location.',
@@ -255,13 +255,39 @@ STEP 3 – Final Step: Review (Optional save before uploads)
     description: 'Available orders fetched successfully',
   })
   async getAvailableOrders(
-    //@CurrentUser() driver: User,
     @GetUser() driver: any,
     @Query('lat') lat: number,
     @Query('lng') lng: number,
   ) {
     return this.driverService.findAvailableOrders(lat, lng);
   }
+
+@Get('available-order/:orderId')
+@ApiOperation({
+  summary: 'Get available order details',
+  description:
+    'Returns details of a specific available order for the driver.',
+})
+@ApiParam({
+  name: 'orderId',
+  type: String,
+  example: 'f4d5f8f8-4b98-4a4c-b9d2-6e5a5e1f5d3a',
+  description: 'Order ID',
+})
+@ApiResponse({
+  status: 200,
+  description: 'Order details fetched successfully',
+})
+@ApiResponse({
+  status: 404,
+  description: 'Order not found',
+})
+async getAvailableOrder(
+  @GetUser() driver: any,
+  @Param('orderId') orderId: string,
+) {
+  return this.driverService.findAvailableOrder(orderId);
+}
 
   @Post(':orderId/accept')
   @ApiOperation({
