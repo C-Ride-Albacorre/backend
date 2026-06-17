@@ -887,6 +887,7 @@ export class DriverService {
         created_at: Date;
         store_id: string;
         store_name: string;
+        store_logo: string | null;
         store_lat: number;
         store_lng: number;
         distance_meters: number;
@@ -903,6 +904,7 @@ WITH order_store_distances AS (
 
     s.id AS store_id,
     s."storeName" AS store_name,
+    s."storeLogo" AS store_logo,
     s.latitude AS store_lat,
     s.longitude AS store_lng,
 
@@ -1402,6 +1404,118 @@ LIMIT 20;
     // Optionally enrich with item summaries
     return availableOrders;
   }
+
+
+  async findAvailableOrder(orderId: string) {
+  const order = await this.prisma.order.findFirst({
+    where: {
+      id: orderId,
+      orderStatus: OrderStatus.ORDER_ACCEPTED,
+    },
+    include: {
+      items: {
+        include: {
+          store: {
+            select: {
+              id: true,
+              storeName: true,
+              storeLogo: true,
+              storeAddress: true,
+              latitude: true,
+              longitude: true,
+              phoneNumber: true,
+            },
+          },
+          product: {
+            select: {
+              id: true,
+              productName: true,
+              productImages: true,
+            },
+          },
+          package: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!order) {
+    throw new NotFoundException('Order not found');
+  }
+
+  const storesMap = new Map();
+
+  order.items.forEach((item) => {
+    if (item.store) {
+      storesMap.set(item.store.id, {
+        id: item.store.id,
+        storeName: item.store.storeName,
+        storeLogo: item.store.storeLogo,
+        storeAddress: item.store.storeAddress,
+        latitude: item.store.latitude,
+        longitude: item.store.longitude,
+        phoneNumber: item.store.phoneNumber,
+      });
+    }
+  });
+
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    orderCode: order.orderCode,
+    orderStatus: order.orderStatus,
+    paymentStatus: order.paymentStatus,
+
+    subtotal: order.subtotal,
+    deliveryFee: order.deliveryFee,
+    serviceFee: order.serviceFee,
+    taxAmount: order.taxAmount,
+    totalAmount: order.totalAmount,
+
+    pickupLocation: order.pickupLocation,
+    dropoffLocation: order.dropoffLocation,
+
+    recipientName: order.recipientName,
+    recipientPhone: order.recipientPhone,
+    deliveryInstructions: order.deliveryInstructions,
+
+    createdAt: order.createdAt,
+
+    stores: Array.from(storesMap.values()),
+
+    items: order.items.map((item) => ({
+      id: item.id,
+      itemType: item.itemType,
+
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
+
+      productId: item.productId,
+      productName: item.product?.productName ?? null,
+
+      productImage: item.product?.productImages?.[0] ?? null,
+
+      packageId: item.packageId,
+      packageName: item.package?.name ?? null,
+
+      specialInstructions: item.specialInstructions,
+
+      store: item.store
+        ? {
+            id: item.store.id,
+            storeName: item.store.storeName,
+            storeLogo: item.store.storeLogo,
+          }
+        : null,
+    })),
+  };
+}
 
   /**
    * Log a driver's decline for an order.
