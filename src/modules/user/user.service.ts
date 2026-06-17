@@ -48,7 +48,7 @@ export class UserService {
     private readonly verificationService: VerificationService,
     @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
-  ) {}
+  ) { }
 
   /**
    * Create a new customer with automatic OTP verification
@@ -360,13 +360,13 @@ export class UserService {
   ): Promise<
     | { success: true; user: User; isNewUser: boolean }
     | {
-        success: false;
-        status: 'UNVERIFIED';
-        verificationMethod: string;
-        identifier: string;
-        verificationToken: string;
-        message: string;
-      }
+      success: false;
+      status: 'UNVERIFIED';
+      verificationMethod: string;
+      identifier: string;
+      verificationToken: string;
+      message: string;
+    }
   > {
     const { email, phoneNumber, password } = loginDto;
 
@@ -466,12 +466,12 @@ export class UserService {
   ): Promise<
     | { success: true; user: User }
     | {
-        success: false;
-        status: 'UNVERIFIED';
-        verificationMethod: string;
-        identifier: string;
-        message: string;
-      }
+      success: false;
+      status: 'UNVERIFIED';
+      verificationMethod: string;
+      identifier: string;
+      message: string;
+    }
   > {
     const { email, phoneNumber, password } = loginDto;
 
@@ -663,7 +663,7 @@ export class UserService {
     //   throw new Error('USER_NOT_VERIFIED');
     // }
 
-     if (!user.isEmailVerified || !user.isPhoneVerified) {
+    if (!user.isEmailVerified || !user.isPhoneVerified) {
       throw new Error('USER_NOT_VERIFIED');
     }
 
@@ -1220,6 +1220,9 @@ export class UserService {
           },
         },
         businessInfo: true,
+        onboardingStatus: true,
+        onboardingStep: true,
+        status: true
       },
     });
 

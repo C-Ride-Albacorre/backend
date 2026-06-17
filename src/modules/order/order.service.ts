@@ -787,7 +787,7 @@ export class OrderService {
       // Use raw SQL for atomic increment with limit check (database specific)
       // This example uses PostgreSQL syntax; adapt for MySQL.
       const result = await tx.$executeRaw`
-        UPDATE store_daily_counter
+        UPDATE store_daily_counters
         SET order_count = order_count + 1
         WHERE store_id = ${storeId}
           AND date = ${date}
@@ -797,13 +797,13 @@ export class OrderService {
         // Try to insert initial row if not exists
         try {
           await tx.$executeRaw`
-            INSERT INTO store_daily_counter (store_id, date, order_count)
+            INSERT INTO store_daily_counters (store_id, date, order_count)
             VALUES (${storeId}, ${date}, 1)
           `;
         } catch (e: any) {
           // If unique violation, another transaction inserted it – retry the update
           const retryResult = await tx.$executeRaw`
-            UPDATE store_daily_counter
+            UPDATE store_daily_counters
             SET order_count = order_count + 1
             WHERE store_id = ${storeId}
               AND date = ${date}
