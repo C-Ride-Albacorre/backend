@@ -859,9 +859,139 @@ export class DriverService {
    * @param radiusKm - Search radius in kilometers (default 10)
    * @returns List of orders with store details and distance, optionally enriched with items.
    */
+async findAvailableOrders(
+  driverId: string,
+  driverLat: number,
+  driverLng: number,
+  radiusKm: number,
+) {
 
+  console.log(`Finding orders for driver ${driverId} at (${driverLat}, ${driverLng}) within ${radiusKm} km`);
+  if (
+    !this.isValidLatitude(driverLat) ||
+    !this.isValidLongitude(driverLng)
+  ) {
+    throw new Error(
+      'Invalid driver coordinates. Latitude must be between -90 and 90 and longitude between -180 and 180.',
+    );
+  }
 
-  async findAvailableOrders(
+  const radiusMeters = radiusKm * 1000;
+  const TTL_SECONDS = 300; // 5 minutes - match your broadcast TTL
+
+  // 1. Get available orders
+  const availableOrders = await this.prisma.$queryRaw<
+    Array<{
+      order_id: string;
+      order_number: string;
+      order_status: string;
+      total_amount: number;
+      pickup_location: any;
+      dropoff_location: any;
+      created_at: Date;
+      store_id: string;
+      store_name: string;
+      store_logo: string | null;
+      store_lat: number;
+      store_lng: number;
+      distance_meters: number;
+    }>
+  >`
+    WITH order_store_distances AS (
+      SELECT
+        o.id AS order_id,
+        o."orderNumber" AS order_number,
+        o."orderStatus" AS order_status,
+        o."totalAmount" AS total_amount,
+        o."pickupLocation" AS pickup_location,
+        o."dropoffLocation" AS dropoff_location,
+        o."createdAt" AS created_at,
+
+        s.id AS store_id,
+        s."storeName" AS store_name,
+        s."storeLogo" AS store_logo,
+        s.latitude AS store_lat,
+        s.longitude AS store_lng,
+
+        (
+          6371000 * acos(
+            cos(radians(${driverLat}))
+            * cos(radians(s.latitude))
+            * cos(radians(s.longitude) - radians(${driverLng}))
+            + sin(radians(${driverLat}))
+            * sin(radians(s.latitude))
+          )
+        ) AS distance_meters,
+
+        ROW_NUMBER() OVER (
+          PARTITION BY o.id
+          ORDER BY (
+            6371000 * acos(
+              cos(radians(${driverLat}))
+              * cos(radians(s.latitude))
+              * cos(radians(s.longitude) - radians(${driverLng}))
+              + sin(radians(${driverLat}))
+              * sin(radians(s.latitude))
+            )
+          )
+        ) AS rn
+
+      FROM "Order" o
+      JOIN "OrderItem" oi
+        ON oi."orderId" = o.id
+      JOIN "Store" s
+        ON s.id = oi."storeId"
+
+      WHERE o."orderStatus" = 'ORDER_ACCEPTED'
+        AND s.latitude IS NOT NULL
+        AND s.longitude IS NOT NULL
+
+        -- Bounding box pre-filter (~10km)
+        AND s.latitude BETWEEN ${driverLat - 0.1} AND ${driverLat + 0.1}
+        AND s.longitude BETWEEN ${driverLng - 0.1} AND ${driverLng + 0.1}
+    )
+
+    SELECT *
+    FROM order_store_distances
+    WHERE rn = 1
+      AND distance_meters <= ${radiusKm * 1000}
+    ORDER BY distance_meters ASC
+    LIMIT 20;
+  `;
+
+  if (!availableOrders.length) {
+    return [];
+  }
+
+  // 2. Renew TTL for pending keys of this driver
+  const pipeline = this.redis.pipeline();
+  
+  for (const order of availableOrders) {
+    const pendingKey = `order:${order.order_id}:pending:${driverId}`;
+    const driverPendingSet = `driver:${driverId}:pending_claims`;
+    
+    // Check if the key exists and renew it
+    pipeline.expire(pendingKey, TTL_SECONDS);
+    // Add to driver's pending set if not already there
+    pipeline.sadd(driverPendingSet, order.order_id);
+  }
+  
+  await pipeline.exec();
+
+  // 3. Get items summary
+  const orderIds = availableOrders.map(
+    (order) => order.order_id,
+  );
+
+  const itemsSummary = await this.getOrderItemsSummary(orderIds);
+
+  return availableOrders.map((order) => ({
+    ...order,
+    items: itemsSummary[order.order_id] || [],
+  }));
+}
+
+  async findAvailableOrdersold(
     driverLat: number,
     driverLng: number,
     radiusKm = 10,
@@ -881,6 +1011,7 @@ export class DriverService {
       Array<{
         order_id: string;
         order_number: string;
+        order_status: string;
         total_amount: number;
         pickup_location: any;
         dropoff_location: any;
@@ -897,6 +1028,7 @@ WITH order_store_distances AS (
   SELECT
     o.id AS order_id,
     o."orderNumber" AS order_number,
+    o."orderStatus" AS order_status,
     o."totalAmount" AS total_amount,
     o."pickupLocation" AS pickup_location,
     o."dropoffLocation" AS dropoff_location,
