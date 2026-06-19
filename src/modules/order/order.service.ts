@@ -371,6 +371,27 @@ export class OrderService {
                 cartSummary.items.map((i) => i.storeId).filter(Boolean),
               ),
             ] as string[];
+
+            if (!storeIds.length) {
+              throw new BadRequestException('No vendor found for cart');
+            }
+
+            // Fetch store details for validation
+            const store = await tx.store.findUnique({
+              where: { id: storeIds[0] },
+              select: {
+                id: true,
+                storeName: true,
+                storeAddress: true,
+                latitude: true,
+                longitude: true,
+              },
+            });
+
+            if (!store) {
+              throw new NotFoundException('Vendor store not found');
+            }
+
             for (const storeId of storeIds) {
               await this.validateStoreWithAtomicCounter(
                 tx,
@@ -397,9 +418,16 @@ export class OrderService {
                 taxAmount: cartSummary.taxAmount,
                 totalAmount: cartSummary.totalAmount,
                 deliveryOptionId: dto.deliveryOptionId,
-                pickupLocation: dto.pickupLocation
-                  ? (dto.pickupLocation as unknown as Prisma.JsonObject)
-                  : null,
+                // pickupLocation: dto.pickupLocation
+                //   ? (dto.pickupLocation as unknown as Prisma.JsonObject)
+                //   : null,
+                pickupLocation: {
+                  storeId: store.id,
+                  storeName: store.storeName,
+                  address: store.storeAddress,
+                  latitude: store.latitude,
+                  longitude: store.longitude,
+                } as Prisma.JsonObject,
                 dropoffLocation: dto.dropoffLocation
                   ? (dto.dropoffLocation as unknown as Prisma.JsonObject)
                   : null,
@@ -2756,9 +2784,9 @@ export class OrderService {
     //   this.logger.warn(`Vendor ${vendorId} attempted to respond to order ${orderId} which is already ${existingAction.orderStatus}`);
     //   throw new ForbiddenException(`Order already responded to with status ${existingAction.orderStatus}`);
     // }
-   if (existingAction?.orderStatus!== OrderStatus.CONFIRMED) {
-  throw new ConflictException(`Order already processed: ${existingAction.orderStatus}`);
-}
+    if (existingAction?.orderStatus !== OrderStatus.CONFIRMED) {
+      throw new ConflictException(`Order already processed: ${existingAction.orderStatus}`);
+    }
     // const existingAction = await this.prisma.vendorOrderAction.findUnique({
     //   where: { orderId },
     // });
@@ -2835,7 +2863,7 @@ export class OrderService {
         order.orderNumber,
         dto.reason,
       );
-      
+
     }
 
     return { success: true };
