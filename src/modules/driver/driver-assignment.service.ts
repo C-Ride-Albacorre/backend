@@ -215,7 +215,121 @@ export class DriverAssignmentService {
     }
   }
 
+  
+ 
   async findAndNotifyDrivers(orderId: string, vendorLocation: { lat: number; lng: number }) {
+    const dispatchLockKey = `order:${orderId}:dispatch_lock`;
+    const pendingDriversKey = `order:${orderId}:pending_drivers`;
+
+    try {
+      const locked = await this.redis.set(dispatchLockKey, '1', 'EX', 120, 'NX');
+      if (!locked) return;
+
+      const drivers = await this.getNearbyDrivers(
+        vendorLocation.lat,
+        vendorLocation.lng,
+        5000,
+      );
+
+      if (!drivers.length) {
+        await this.handleNoDrivers(orderId);
+        return;
+      }
+
+      // Get order details for the notification
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: {
+            include: {
+              store: true,
+            },
+          },
+        },
+      });
+
+      const store = order?.items[0]?.store;
+      const orderData = {
+        orderId,
+        vendorLocation,
+        storeName: store?.storeName || 'Store',
+        totalAmount: order?.totalAmount || 0,
+        distance: 0, // Calculate if needed
+      };
+
+      const pipeline = this.redis.pipeline();
+
+      for (const driver of drivers) {
+        const pendingKey = `order:${orderId}:pending:${driver.userId}`;
+        pipeline.setex(pendingKey, 300, 'pending');
+        pipeline.sadd(`driver:${driver.userId}:pending_claims`, orderId);
+        pipeline.sadd(pendingDriversKey, driver.userId);
+      }
+
+      await pipeline.exec();
+
+      for (const driver of drivers) {
+        // EMIT WEBSOCKET EVENT IMMEDIATELY
+        const sent = this.driverGateway.emitNewOrderRequest(driver.userId, {
+          ...orderData,
+         distance: driver.lat + ',' + driver.lng, // Include distance if available
+        });
+
+        if (sent) {
+          this.logger.log(`WebSocket notification sent to driver ${driver.userId} for order ${orderId}`);
+        } else {
+          this.logger.warn(`Driver ${driver.userId} not connected via WebSocket, sending push notification as fallback`);
+          // Send push notification as fallback
+          await this.notificationQueue.add(
+            'notify-driver',
+            {
+              driverId: driver.userId,
+              orderId,
+              vendorLocation,
+            },
+            {
+              jobId: `notify-${orderId}-${driver.userId}`,
+              attempts: 2,
+              backoff: 1000,
+              removeOnComplete: true,
+            },
+          );
+        }
+
+        // Still add timeout job (no need to change this)
+        await this.assignmentQueue.add(
+          'driver-response-timeout',
+          {
+            orderId,
+            driverId: driver.userId,
+          },
+          {
+            delay: 300000,
+            jobId: `timeout-${orderId}-${driver.userId}`,
+            removeOnComplete: true,
+          },
+        );
+      }
+
+      await this.assignmentQueue.add(
+        'assignment-timeout',
+        { orderId },
+        {
+          delay: 300000,
+          jobId: `assignment-timeout-${orderId}`,
+          removeOnComplete: true,
+        },
+      );
+
+      this.logger.log(`Notified ${drivers.length} drivers for order ${orderId}`);
+    } catch (error) {
+      this.logger.error(`Failed driver assignment for ${orderId}`, error instanceof Error ? error.stack : String(error));
+      throw error;
+    }
+  }
+
+  async findAndNotifyDriversRecent(orderId: string, vendorLocation: { lat: number; lng: number }) {
+    
     const dispatchLockKey = `order:${orderId}:dispatch_lock`;
     const pendingDriversKey = `order:${orderId}:pending_drivers`;
 
@@ -1739,7 +1853,7 @@ async driverAcceptsWorkingBurStrictInNotification(orderId: string, driverId: str
   async notifyDriverViaWebSocket(driverId: string, orderId: string, vendorLocation: any, etaSeconds: number) {
     // Emit WebSocket event if driver is connected
     if (this.driverSockets.has(driverId)) {
-      this.driverGateway.emitNewOrderRequest(driverId, orderId, vendorLocation, etaSeconds);
+      this.driverGateway.emitNewOrderRequest(driverId, { orderId, vendorLocation, etaSeconds });
     }
     // Also send push notification (FCM) as fallback
     await this.pushService.sendToDriver(driverId, {
