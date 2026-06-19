@@ -10,9 +10,11 @@ import { ParsedQuery } from '../../common/interfaces/interface';
 import { DashboardFilterTypes, RegistrationMethod } from '../enums';
 import { DateTime } from 'luxon';
 import { randomInt } from 'crypto';
+import { PrismaClient } from '@prisma/client';
 
 const chance = new Chance();
 const logger = new Logger('Helper');
+const prisma = new PrismaClient();
 
 export default class Helper {
   static generateStoreLink(
@@ -831,4 +833,21 @@ export default class Helper {
   static generate4DigitCode(): string {
     return randomInt(0, 10000).toString().padStart(4, '0');
   }
+
+  static async verifyPostGISEarthDistance(): Promise<boolean> {
+  try {
+    const result = await prisma.$queryRaw<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 
+        FROM pg_extension 
+        WHERE extname = 'earthdistance'
+      ) as exists
+    `;
+    
+    return result[0]?.exists || false;
+  } catch (error) {
+    console.error('Failed to verify PostGIS earthdistance extension:', error);
+    return false;
+  }
+}
 }
