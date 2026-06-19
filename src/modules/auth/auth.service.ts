@@ -64,7 +64,8 @@ import { CreateAdminDto } from '../admin/dto/create-admin.dto';
 import { CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js';
 import { ResendVerificationTokenDto } from './dto/resend-token-expiry.dto';
 import { CartService } from '../cart/cart.service';
-// import { CartService } from '../customer/cart.service.old';
+import { RedisService } from '../redis/redis.service';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -86,6 +87,7 @@ export class AuthService {
     private readonly userRepository: AbstractUserRepository,
     private readonly prisma: PrismaService,
     private readonly cartService: CartService,
+    private readonly redisService: RedisService,
   ) {
     this.refreshTokenSecret = this.config.get<string>('REFRESH_TOKEN_SECRET');
     this.accessTokenExpiresIn = this.config.get<string | number>(
@@ -1347,6 +1349,97 @@ export class AuthService {
       'OTP-based reset requires additional verification. Please use the reset link from your email.',
     );
   }
+
+
+/**
+ * Helper method to generate a secure reset token
+ */
+private generateResetTokenForMobile(userId: string, identifier: string): string {
+  // Generate a cryptographically secure random token
+  const randomBytes = crypto.randomBytes(32);
+  const timestamp = Date.now().toString(36);
+  const hash = crypto
+    .createHash('sha256')
+    .update(`${userId}:${identifier}:${timestamp}`)
+    .digest('hex');
+  
+  return `${randomBytes.toString('hex').substring(0, 16)}${hash.substring(0, 16)}`;
+}
+
+/**
+ * Step 2: Reset password using the verification token
+ */
+// src/auth/auth.service.ts
+
+  /**
+   * Verifies the OTP and returns a temporary reset token.
+   * The token is stored in Redis with the user identifier and a short TTL.
+   */
+  async verifyOtpAndGenerateToken(identifier: string, otp: string): Promise<{ token: string }> {
+    // 1. Validate the OTP using your existing method.
+    const result = await this.verifyPasswordResetOtp(otp);
+    if (!result.valid) {
+      throw new UnauthorizedException('Invalid or expired OTP');
+    }
+
+    // 2. Ensure we have a user ID (the method returns it when valid).
+    const userId = result.userId;
+    if (!userId) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // 3. Generate a cryptographically strong random token.
+    const resetToken = crypto.randomBytes(32).toString('hex');
+
+    // 4. Store the token in Redis with the identifier and a 5‑minute TTL.
+    //    We map token -> identifier so we can retrieve it later.
+ 
+    // 3. Store token -> identifier + userId in Redis with 5 min TTL.
+    await this.redisService.safeSet(
+      `reset:token:${resetToken}`,
+      { identifier, userId },
+      300, // 5 minutes
+    );
+
+    // 5. (Optional) Clear the OTP after successful verification to prevent reuse.
+    await this.verificationCacheService.revokeOtp(identifier);
+
+    return { token: resetToken };
+  }
+
+  /**
+   * Complete password reset using the token.
+   */
+  async resetPasswordWithToken(token: string, newPassword: string): Promise<{ success: boolean }> {
+    // 1. Retrieve the stored data.
+    const data = await this.redisService.safeGet<{ identifier: string; userId: string }>(
+      `reset:token:${token}`,
+    );
+    if (!data) {
+      throw new UnauthorizedException('Invalid or expired reset token');
+    }
+
+    const { identifier, userId } = data;
+
+    // 2. Find the user (optional but good practice).
+    const user = await this.userService.findById(userId);
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    // 3. Hash and update password.
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await this.userService.updatePassword(user.id, hashedPassword);
+
+    // 4. Invalidate the token.
+    await this.redisService.safeDel(`reset:token:${token}`);
+
+    // 5. Send confirmation.
+    await this.sendPasswordResetConfirmation(user);
+
+    return { success: true };
+  }
+
 
   /**
    * Alternative: Reset password with OTP and identifier
