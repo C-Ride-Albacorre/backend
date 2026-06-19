@@ -1437,6 +1437,7 @@ export class CartService {
     return {
       cartId: cart.id,
       storeId: cart.items[0]?.product?.storeId || cart.items[0]?.package?.storeId || null,
+      storeName: cart.items[0]?.product?.store?.storeName || cart.items[0]?.package?.store?.storeName || null,
       items,
       subtotal,
       deliveryFee,
@@ -1539,6 +1540,7 @@ export class CartService {
     return {
       cartId: cart.id,
       storeId: cart.items[0]?.product?.storeId || cart.items[0]?.package?.storeId || null,
+      storeName: cart.items[0]?.product?.store?.storeName || cart.items[0]?.package?.store?.storeName || null,
       items,
       subtotal,
       deliveryFee,

@@ -100,6 +100,9 @@ export class CartSummaryDto {
   @ApiProperty()
   storeId: string;
 
+  @ApiProperty()
+  storeName: string;
+
   @ApiProperty({ type: [CartItemDto] })
   items: CartItemDto[];
 
