@@ -191,15 +191,16 @@ export class DriverAssignmentService {
     orderId: string,
     vendorLocation: { lat: number; lng: number },
   ) {
+    this.logger.log(`Initiating driver search for order ${orderId} at location (${vendorLocation.lat}, ${vendorLocation.lng})`);
     try {
+      this.logger.debug(`Creating driver assignment record for order ${orderId}`);
       // Create assignment record
       const assignment = await this.prisma.driverAssignment.create({
         data: { orderId, assignmentStatus: AssignmentStatus.PENDING },
       });
 
-
-
       // Enqueue the search job
+      this.logger.debug(`Enqueuing driver search job for order ${orderId} with assignment ID ${assignment.id}`);
       await this.assignmentQueue.add(
         'search-and-notify',
         { orderId, assignmentId: assignment.id, vendorLocation },
@@ -218,12 +219,18 @@ export class DriverAssignmentService {
   
  
   async findAndNotifyDrivers(orderId: string, vendorLocation: { lat: number; lng: number }) {
+    this.logger.log(`Finding nearby drivers for order ${orderId} at location (${vendorLocation.lat}, ${vendorLocation.lng})`);
+
     const dispatchLockKey = `order:${orderId}:dispatch_lock`;
     const pendingDriversKey = `order:${orderId}:pending_drivers`;
 
     try {
+      this.logger.debug(`Acquiring dispatch lock for order ${orderId}`);
       const locked = await this.redis.set(dispatchLockKey, '1', 'EX', 120, 'NX');
-      if (!locked) return;
+      if (!locked) {
+        this.logger.warn(`Failed to acquire dispatch lock for order ${orderId}`);
+        return;
+      }
 
       const drivers = await this.getNearbyDrivers(
         vendorLocation.lat,
@@ -260,6 +267,7 @@ export class DriverAssignmentService {
       const pipeline = this.redis.pipeline();
 
       for (const driver of drivers) {
+        this.logger.debug(`Processing driver ${driver.userId} for order ${orderId}`);
         const pendingKey = `order:${orderId}:pending:${driver.userId}`;
         pipeline.setex(pendingKey, 300, 'pending');
         pipeline.sadd(`driver:${driver.userId}:pending_claims`, orderId);
@@ -270,6 +278,7 @@ export class DriverAssignmentService {
 
       for (const driver of drivers) {
         // EMIT WEBSOCKET EVENT IMMEDIATELY
+        this.logger.debug(`Emitting new order request to driver ${driver.userId} for order ${orderId}`);
         const sent = this.driverGateway.emitNewOrderRequest(driver.userId, {
           ...orderData,
          distance: driver.lat + ',' + driver.lng, // Include distance if available
