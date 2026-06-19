@@ -193,14 +193,14 @@ export class DriverAssignmentService {
   ) {
     this.logger.log(`Initiating driver search for order ${orderId} at location (${vendorLocation.lat}, ${vendorLocation.lng})`);
     try {
-      this.logger.debug(`Creating driver assignment record for order ${orderId}`);
+      this.logger.log(`Creating driver assignment record for order ${orderId}`);
       // Create assignment record
       const assignment = await this.prisma.driverAssignment.create({
         data: { orderId, assignmentStatus: AssignmentStatus.PENDING },
       });
 
       // Enqueue the search job
-      this.logger.debug(`Enqueuing driver search job for order ${orderId} with assignment ID ${assignment.id}`);
+      this.logger.log(`Enqueuing driver search job for order ${orderId} with assignment ID ${assignment.id}`);
       await this.assignmentQueue.add(
         'search-and-notify',
         { orderId, assignmentId: assignment.id, vendorLocation },
@@ -225,10 +225,10 @@ export class DriverAssignmentService {
     const pendingDriversKey = `order:${orderId}:pending_drivers`;
 
     try {
-      this.logger.debug(`Acquiring dispatch lock for order ${orderId}`);
+      this.logger.log(`Acquiring dispatch lock for order ${orderId}`);
       const locked = await this.redis.set(dispatchLockKey, '1', 'EX', 120, 'NX');
       if (!locked) {
-        this.logger.warn(`Failed to acquire dispatch lock for order ${orderId}`);
+        this.logger.log(`Failed to acquire dispatch lock for order ${orderId}`);
         return;
       }
 
@@ -278,7 +278,7 @@ export class DriverAssignmentService {
 
       for (const driver of drivers) {
         // EMIT WEBSOCKET EVENT IMMEDIATELY
-        this.logger.debug(`Emitting new order request to driver ${driver.userId} for order ${orderId}`);
+        this.logger.log(`Emitting new order request to driver ${driver.userId} for order ${orderId}`);
         const sent = this.driverGateway.emitNewOrderRequest(driver.userId, {
           ...orderData,
          distance: driver.lat + ',' + driver.lng, // Include distance if available
@@ -287,7 +287,7 @@ export class DriverAssignmentService {
         if (sent) {
           this.logger.log(`WebSocket notification sent to driver ${driver.userId} for order ${orderId}`);
         } else {
-          this.logger.warn(`Driver ${driver.userId} not connected via WebSocket, sending push notification as fallback`);
+          this.logger.log(`Driver ${driver.userId} not connected via WebSocket, sending push notification as fallback`);
           // Send push notification as fallback
           await this.notificationQueue.add(
             'notify-driver',
