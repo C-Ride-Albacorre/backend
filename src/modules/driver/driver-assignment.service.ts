@@ -19,6 +19,7 @@ import { MapGateway } from '../../common/map-gateway/map.gateway';
 import { PushNotificationService } from '../notification/push-notification.service';
 import { MessageBody, SubscribeMessage } from '@nestjs/websockets';
 import { DriverGateway } from '../../common/map-gateway/driver.gateway';
+import Helper from 'src/shared/utils/helpers';
 
 type TransitionContext = {
   actorId?: string;
@@ -292,9 +293,56 @@ export class DriverAssignmentService {
     }
   }
 
+async getNearbyDrivers(
+  lat: number,
+  lng: number,
+  radiusMeters: number,
+): Promise<NearbyDriver[]> {
+  try {
+    // Verify extension is enabled
+    const isEnabled = await Helper.verifyPostGISEarthDistance();
+    if (!isEnabled) {
+      throw new Error('PostGIS earthdistance extension is not enabled. Please run: CREATE EXTENSION IF NOT EXISTS cube; CREATE EXTENSION IF NOT EXISTS earthdistance;');
+    }
 
+    // Validate inputs
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      throw new Error('Invalid coordinates provided');
+    }
 
-  async getNearbyDrivers(
+    if (radiusMeters <= 0) {
+      throw new Error('Radius must be greater than 0');
+    }
+
+    return this.prisma.$queryRaw<NearbyDriver[]>`
+      SELECT
+        dp.user_id AS "userId",
+        dp.latitude AS "lat",
+        dp.longitude AS "lng",
+        -- Optionally calculate distance
+        earth_distance(
+          ll_to_earth(${lat}, ${lng}),
+          ll_to_earth(dp.latitude, dp.longitude)
+        ) AS distance
+      FROM driver_profiles dp
+      WHERE dp.status = 'ONLINE'
+        AND earth_distance(
+          ll_to_earth(${lat}, ${lng}),
+          ll_to_earth(dp.latitude, dp.longitude)
+        ) <= ${radiusMeters}
+      ORDER BY earth_distance(
+        ll_to_earth(${lat}, ${lng}),
+        ll_to_earth(dp.latitude, dp.longitude)
+      ) ASC
+      LIMIT 10
+    `;
+  } catch (error) {
+    console.error('Error fetching nearby drivers:', error);
+    throw error;
+  }
+}
+
+  async getNearbyDriversold(
     lat: number,
     lng: number,
     radiusMeters: number,
