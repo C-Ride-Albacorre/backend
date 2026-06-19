@@ -795,19 +795,19 @@ export class OrderService {
     if (!store) throw new NotFoundException(`Store ${storeId} not found`);
 
     // Hours validation (same as before)
-    // const todayHours = store.operatingHours.find(
-    //   (h) => h.dayOfWeek === todayWeekday,
-    // );
-    // if (!todayHours || !todayHours.isOpen)
-    //   throw new BadRequestException(`${store.storeName} is closed today`);
-    // if (todayHours.closingTime) {
-    //   const closingMinutes = Helper.timeToMinutes(todayHours.closingTime);
-    //   if (currentMinutes >= closingMinutes - 30) {
-    //     throw new BadRequestException(
-    //       `${store.storeName} is no longer accepting orders`,
-    //     );
-    //   }
-    // }
+    const todayHours = store.operatingHours.find(
+      (h) => h.dayOfWeek === todayWeekday,
+    );
+    if (!todayHours || !todayHours.isOpen)
+      throw new BadRequestException(`${store.storeName} is closed today`);
+    if (todayHours.closingTime) {
+      const closingMinutes = Helper.timeToMinutes(todayHours.closingTime);
+      if (currentMinutes >= closingMinutes - 30) {
+        throw new BadRequestException(
+          `${store.storeName} is no longer accepting orders`,
+        );
+      }
+    }
 
     // Atomic daily limit using a counter table
     if (store.dailyOrderLimit && store.dailyOrderLimit > 0) {

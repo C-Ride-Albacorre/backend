@@ -72,6 +72,46 @@ export class NotificationService {
     }
   }
 
+  async notifyCustomerForOrder(orderId: string): Promise<void> {
+  try {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+          },
+        },
+      },
+    });
+
+    if (!order || !order.user) {
+      this.logger.warn(
+        `Order ${orderId} or customer not found when notifying customer`,
+      );
+      return;
+    }
+
+    await this.sendCustomerOrderPlaced(
+      order.user.id,
+      order.id,
+      order.orderNumber,
+    );
+
+    this.logger.log(
+      `Customer notified for order ${order.orderNumber}`,
+    );
+  } catch (error) {
+    this.logger.error(
+      `Failed to notify customer for order ${orderId}`,
+      error.stack,
+    );
+    // Non-critical side effect
+  }
+}
+
   async sendVendorOrderPlaced(
     vendorId: string,
     orderId: string,
@@ -91,12 +131,61 @@ export class NotificationService {
       orderNumber,
     });
     this.logger.log(`Sending order confirmation email for order ${orderNumber} to vendor ${vendorId}`);
-    await this.zohoEmailProvider.sendOrderConfirmation(
+    // await this.zohoEmailProvider.sendVendorOrderNotification()
+    //   await this.getVendorEmail(vendorId),
+    //   'New Order',
+    //   `Order ${orderNumber} has been placed. Please login to accept or decline.`,
+    // );
+     await this.zohoEmailProvider.sendVendorOrderNotification(
       await this.getVendorEmail(vendorId),
-      'New Order',
-      `Order ${orderNumber} has been placed. Please login to accept or decline.`,
+      `${orderNumber}`
     );
   }
+
+  async sendCustomerOrderPlaced(
+  customerId: string,
+  orderId: string,
+  orderNumber: string,
+) {
+  // await this.prisma.notification.create({
+  //   data: {
+  //     userId: customerId,
+  //     type: NotificationType.,
+  //     title: 'Order Confirmed',
+  //     body: `Your order #${orderNumber} has been successfully confirmed.`,
+  //     data: { orderId },
+  //   },
+  // });
+
+  // this.customerGateway.sendToCustomer(customerId, 'order-confirmed', {
+  //   orderId,
+  //   orderNumber,
+  // });
+
+  this.logger.log(
+    `Sending order confirmation email for order ${orderNumber} to customer ${customerId}`,
+  );
+
+  await this.zohoEmailProvider.sendOrderConfirmation(
+    await this.getCustomerEmail(customerId),
+    orderNumber,
+  );
+}
+
+private async getCustomerEmail(customerId: string): Promise<string> {
+  const customer = await this.prisma.user.findUnique({
+    where: { id: customerId },
+    select: { email: true },
+  });
+
+  if (!customer?.email) {
+    throw new NotFoundException(
+      `Customer email not found for customerId: ${customerId}`,
+    );
+  }
+
+  return customer.email;
+}
 
   private async getVendorEmail(vendorId: string): Promise<string> {
     const vendor = await this.prisma.user.findFirst({

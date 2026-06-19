@@ -293,11 +293,17 @@ export class MonnifyService {
       })
       .catch((e) => this.logger.error(`Transition failed: ${e.message}`));
 
-    this.logger.log(`Notifying vendors for order ${order.orderNumber}`);  
+    this.logger.log(`Notifying vendors for order ${order.orderNumber}`);
     await this.notificationService
       .notifyVendorsForOrder(order.id)
       .catch((e) =>
         this.logger.error(`Vendor notification failed: ${e.message}`),
+      );
+    this.logger.log(`Notifying customer for order ${order.orderNumber}`);
+    await this.notificationService
+      .notifyCustomerForOrder(order.id)
+      .catch((e) =>
+        this.logger.error(`Customer notification failed: ${e.message}`),
       );
 
     this.logger.log(`Order ${order.orderNumber} marked as PAID via webhook`);
@@ -322,7 +328,7 @@ export class MonnifyService {
     }
     return isValid;
   }
- 
+
 
   // ==================== VERIFICATION & CALLBACK ====================
 

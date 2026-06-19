@@ -122,14 +122,135 @@ export class ZohoEmailProvider implements IEmailProvider {
     `;
   }
 
-  async sendOrderConfirmation(
-    to: string,
-    otp: string,
-    templateId?: string,
-  ): Promise<any> {
-    const subject = 'Your Verification Code';
-    const html = this.generateOtpEmail(otp);
-     this.logger.log(`Sending order confirmation email to ${to}`);
-    return this.sendEmail(to, subject, `Your OTP is: ${otp}`, html);
-  }
+
+  async sendVendorOrderNotification(
+  to: string,
+  orderNumber: string,
+): Promise<any> {
+  const subject = `New Order Received #${orderNumber}`;
+  const html = this.generateVendorOrderNotificationEmail(orderNumber);
+
+  this.logger.log(`Sending vendor order notification email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    `A new order (${orderNumber}) has been placed and requires your attention.`,
+    html,
+  );
+}
+
+  
+
+async sendOrderConfirmation(
+  to: string,
+  orderNumber: string,
+): Promise<any> {
+  const subject = `Order Confirmation #${orderNumber}`;
+  const html = this.generateOrderConfirmationEmail(orderNumber);
+
+  this.logger.log(`Sending order confirmation email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    `Your order ${orderNumber} has been successfully confirmed.`,
+    html,
+  );
+}
+
+
+private generateVendorOrderNotificationEmail(
+  orderNumber: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>New Order Received</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            New Order Received 📦
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            A new customer order has been placed and is awaiting processing.
+          </p>
+
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #666;">Order Number</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${orderNumber}
+            </h3>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            Please review the order details and begin fulfillment as soon as possible.
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Log in to your vendor dashboard to view the complete order information.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+private generateOrderConfirmationEmail(orderNumber: string): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Order Confirmation</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+          
+          <h2 style="color: #333333; text-align: center;">
+            Order Confirmed 🎉
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Thank you for your order.
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Your order has been successfully confirmed and is now being processed.
+          </p>
+
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #666;">Order Number</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${orderNumber}
+            </h3>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            We'll notify you once your order has been shipped.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            Thank you for shopping with us.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
 }
