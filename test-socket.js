@@ -7,7 +7,7 @@ const { io } = require("socket.io-client");
 const SERVER_URL = "wss://backend-service-1rc7.onrender.com";
 const NAMESPACE = "/driver";
 const DRIVER_ID = "621cf9e2-b70f-48f5-b96b-845abf3605d3";
-const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MjFjZjllMi1iNzBmLTQ4ZjUtYjk2Yi04NDVhYmYzNjA1ZDMiLCJlbWFpbCI6ImJpbW9jb3cyNjdAb2N1c2VyLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4MTk0NTE3MSwiZXhwIjoxNzgxOTQ4NzcxfQ.-eWoZw1Q-fvkcdumL_hI7ERqjelfmPbA-Us_Ml7w8w0";
+const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MjFjZjllMi1iNzBmLTQ4ZjUtYjk2Yi04NDVhYmYzNjA1ZDMiLCJlbWFpbCI6ImJpbW9jb3cyNjdAb2N1c2VyLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4MTk1MTk2OCwiZXhwIjoxNzgxOTU1NTY4fQ.3eT7xEVq6QF0Sck-4pk7iuosgbxO8OJhs6DX0e1oL1U";
 
 // Connect with query params and auth
 const socket = io(`${SERVER_URL}${NAMESPACE}`, {
