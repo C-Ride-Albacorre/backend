@@ -421,17 +421,60 @@ export class DriverAssignmentService {
   lng: number,
   radiusMeters: number,
 ): Promise<NearbyDriver[]> {
-  // For testing: just fetch online drivers without distance filter
-  return this.prisma.$queryRaw<NearbyDriver[]>`
-    SELECT
-      dp."userId" AS "userId",
-      dp."latitude" AS "lat",
-      dp."longitude" AS "lng"
-    FROM "DriverProfile" dp
-    WHERE dp."status" = 'ONLINE'
-    LIMIT 10
-  `;
+  try {
+    this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radius ${radiusMeters}m`);
+
+    // Validate inputs
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      throw new Error('Invalid coordinates provided');
+    }
+    if (radiusMeters <= 0) {
+      throw new Error('Radius must be greater than 0');
+    }
+
+    return this.prisma.$queryRaw<NearbyDriver[]>`
+      SELECT
+        dp."userId" AS "userId",
+        dp."latitude" AS "lat",
+        dp."longitude" AS "lng",
+        ST_Distance(
+          ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography,
+          ST_SetSRID(ST_MakePoint(dp."longitude", dp."latitude"), 4326)::geography
+        ) AS distance
+      FROM "DriverProfile" dp
+      WHERE dp."status" = 'ONLINE'
+        AND dp."latitude" IS NOT NULL
+        AND dp."longitude" IS NOT NULL
+        AND ST_DWithin(
+          ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography,
+          ST_SetSRID(ST_MakePoint(dp."longitude", dp."latitude"), 4326)::geography,
+          ${radiusMeters}
+        )
+      ORDER BY distance ASC
+      LIMIT 10
+    `;
+  } catch (error) {
+    this.logger.error(`Error fetching nearby drivers: ${error.message}`);
+    throw error;
+  }
 }
+
+//   async getNearbyDrivers(
+//   lat: number,
+//   lng: number,
+//   radiusMeters: number,
+// ): Promise<NearbyDriver[]> {
+//   // For testing: just fetch online drivers without distance filter
+//   return this.prisma.$queryRaw<NearbyDriver[]>`
+//     SELECT
+//       dp."userId" AS "userId",
+//       dp."latitude" AS "lat",
+//       dp."longitude" AS "lng"
+//     FROM "DriverProfile" dp
+//     WHERE dp."status" = 'ONLINE'
+//     LIMIT 10
+//   `;
+// }
 //   async getNearbyDrivers(
 //     lat: number,
 //     lng: number,
