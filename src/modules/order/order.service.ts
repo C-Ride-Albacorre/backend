@@ -2828,11 +2828,21 @@ export class OrderService {
       // Initiate driver search (background)
       // const pickupLocation = JSON.parse(order.pickupLocation || '{}');
     //  const pickupLocation = (order.pickupLocation as any) || {};
-      const pickupLocation = order.pickupLocation 
-  ? (typeof order.pickupLocation === 'string' 
-      ? JSON.parse(order.pickupLocation) 
-      : order.pickupLocation) 
-  : {};
+  //     const pickupLocation = order.pickupLocation 
+  // ? (typeof order.pickupLocation === 'string' 
+  //     ? JSON.parse(order.pickupLocation) 
+  //     : order.pickupLocation) 
+  // : {};
+  let pickupLocation = order.pickupLocation as any;
+if (!pickupLocation || typeof pickupLocation !== 'object' || !pickupLocation.lat || !pickupLocation.lng) {
+  const store = order.items[0]?.store;
+  if (store?.latitude && store?.longitude) {
+    pickupLocation = { lat: store.latitude, lng: store.longitude };
+    this.logger.warn(`Using store location as fallback for order ${orderId}`);
+  } else {
+    throw new BadRequestException('No valid pickup location for this order');
+  }
+}
       this.logger.log(`Initiating driver search for order ${orderId} with pickup location: ${JSON.stringify(pickupLocation)}`);
 
       // Ensure it has lat/lng

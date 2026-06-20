@@ -191,7 +191,7 @@ export class DriverAssignmentService {
     orderId: string,
     vendorLocation: { lat: number; lng: number },
   ) {
-    this.logger.log(`Initiating driver search for order ${orderId} at location (${vendorLocation.lat}, ${vendorLocation.lng})`);
+    this.logger.log(`Initiating driver search for order ${orderId} at location ${JSON.stringify(vendorLocation)} lat:${vendorLocation.lat} lng:${vendorLocation.lng}`);
     try {
       this.logger.log(`Creating driver assignment record for order ${orderId}`);
       // Create assignment record
@@ -422,6 +422,7 @@ async getNearbyDrivers(
   radiusMeters: number,
 ): Promise<NearbyDriver[]> {
   try {
+this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radius ${radiusMeters}m`);
     // Verify extension is enabled
     const isEnabled = await Helper.verifyPostGISEarthDistance();
     if (!isEnabled) {
