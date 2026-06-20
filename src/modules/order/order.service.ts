@@ -2827,7 +2827,13 @@ export class OrderService {
       // });
       // Initiate driver search (background)
       // const pickupLocation = JSON.parse(order.pickupLocation || '{}');
-      const pickupLocation = (order.pickupLocation as any) || {};
+    //  const pickupLocation = (order.pickupLocation as any) || {};
+      const pickupLocation = order.pickupLocation 
+  ? (typeof order.pickupLocation === 'string' 
+      ? JSON.parse(order.pickupLocation) 
+      : order.pickupLocation) 
+  : {};
+      this.logger.log(`Initiating driver search for order ${orderId} with pickup location: ${JSON.stringify(pickupLocation)}`);
       await this.driverAssignment.initiateDriverSearch(orderId, pickupLocation);
 
       return {
