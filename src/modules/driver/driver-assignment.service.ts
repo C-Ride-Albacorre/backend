@@ -417,53 +417,69 @@ export class DriverAssignmentService {
   }
 
   async getNearbyDrivers(
-    lat: number,
-    lng: number,
-    radiusMeters: number,
-  ): Promise<NearbyDriver[]> {
-    try {
-      this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radius ${radiusMeters}m`);
-      // Verify extension is enabled
-      const isEnabled = await Helper.verifyPostGISEarthDistance();
-      if (!isEnabled) {
-        throw new Error('PostGIS earthdistance extension is not enabled. Please run: CREATE EXTENSION IF NOT EXISTS cube; CREATE EXTENSION IF NOT EXISTS earthdistance;');
-      }
+  lat: number,
+  lng: number,
+  radiusMeters: number,
+): Promise<NearbyDriver[]> {
+  // For testing: just fetch online drivers without distance filter
+  return this.prisma.$queryRaw<NearbyDriver[]>`
+    SELECT
+      dp."userId" AS "userId",
+      dp."latitude" AS "lat",
+      dp."longitude" AS "lng"
+    FROM "DriverProfile" dp
+    WHERE dp."status" = 'ONLINE'
+    LIMIT 10
+  `;
+}
+//   async getNearbyDrivers(
+//     lat: number,
+//     lng: number,
+//     radiusMeters: number,
+//   ): Promise<NearbyDriver[]> {
+//     try {
+//       this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radius ${radiusMeters}m`);
+//       // Verify extension is enabled
+//       const isEnabled = await Helper.verifyPostGISEarthDistance();
+//       if (!isEnabled) {
+//         throw new Error('PostGIS earthdistance extension is not enabled. Please run: CREATE EXTENSION IF NOT EXISTS cube; CREATE EXTENSION IF NOT EXISTS earthdistance;');
+//       }
 
-      // Validate inputs
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        throw new Error('Invalid coordinates provided');
-      }
+//       // Validate inputs
+//       if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+//         throw new Error('Invalid coordinates provided');
+//       }
 
-      if (radiusMeters <= 0) {
-        throw new Error('Radius must be greater than 0');
-      }
+//       if (radiusMeters <= 0) {
+//         throw new Error('Radius must be greater than 0');
+//       }
 
-      return this.prisma.$queryRaw<NearbyDriver[]>`
-  SELECT
-    dp."userId" AS "userId",
-    dp."latitude" AS "lat",
-    dp."longitude" AS "lng",
-    earth_distance(
-      ll_to_earth(${lat}, ${lng}),
-      ll_to_earth(dp."latitude", dp."longitude")
-    ) AS distance
-  FROM "DriverProfile" dp
-  WHERE dp."status" = 'ONLINE'
-    AND earth_distance(
-      ll_to_earth(${lat}, ${lng}),
-      ll_to_earth(dp."latitude", dp."longitude")
-    ) <= ${radiusMeters}
-  ORDER BY earth_distance(
-    ll_to_earth(${lat}, ${lng}),
-    ll_to_earth(dp."latitude", dp."longitude")
-  ) ASC
-  LIMIT 10
-`;
-    } catch (error) {
-      console.error('Error fetching nearby drivers:', error);
-      throw error;
-    }
-  }
+//       return this.prisma.$queryRaw<NearbyDriver[]>`
+//   SELECT
+//     dp."userId" AS "userId",
+//     dp."latitude" AS "lat",
+//     dp."longitude" AS "lng",
+//     earth_distance(
+//       ll_to_earth(${lat}, ${lng}),
+//       ll_to_earth(dp."latitude", dp."longitude")
+//     ) AS distance
+//   FROM "DriverProfile" dp
+//   WHERE dp."status" = 'ONLINE'
+//     AND earth_distance(
+//       ll_to_earth(${lat}, ${lng}),
+//       ll_to_earth(dp."latitude", dp."longitude")
+//     ) <= ${radiusMeters}
+//   ORDER BY earth_distance(
+//     ll_to_earth(${lat}, ${lng}),
+//     ll_to_earth(dp."latitude", dp."longitude")
+//   ) ASC
+//   LIMIT 10
+// `;
+//     } catch (error) {
+//       console.error('Error fetching nearby drivers:', error);
+//       throw error;
+//     }
+//   }
 
   async getNearbyDriversold(
     lat: number,
