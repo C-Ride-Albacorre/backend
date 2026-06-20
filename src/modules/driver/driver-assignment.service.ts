@@ -216,8 +216,8 @@ export class DriverAssignmentService {
     }
   }
 
-  
- 
+
+
   async findAndNotifyDrivers(orderId: string, vendorLocation: { lat: number; lng: number }) {
     this.logger.log(`Finding nearby drivers for order ${orderId} at location (${vendorLocation.lat}, ${vendorLocation.lng})`);
 
@@ -281,7 +281,7 @@ export class DriverAssignmentService {
         this.logger.log(`Emitting new order request to driver ${driver.userId} for order ${orderId}`);
         const sent = this.driverGateway.emitNewOrderRequest(driver.userId, {
           ...orderData,
-         distance: driver.lat + ',' + driver.lng, // Include distance if available
+          distance: driver.lat + ',' + driver.lng, // Include distance if available
         });
 
         if (sent) {
@@ -338,7 +338,7 @@ export class DriverAssignmentService {
   }
 
   async findAndNotifyDriversRecent(orderId: string, vendorLocation: { lat: number; lng: number }) {
-    
+
     const dispatchLockKey = `order:${orderId}:dispatch_lock`;
     const pendingDriversKey = `order:${orderId}:pending_drivers`;
 
@@ -416,55 +416,54 @@ export class DriverAssignmentService {
     }
   }
 
-async getNearbyDrivers(
-  lat: number,
-  lng: number,
-  radiusMeters: number,
-): Promise<NearbyDriver[]> {
-  try {
-this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radius ${radiusMeters}m`);
-    // Verify extension is enabled
-    const isEnabled = await Helper.verifyPostGISEarthDistance();
-    if (!isEnabled) {
-      throw new Error('PostGIS earthdistance extension is not enabled. Please run: CREATE EXTENSION IF NOT EXISTS cube; CREATE EXTENSION IF NOT EXISTS earthdistance;');
-    }
+  async getNearbyDrivers(
+    lat: number,
+    lng: number,
+    radiusMeters: number,
+  ): Promise<NearbyDriver[]> {
+    try {
+      this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radius ${radiusMeters}m`);
+      // Verify extension is enabled
+      const isEnabled = await Helper.verifyPostGISEarthDistance();
+      if (!isEnabled) {
+        throw new Error('PostGIS earthdistance extension is not enabled. Please run: CREATE EXTENSION IF NOT EXISTS cube; CREATE EXTENSION IF NOT EXISTS earthdistance;');
+      }
 
-    // Validate inputs
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      throw new Error('Invalid coordinates provided');
-    }
+      // Validate inputs
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        throw new Error('Invalid coordinates provided');
+      }
 
-    if (radiusMeters <= 0) {
-      throw new Error('Radius must be greater than 0');
-    }
+      if (radiusMeters <= 0) {
+        throw new Error('Radius must be greater than 0');
+      }
 
-    return this.prisma.$queryRaw<NearbyDriver[]>`
-      SELECT
-        dp.user_id AS "userId",
-        dp.latitude AS "lat",
-        dp.longitude AS "lng",
-        -- Optionally calculate distance
-        earth_distance(
-          ll_to_earth(${lat}, ${lng}),
-          ll_to_earth(dp.latitude, dp.longitude)
-        ) AS distance
-      FROM d=DriverProfile dp
-      WHERE dp.status = 'ONLINE'
-        AND earth_distance(
-          ll_to_earth(${lat}, ${lng}),
-          ll_to_earth(dp.latitude, dp.longitude)
-        ) <= ${radiusMeters}
-      ORDER BY earth_distance(
-        ll_to_earth(${lat}, ${lng}),
-        ll_to_earth(dp.latitude, dp.longitude)
-      ) ASC
-      LIMIT 10
-    `;
-  } catch (error) {
-    console.error('Error fetching nearby drivers:', error);
-    throw error;
+      return this.prisma.$queryRaw<NearbyDriver[]>`
+  SELECT
+    dp."userId" AS "userId",
+    dp."latitude" AS "lat",
+    dp."longitude" AS "lng",
+    earth_distance(
+      ll_to_earth(${lat}, ${lng}),
+      ll_to_earth(dp."latitude", dp."longitude")
+    ) AS distance
+  FROM "DriverProfile" dp
+  WHERE dp."status" = 'ONLINE'
+    AND earth_distance(
+      ll_to_earth(${lat}, ${lng}),
+      ll_to_earth(dp."latitude", dp."longitude")
+    ) <= ${radiusMeters}
+  ORDER BY earth_distance(
+    ll_to_earth(${lat}, ${lng}),
+    ll_to_earth(dp."latitude", dp."longitude")
+  ) ASC
+  LIMIT 10
+`;
+    } catch (error) {
+      console.error('Error fetching nearby drivers:', error);
+      throw error;
+    }
   }
-}
 
   async getNearbyDriversold(
     lat: number,
@@ -492,381 +491,381 @@ this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radi
   }
 
   async driverAccepts(orderId: string, driverId: string): Promise<boolean> {
-  // 1. Check if the order is still available
-  const order = await this.prisma.order.findUnique({
-    where: { id: orderId },
-    select: { 
-      orderStatus: true,
-      driverAssignment: {
-        select: { assignmentStatus: true }
-      }
-    },
-  });
-
-  if (!order) {
-    this.logger.warn(`Order ${orderId} not found`);
-    return false;
-  }
-
-  if (order.orderStatus === OrderStatus.ORDER_ASSIGNED) {
-    this.logger.warn(`Order ${orderId} is already assigned`);
-    return false;
-  }
-
-  if (order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
-    this.logger.warn(`Order ${orderId} is not available (status: ${order.orderStatus})`);
-    return false;
-  }
-
-  if (order.driverAssignment?.assignmentStatus !== AssignmentStatus.PENDING) {
-    this.logger.warn(`Order ${orderId} assignment is not in PENDING state`);
-    return false;
-  }
-
-  // 2. Try to claim the pending key (or create it if driver wasn't notified)
-  const pendingKey = `order:${orderId}:pending:${driverId}`;
-  const driverPendingSet = `driver:${driverId}:pending_claims`;
-  const notifiedDriversKey = `order:${orderId}:notified_drivers`;
-
-  // Check if driver was notified
-  const wasNotified = await this.redis.sismember(notifiedDriversKey, driverId);
-  
-  if (!wasNotified) {
-    this.logger.warn(`Driver ${driverId} was not notified for order ${orderId}, but allowing acceptance if order is available`);
-    
-    // 🔥 FIX: Create the pending key for this driver if order is available
-    const TTL_SECONDS = 300; // 5 minutes
-    await this.redis.setex(pendingKey, TTL_SECONDS, 'pending');
-    await this.redis.sadd(driverPendingSet, orderId);
-    await this.redis.sadd(notifiedDriversKey, driverId);
-    
-    // Also add a timeout job for this driver
-    await this.assignmentQueue.add(
-      'driver-response-timeout',
-      { orderId, driverId },
-      {
-        delay: TTL_SECONDS * 1000,
-        jobId: `timeout-${orderId}-${driverId}`,
-        removeOnComplete: true,
-      }
-    ).catch(() => null);
-  }
-
-  // 3. Now claim the key
-  const claimed = await this.redis.del(pendingKey);
-  if (!claimed) {
-    this.logger.warn(`Driver ${driverId} failed to claim order ${orderId} - key already claimed or expired`);
-    return false;
-  }
-
-  await this.redis.srem(driverPendingSet, orderId);
-
-  try {
-    // 3. EXECUTE DATABASE TRANSACTION WITH RACE CONDITION CHECK
-    await this.prisma.$transaction(async (tx) => {
-      // RE-VERIFY: Check if order is still in ACCEPTED state (prevents race)
-      const currentOrder = await tx.order.findUnique({
-        where: { id: orderId },
-        select: { 
-          orderStatus: true,
-          driverAssignment: {
-            select: { assignmentStatus: true }
-          }
-        },
-      });
-
-      if (!currentOrder) {
-        throw new Error('Order no longer exists');
-      }
-
-      // Double-check status hasn't changed since pre-check
-      if (currentOrder.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
-        throw new Error(`Order status changed to ${currentOrder.orderStatus}`);
-      }
-
-      if (currentOrder.driverAssignment?.assignmentStatus !== AssignmentStatus.PENDING) {
-        throw new Error('Assignment already processed');
-      }
-
-      // Check driver isn't already busy (prevents double assignment)
-      const driver = await tx.driverProfile.findUnique({
-        where: { userId: driverId },
-        select: { status: true },
-      });
-
-      if (driver?.status === DriverStatus.BUSY) {
-        throw new Error(`Driver ${driverId} is already BUSY`);
-      }
-
-      // Update driver assignment record
-      await tx.driverAssignment.update({
-        where: { orderId },
-        data: {
-          driverId,
-          assignmentStatus: AssignmentStatus.ASSIGNED,
-          assignedAt: new Date(),
-        },
-      });
-
-      // Update order status
-      await tx.order.update({
-        where: { id: orderId },
-        data: {
-          orderStatus: OrderStatus.ORDER_ASSIGNED,
-          //assignedDriverId: driverId, // ✅ Include this for frontend
-          driverAssignedAt: new Date(),
-        },
-      });
-
-      // Mark driver as busy
-      await tx.driverProfile.update({
-        where: { userId: driverId },
-        data: { status: DriverStatus.BUSY },
-      });
-
-      // Log the acceptance (✅ correct role)
-      await tx.orderActivityLog.create({
-        data: {
-          orderId,
-          actorId: driverId,
-          actorRole: Role.DISPATCHER, // ✅ Fixed: was DISPATCHER
-          action: 'DRIVER_ACCEPTED',
-          fromStatus: OrderStatus.ORDER_ACCEPTED,
-          toStatus: OrderStatus.ORDER_ASSIGNED,
-        },
-      });
-
-    }, {
-      timeout: 5000,
-      isolationLevel: 'ReadCommitted',
-      maxWait: 2000,
+    // 1. Check if the order is still available
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        orderStatus: true,
+        driverAssignment: {
+          select: { assignmentStatus: true }
+        }
+      },
     });
 
-    // 4. CLEANUP AFTER SUCCESSFUL TRANSACTION
-    // Get all notified drivers
-    const driverIds = await this.redis.smembers(notifiedDriversKey);
-    
-    // Remove timeout jobs for all drivers
-    for (const id of driverIds) {
-      await this.assignmentQueue.remove(`timeout-${orderId}-${id}`).catch(() => null);
+    if (!order) {
+      this.logger.warn(`Order ${orderId} not found`);
+      return false;
     }
-    
-    // Remove global assignment timeout
-    await this.assignmentQueue.remove(`assignment-timeout-${orderId}`).catch(() => null);
-    
-    // Clean up Redis keys
-    await this.redis.del(notifiedDriversKey);
-    await this.redis.del(`driver:${driverId}:pending_claims`); // Clean up driver's set too
 
-    // 5. START ETA & NAVIGATION (non-critical - fire and forget)
-    this.startEtaAndNavigation(orderId, driverId).catch(err => {
-      this.logger.error(
-        `Failed to start ETA/navigation for order ${orderId}, driver ${driverId}`,
-        err
-      );
-    });
+    if (order.orderStatus === OrderStatus.ORDER_ASSIGNED) {
+      this.logger.warn(`Order ${orderId} is already assigned`);
+      return false;
+    }
 
-    this.logger.log(`Driver ${driverId} successfully assigned to order ${orderId}`);
-    return true;
+    if (order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+      this.logger.warn(`Order ${orderId} is not available (status: ${order.orderStatus})`);
+      return false;
+    }
 
-  } catch (error) {
-    // 6. ROLLBACK ON FAILURE
-    // Restore pending key with CORRECT TTL (match broadcast TTL of 300s)
-    const TTL_SECONDS = 300; // 5 minutes - must match broadcast TTL
-    await this.redis.setex(pendingKey, TTL_SECONDS, 'pending');
-    
-    // Re-add to driver's pending set
-    await this.redis.sadd(driverPendingSet, orderId);
+    if (order.driverAssignment?.assignmentStatus !== AssignmentStatus.PENDING) {
+      this.logger.warn(`Order ${orderId} assignment is not in PENDING state`);
+      return false;
+    }
 
-    this.logger.error(
-      `Database transaction failed for driver ${driverId} on order ${orderId}`,
-      error instanceof Error ? error.stack : String(error)
-    );
-    
-    throw error;
-  }
-}
+    // 2. Try to claim the pending key (or create it if driver wasn't notified)
+    const pendingKey = `order:${orderId}:pending:${driverId}`;
+    const driverPendingSet = `driver:${driverId}:pending_claims`;
+    const notifiedDriversKey = `order:${orderId}:notified_drivers`;
 
-async driverAcceptsWorkingBurStrictInNotification(orderId: string, driverId: string): Promise<boolean> {
-  // 1. PRE-ACCEPTANCE VALIDATION (quick check before Redis)
-  const order = await this.prisma.order.findUnique({
-    where: { id: orderId },
-    select: { 
-      orderStatus: true,
-      driverAssignment: {
-        select: { assignmentStatus: true }
-      }
-    },
-  });
-
-  if (!order) {
-    this.logger.warn(`Order ${orderId} not found`);
-    return false;
-  }
-
-  // Check if order is in valid state for acceptance
-  if (order.orderStatus === OrderStatus.ORDER_ASSIGNED) {
-    this.logger.warn(`Order ${orderId} is already assigned`);
-    return false;
-  }
-
-  if (order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
-    this.logger.warn(`Order ${orderId} is not available (status: ${order.orderStatus})`);
-    return false;
-  }
-
-  // Check if assignment record exists and is still PENDING
-  if (order.driverAssignment?.assignmentStatus !== AssignmentStatus.PENDING) {
-    this.logger.warn(`Order ${orderId} assignment is not in PENDING state`);
-    return false;
-  }
-
-  // 2. TRY TO CLAIM THE ORDER (Atomic Redis operation)
-  const pendingKey = `order:${orderId}:pending:${driverId}`;
-  const driverPendingSet = `driver:${driverId}:pending_claims`;
-  const notifiedDriversKey = `order:${orderId}:notified_drivers`;
-
-  // Claim the pending key - only this driver can claim their own key
-  const claimed = await this.redis.del(pendingKey);
-  if (!claimed) {
-    // Check if driver was actually notified
+    // Check if driver was notified
     const wasNotified = await this.redis.sismember(notifiedDriversKey, driverId);
+
     if (!wasNotified) {
-      this.logger.warn(`Driver ${driverId} was not notified for order ${orderId}`);
-    } else {
-      this.logger.warn(`Driver ${driverId} failed to claim order ${orderId} - key expired or already claimed`);
+      this.logger.warn(`Driver ${driverId} was not notified for order ${orderId}, but allowing acceptance if order is available`);
+
+      // 🔥 FIX: Create the pending key for this driver if order is available
+      const TTL_SECONDS = 300; // 5 minutes
+      await this.redis.setex(pendingKey, TTL_SECONDS, 'pending');
+      await this.redis.sadd(driverPendingSet, orderId);
+      await this.redis.sadd(notifiedDriversKey, driverId);
+
+      // Also add a timeout job for this driver
+      await this.assignmentQueue.add(
+        'driver-response-timeout',
+        { orderId, driverId },
+        {
+          delay: TTL_SECONDS * 1000,
+          jobId: `timeout-${orderId}-${driverId}`,
+          removeOnComplete: true,
+        }
+      ).catch(() => null);
     }
-    return false;
-  }
 
-  // Remove from driver's pending set (best effort)
-  await this.redis.srem(driverPendingSet, orderId);
-
-  try {
-    // 3. EXECUTE DATABASE TRANSACTION WITH RACE CONDITION CHECK
-    await this.prisma.$transaction(async (tx) => {
-      // RE-VERIFY: Check if order is still in ACCEPTED state (prevents race)
-      const currentOrder = await tx.order.findUnique({
-        where: { id: orderId },
-        select: { 
-          orderStatus: true,
-          driverAssignment: {
-            select: { assignmentStatus: true }
-          }
-        },
-      });
-
-      if (!currentOrder) {
-        throw new Error('Order no longer exists');
-      }
-
-      // Double-check status hasn't changed since pre-check
-      if (currentOrder.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
-        throw new Error(`Order status changed to ${currentOrder.orderStatus}`);
-      }
-
-      if (currentOrder.driverAssignment?.assignmentStatus !== AssignmentStatus.PENDING) {
-        throw new Error('Assignment already processed');
-      }
-
-      // Check driver isn't already busy (prevents double assignment)
-      const driver = await tx.driverProfile.findUnique({
-        where: { userId: driverId },
-        select: { status: true },
-      });
-
-      if (driver?.status === DriverStatus.BUSY) {
-        throw new Error(`Driver ${driverId} is already BUSY`);
-      }
-
-      // Update driver assignment record
-      await tx.driverAssignment.update({
-        where: { orderId },
-        data: {
-          driverId,
-          assignmentStatus: AssignmentStatus.ASSIGNED,
-          assignedAt: new Date(),
-        },
-      });
-
-      // Update order status
-      await tx.order.update({
-        where: { id: orderId },
-        data: {
-          orderStatus: OrderStatus.ORDER_ASSIGNED,
-          //assignedDriverId: driverId, // ✅ Include this for frontend
-          driverAssignedAt: new Date(),
-        },
-      });
-
-      // Mark driver as busy
-      await tx.driverProfile.update({
-        where: { userId: driverId },
-        data: { status: DriverStatus.BUSY },
-      });
-
-      // Log the acceptance (✅ correct role)
-      await tx.orderActivityLog.create({
-        data: {
-          orderId,
-          actorId: driverId,
-          actorRole: Role.DISPATCHER, // ✅ Fixed: was DISPATCHER
-          action: 'DRIVER_ACCEPTED',
-          fromStatus: OrderStatus.ORDER_ACCEPTED,
-          toStatus: OrderStatus.ORDER_ASSIGNED,
-        },
-      });
-
-    }, {
-      timeout: 5000,
-      isolationLevel: 'ReadCommitted',
-      maxWait: 2000,
-    });
-
-    // 4. CLEANUP AFTER SUCCESSFUL TRANSACTION
-    // Get all notified drivers
-    const driverIds = await this.redis.smembers(notifiedDriversKey);
-    
-    // Remove timeout jobs for all drivers
-    for (const id of driverIds) {
-      await this.assignmentQueue.remove(`timeout-${orderId}-${id}`).catch(() => null);
+    // 3. Now claim the key
+    const claimed = await this.redis.del(pendingKey);
+    if (!claimed) {
+      this.logger.warn(`Driver ${driverId} failed to claim order ${orderId} - key already claimed or expired`);
+      return false;
     }
-    
-    // Remove global assignment timeout
-    await this.assignmentQueue.remove(`assignment-timeout-${orderId}`).catch(() => null);
-    
-    // Clean up Redis keys
-    await this.redis.del(notifiedDriversKey);
-    await this.redis.del(`driver:${driverId}:pending_claims`); // Clean up driver's set too
 
-    // 5. START ETA & NAVIGATION (non-critical - fire and forget)
-    this.startEtaAndNavigation(orderId, driverId).catch(err => {
+    await this.redis.srem(driverPendingSet, orderId);
+
+    try {
+      // 3. EXECUTE DATABASE TRANSACTION WITH RACE CONDITION CHECK
+      await this.prisma.$transaction(async (tx) => {
+        // RE-VERIFY: Check if order is still in ACCEPTED state (prevents race)
+        const currentOrder = await tx.order.findUnique({
+          where: { id: orderId },
+          select: {
+            orderStatus: true,
+            driverAssignment: {
+              select: { assignmentStatus: true }
+            }
+          },
+        });
+
+        if (!currentOrder) {
+          throw new Error('Order no longer exists');
+        }
+
+        // Double-check status hasn't changed since pre-check
+        if (currentOrder.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+          throw new Error(`Order status changed to ${currentOrder.orderStatus}`);
+        }
+
+        if (currentOrder.driverAssignment?.assignmentStatus !== AssignmentStatus.PENDING) {
+          throw new Error('Assignment already processed');
+        }
+
+        // Check driver isn't already busy (prevents double assignment)
+        const driver = await tx.driverProfile.findUnique({
+          where: { userId: driverId },
+          select: { status: true },
+        });
+
+        if (driver?.status === DriverStatus.BUSY) {
+          throw new Error(`Driver ${driverId} is already BUSY`);
+        }
+
+        // Update driver assignment record
+        await tx.driverAssignment.update({
+          where: { orderId },
+          data: {
+            driverId,
+            assignmentStatus: AssignmentStatus.ASSIGNED,
+            assignedAt: new Date(),
+          },
+        });
+
+        // Update order status
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            orderStatus: OrderStatus.ORDER_ASSIGNED,
+            //assignedDriverId: driverId, // ✅ Include this for frontend
+            driverAssignedAt: new Date(),
+          },
+        });
+
+        // Mark driver as busy
+        await tx.driverProfile.update({
+          where: { userId: driverId },
+          data: { status: DriverStatus.BUSY },
+        });
+
+        // Log the acceptance (✅ correct role)
+        await tx.orderActivityLog.create({
+          data: {
+            orderId,
+            actorId: driverId,
+            actorRole: Role.DISPATCHER, // ✅ Fixed: was DISPATCHER
+            action: 'DRIVER_ACCEPTED',
+            fromStatus: OrderStatus.ORDER_ACCEPTED,
+            toStatus: OrderStatus.ORDER_ASSIGNED,
+          },
+        });
+
+      }, {
+        timeout: 5000,
+        isolationLevel: 'ReadCommitted',
+        maxWait: 2000,
+      });
+
+      // 4. CLEANUP AFTER SUCCESSFUL TRANSACTION
+      // Get all notified drivers
+      const driverIds = await this.redis.smembers(notifiedDriversKey);
+
+      // Remove timeout jobs for all drivers
+      for (const id of driverIds) {
+        await this.assignmentQueue.remove(`timeout-${orderId}-${id}`).catch(() => null);
+      }
+
+      // Remove global assignment timeout
+      await this.assignmentQueue.remove(`assignment-timeout-${orderId}`).catch(() => null);
+
+      // Clean up Redis keys
+      await this.redis.del(notifiedDriversKey);
+      await this.redis.del(`driver:${driverId}:pending_claims`); // Clean up driver's set too
+
+      // 5. START ETA & NAVIGATION (non-critical - fire and forget)
+      this.startEtaAndNavigation(orderId, driverId).catch(err => {
+        this.logger.error(
+          `Failed to start ETA/navigation for order ${orderId}, driver ${driverId}`,
+          err
+        );
+      });
+
+      this.logger.log(`Driver ${driverId} successfully assigned to order ${orderId}`);
+      return true;
+
+    } catch (error) {
+      // 6. ROLLBACK ON FAILURE
+      // Restore pending key with CORRECT TTL (match broadcast TTL of 300s)
+      const TTL_SECONDS = 300; // 5 minutes - must match broadcast TTL
+      await this.redis.setex(pendingKey, TTL_SECONDS, 'pending');
+
+      // Re-add to driver's pending set
+      await this.redis.sadd(driverPendingSet, orderId);
+
       this.logger.error(
-        `Failed to start ETA/navigation for order ${orderId}, driver ${driverId}`,
-        err
+        `Database transaction failed for driver ${driverId} on order ${orderId}`,
+        error instanceof Error ? error.stack : String(error)
       );
+
+      throw error;
+    }
+  }
+
+  async driverAcceptsWorkingBurStrictInNotification(orderId: string, driverId: string): Promise<boolean> {
+    // 1. PRE-ACCEPTANCE VALIDATION (quick check before Redis)
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        orderStatus: true,
+        driverAssignment: {
+          select: { assignmentStatus: true }
+        }
+      },
     });
 
-    this.logger.log(`Driver ${driverId} successfully assigned to order ${orderId}`);
-    return true;
+    if (!order) {
+      this.logger.warn(`Order ${orderId} not found`);
+      return false;
+    }
 
-  } catch (error) {
-    // 6. ROLLBACK ON FAILURE
-    // Restore pending key with CORRECT TTL (match broadcast TTL of 300s)
-    const TTL_SECONDS = 300; // 5 minutes - must match broadcast TTL
-    await this.redis.setex(pendingKey, TTL_SECONDS, 'pending');
-    
-    // Re-add to driver's pending set
-    await this.redis.sadd(driverPendingSet, orderId);
+    // Check if order is in valid state for acceptance
+    if (order.orderStatus === OrderStatus.ORDER_ASSIGNED) {
+      this.logger.warn(`Order ${orderId} is already assigned`);
+      return false;
+    }
 
-    this.logger.error(
-      `Database transaction failed for driver ${driverId} on order ${orderId}`,
-      error instanceof Error ? error.stack : String(error)
-    );
-    
-    throw error;
+    if (order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+      this.logger.warn(`Order ${orderId} is not available (status: ${order.orderStatus})`);
+      return false;
+    }
+
+    // Check if assignment record exists and is still PENDING
+    if (order.driverAssignment?.assignmentStatus !== AssignmentStatus.PENDING) {
+      this.logger.warn(`Order ${orderId} assignment is not in PENDING state`);
+      return false;
+    }
+
+    // 2. TRY TO CLAIM THE ORDER (Atomic Redis operation)
+    const pendingKey = `order:${orderId}:pending:${driverId}`;
+    const driverPendingSet = `driver:${driverId}:pending_claims`;
+    const notifiedDriversKey = `order:${orderId}:notified_drivers`;
+
+    // Claim the pending key - only this driver can claim their own key
+    const claimed = await this.redis.del(pendingKey);
+    if (!claimed) {
+      // Check if driver was actually notified
+      const wasNotified = await this.redis.sismember(notifiedDriversKey, driverId);
+      if (!wasNotified) {
+        this.logger.warn(`Driver ${driverId} was not notified for order ${orderId}`);
+      } else {
+        this.logger.warn(`Driver ${driverId} failed to claim order ${orderId} - key expired or already claimed`);
+      }
+      return false;
+    }
+
+    // Remove from driver's pending set (best effort)
+    await this.redis.srem(driverPendingSet, orderId);
+
+    try {
+      // 3. EXECUTE DATABASE TRANSACTION WITH RACE CONDITION CHECK
+      await this.prisma.$transaction(async (tx) => {
+        // RE-VERIFY: Check if order is still in ACCEPTED state (prevents race)
+        const currentOrder = await tx.order.findUnique({
+          where: { id: orderId },
+          select: {
+            orderStatus: true,
+            driverAssignment: {
+              select: { assignmentStatus: true }
+            }
+          },
+        });
+
+        if (!currentOrder) {
+          throw new Error('Order no longer exists');
+        }
+
+        // Double-check status hasn't changed since pre-check
+        if (currentOrder.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+          throw new Error(`Order status changed to ${currentOrder.orderStatus}`);
+        }
+
+        if (currentOrder.driverAssignment?.assignmentStatus !== AssignmentStatus.PENDING) {
+          throw new Error('Assignment already processed');
+        }
+
+        // Check driver isn't already busy (prevents double assignment)
+        const driver = await tx.driverProfile.findUnique({
+          where: { userId: driverId },
+          select: { status: true },
+        });
+
+        if (driver?.status === DriverStatus.BUSY) {
+          throw new Error(`Driver ${driverId} is already BUSY`);
+        }
+
+        // Update driver assignment record
+        await tx.driverAssignment.update({
+          where: { orderId },
+          data: {
+            driverId,
+            assignmentStatus: AssignmentStatus.ASSIGNED,
+            assignedAt: new Date(),
+          },
+        });
+
+        // Update order status
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            orderStatus: OrderStatus.ORDER_ASSIGNED,
+            //assignedDriverId: driverId, // ✅ Include this for frontend
+            driverAssignedAt: new Date(),
+          },
+        });
+
+        // Mark driver as busy
+        await tx.driverProfile.update({
+          where: { userId: driverId },
+          data: { status: DriverStatus.BUSY },
+        });
+
+        // Log the acceptance (✅ correct role)
+        await tx.orderActivityLog.create({
+          data: {
+            orderId,
+            actorId: driverId,
+            actorRole: Role.DISPATCHER, // ✅ Fixed: was DISPATCHER
+            action: 'DRIVER_ACCEPTED',
+            fromStatus: OrderStatus.ORDER_ACCEPTED,
+            toStatus: OrderStatus.ORDER_ASSIGNED,
+          },
+        });
+
+      }, {
+        timeout: 5000,
+        isolationLevel: 'ReadCommitted',
+        maxWait: 2000,
+      });
+
+      // 4. CLEANUP AFTER SUCCESSFUL TRANSACTION
+      // Get all notified drivers
+      const driverIds = await this.redis.smembers(notifiedDriversKey);
+
+      // Remove timeout jobs for all drivers
+      for (const id of driverIds) {
+        await this.assignmentQueue.remove(`timeout-${orderId}-${id}`).catch(() => null);
+      }
+
+      // Remove global assignment timeout
+      await this.assignmentQueue.remove(`assignment-timeout-${orderId}`).catch(() => null);
+
+      // Clean up Redis keys
+      await this.redis.del(notifiedDriversKey);
+      await this.redis.del(`driver:${driverId}:pending_claims`); // Clean up driver's set too
+
+      // 5. START ETA & NAVIGATION (non-critical - fire and forget)
+      this.startEtaAndNavigation(orderId, driverId).catch(err => {
+        this.logger.error(
+          `Failed to start ETA/navigation for order ${orderId}, driver ${driverId}`,
+          err
+        );
+      });
+
+      this.logger.log(`Driver ${driverId} successfully assigned to order ${orderId}`);
+      return true;
+
+    } catch (error) {
+      // 6. ROLLBACK ON FAILURE
+      // Restore pending key with CORRECT TTL (match broadcast TTL of 300s)
+      const TTL_SECONDS = 300; // 5 minutes - must match broadcast TTL
+      await this.redis.setex(pendingKey, TTL_SECONDS, 'pending');
+
+      // Re-add to driver's pending set
+      await this.redis.sadd(driverPendingSet, orderId);
+
+      this.logger.error(
+        `Database transaction failed for driver ${driverId} on order ${orderId}`,
+        error instanceof Error ? error.stack : String(error)
+      );
+
+      throw error;
+    }
   }
-}
 
   async driverAcceptsNew(orderId: string, driverId: string): Promise<boolean> {
     const pendingKey = `order:${orderId}:pending:${driverId}`;
@@ -1213,26 +1212,26 @@ async driverAcceptsWorkingBurStrictInNotification(orderId: string, driverId: str
   }
 
   private async upsertEtaRecurringJob(orderId: string, driverId: string, initialDurationSec: number): Promise<void> {
-  const jobSchedulerId = `eta-${orderId}`; // The same identifier used as repeat key
+    const jobSchedulerId = `eta-${orderId}`; // The same identifier used as repeat key
 
-  // Remove existing scheduler if any (ignore errors – scheduler may not exist)
-  await this.assignmentQueue.removeJobScheduler(jobSchedulerId).catch(() => null);
+    // Remove existing scheduler if any (ignore errors – scheduler may not exist)
+    await this.assignmentQueue.removeJobScheduler(jobSchedulerId).catch(() => null);
 
-  // Add the new repeatable job – BullMQ will create a job scheduler internally
-  await this.assignmentQueue.add(
-    'update-eta',
-    { orderId, driverId, leg: 'to-customer' },
-    {
-      repeat: {
-        every: 10000,
-        key: jobSchedulerId,   // Critical: ties to the scheduler ID
-      },
-      jobId: `${jobSchedulerId}:${Date.now()}`, // Unique job ID for each execution
-      removeOnComplete: true,
-      removeOnFail: false,
-    }
-  );
-}
+    // Add the new repeatable job – BullMQ will create a job scheduler internally
+    await this.assignmentQueue.add(
+      'update-eta',
+      { orderId, driverId, leg: 'to-customer' },
+      {
+        repeat: {
+          every: 10000,
+          key: jobSchedulerId,   // Critical: ties to the scheduler ID
+        },
+        jobId: `${jobSchedulerId}:${Date.now()}`, // Unique job ID for each execution
+        removeOnComplete: true,
+        removeOnFail: false,
+      }
+    );
+  }
 
   // inside DriverAssignmentService
   public async getRouteDetails(
@@ -1844,12 +1843,12 @@ async driverAcceptsWorkingBurStrictInNotification(orderId: string, driverId: str
 
 
   async stopEtaUpdates(orderId: string): Promise<void> {
-  const schedulerId = `eta-${orderId}`;
-  await this.assignmentQueue.removeJobScheduler(schedulerId).catch(() => {
-    // Scheduler may not exist – that's fine
-    this.logger.debug(`No scheduler found for ${schedulerId}`);
-  });
-}
+    const schedulerId = `eta-${orderId}`;
+    await this.assignmentQueue.removeJobScheduler(schedulerId).catch(() => {
+      // Scheduler may not exist – that's fine
+      this.logger.debug(`No scheduler found for ${schedulerId}`);
+    });
+  }
 
   setDriverSocket(driverId: string, socketId: string) {
     this.driverSockets.set(driverId, socketId);
