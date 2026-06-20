@@ -827,7 +827,7 @@ export default class Helper {
   }
 
   static generateOrderNumber(): string {
-    return `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`;
+    return `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
   }
 
   static generate4DigitCode(): string {

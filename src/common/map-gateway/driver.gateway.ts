@@ -23,7 +23,6 @@ import { JwtService } from '@nestjs/jwt';
     origin: '*',
   },
 })
-@UseGuards(WsJwtGuard)
 
 export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
