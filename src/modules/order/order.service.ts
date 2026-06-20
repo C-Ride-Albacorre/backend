@@ -2834,7 +2834,17 @@ export class OrderService {
       : order.pickupLocation) 
   : {};
       this.logger.log(`Initiating driver search for order ${orderId} with pickup location: ${JSON.stringify(pickupLocation)}`);
-      await this.driverAssignment.initiateDriverSearch(orderId, pickupLocation);
+
+      // Ensure it has lat/lng
+const vendorLocation = {
+  lat: pickupLocation.latitude ?? pickupLocation.lat,
+  lng: pickupLocation.longitude ?? pickupLocation.lng,
+};
+
+if (!vendorLocation.lat || !vendorLocation.lng) {
+  throw new BadRequestException('Invalid pickup location');
+}
+      await this.driverAssignment.initiateDriverSearch(orderId, vendorLocation);
 
       return {
         success: true,
