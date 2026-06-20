@@ -9,6 +9,7 @@ import { DriverAssignmentService } from './driver-assignment.service';
 import { DriverOrderService } from './driver-order.service';
 import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import { AuthModule } from '../auth/auth.module';
+import { DriverAssignmentProcessor } from './processor/driver-assignment.processor';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { AuthModule } from '../auth/auth.module';
     forwardRef(() => AuthModule),
   ],
   controllers: [DriverController],
-  providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway],
+  providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverAssignmentProcessor],
   exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway],
 })
 export class DriverModule {}
