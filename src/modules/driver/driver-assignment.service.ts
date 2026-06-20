@@ -448,7 +448,7 @@ this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radi
           ll_to_earth(${lat}, ${lng}),
           ll_to_earth(dp.latitude, dp.longitude)
         ) AS distance
-      FROM driver_profiles dp
+      FROM d=DriverProfile dp
       WHERE dp.status = 'ONLINE'
         AND earth_distance(
           ll_to_earth(${lat}, ${lng}),
@@ -477,7 +477,7 @@ this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radi
         dp.user_id AS "userId",
         dp.latitude AS "lat",
         dp.longitude AS "lng"
-      FROM driver_profiles dp
+      FROM DriverProfile dp
       WHERE dp.status = 'ONLINE'
         AND earth_distance(
           ll_to_earth(${lat}, ${lng}),
