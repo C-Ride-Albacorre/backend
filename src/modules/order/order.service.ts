@@ -2787,12 +2787,6 @@ export class OrderService {
     if (existingAction?.orderStatus !== OrderStatus.CONFIRMED) {
       throw new ConflictException(`Order already processed: ${existingAction.orderStatus}`);
     }
-    // const existingAction = await this.prisma.vendorOrderAction.findUnique({
-    //   where: { orderId },
-    // });
-    // if (existingAction?.status !== VendorActionStatus.PENDING) {
-    //   throw new ForbiddenException('Order already responded to');
-    // }
 
     if (dto.action === 'ACCEPT') {
       // Update vendor action
@@ -2802,58 +2796,27 @@ export class OrderService {
         respondedAt: new Date()
       });
 
-      // await this.prisma.order.update({
-      //   where: { id: orderId },
-      //   data: {
-      //     respondedAt: new Date(),
-      //   },
-      // });
-      // await this.prisma.order.update({
-      //   where: { id: orderId },
-      //   data: { orderStatus: OrderStatus.ORDER_ACCEPTED, respondedAt: new Date() },
-
-      // });
-      // this.logger.log(`Vendor ${vendorId} accepted order ${orderId}`);
-      // // await this.prisma.vendorOrderAction.update({
-      // //   where: { orderId },
-      // //   data: { status: VendorActionStatus.ACCEPTED, respondedAt: new Date() },
-
-      // // });
-      // // Transition order to ACCEPTED
-      // // await this.orderStatus.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
-      // await this.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
-      //   actorId: vendorId,
-      //   actorRole: Role.VENDOR,
-      // });
-      // Initiate driver search (background)
-      // const pickupLocation = JSON.parse(order.pickupLocation || '{}');
-    //  const pickupLocation = (order.pickupLocation as any) || {};
-  //     const pickupLocation = order.pickupLocation 
-  // ? (typeof order.pickupLocation === 'string' 
-  //     ? JSON.parse(order.pickupLocation) 
-  //     : order.pickupLocation) 
-  // : {};
-  let pickupLocation = order.pickupLocation as any;
-if (!pickupLocation || typeof pickupLocation !== 'object' || !pickupLocation.lat || !pickupLocation.lng) {
-  const store = order.items[0]?.store;
-  if (store?.latitude && store?.longitude) {
-    pickupLocation = { lat: store.latitude, lng: store.longitude };
-    this.logger.warn(`Using store location as fallback for order ${orderId}`);
-  } else {
-    throw new BadRequestException('No valid pickup location for this order');
-  }
-}
+      let pickupLocation = order.pickupLocation as any;
+      if (!pickupLocation || typeof pickupLocation !== 'object' || !pickupLocation.lat || !pickupLocation.lng) {
+        const store = order.items[0]?.store;
+        if (store?.latitude && store?.longitude) {
+          pickupLocation = { lat: store.latitude, lng: store.longitude };
+          this.logger.warn(`Using store location as fallback for order ${orderId}`);
+        } else {
+          throw new BadRequestException('No valid pickup location for this order');
+        }
+      }
       this.logger.log(`Initiating driver search for order ${orderId} with pickup location: ${JSON.stringify(pickupLocation)}`);
 
       // Ensure it has lat/lng
-const vendorLocation = {
-  lat: pickupLocation.latitude ?? pickupLocation.lat,
-  lng: pickupLocation.longitude ?? pickupLocation.lng,
-};
+      const vendorLocation = {
+        lat: pickupLocation.latitude ?? pickupLocation.lat,
+        lng: pickupLocation.longitude ?? pickupLocation.lng,
+      };
 
-if (!vendorLocation.lat || !vendorLocation.lng) {
-  throw new BadRequestException('Invalid pickup location');
-}
+      if (!vendorLocation.lat || !vendorLocation.lng) {
+        throw new BadRequestException('Invalid pickup location');
+      }
       await this.driverAssignment.initiateDriverSearch(orderId, vendorLocation);
 
       return {
