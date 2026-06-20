@@ -22,6 +22,8 @@ import { DriverAssignmentProcessor } from './processor/driver-assignment.process
     forwardRef(() => UserModule),
     forwardRef(() => NotificationModule),
     forwardRef(() => AuthModule),
+    forwardRef(() => OrderModule),
+    
   ],
   controllers: [DriverController],
   providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverAssignmentProcessor],
