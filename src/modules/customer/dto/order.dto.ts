@@ -38,12 +38,12 @@ export class DropoffLocationDto {
   @ApiProperty()
   @IsOptional()
   @IsNumber()
-  latitude: number;
+  latitude?: number;
 
   @ApiProperty()
   @IsOptional()
   @IsNumber()
-  longitude: number;
+  longitude?: number;
 }
 
 export class PickupLocationDto {
