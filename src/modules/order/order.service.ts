@@ -136,10 +136,12 @@ export class OrderService {
             driverAssignedAt: new Date(),
           }),
           ...(targetStatus === OrderStatus.PICKED_UP && {
-            pickupTime: new Date(),
+            pickedUpAt: new Date()
+            //pickupTime: new Date(),
           }),
           ...(targetStatus === OrderStatus.DELIVERED && {
-            deliveryTime: new Date(),
+           // deliveryTime: new Date(),
+            deliveredAt: new Date(),
           }),
         },
       });

@@ -33,6 +33,17 @@ export class DropoffLocationDto {
   @IsOptional()
   @IsString()
   postalCode?: string;
+
+  
+  @ApiProperty()
+  @IsOptional()
+  @IsNumber()
+  latitude: number;
+
+  @ApiProperty()
+  @IsOptional()
+  @IsNumber()
+  longitude: number;
 }
 
 export class PickupLocationDto {
