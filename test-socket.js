@@ -7,10 +7,7 @@ const SERVER_URL = "wss://backend-service-1rc7.onrender.com";
 const DRIVER_ID = "621cf9e2-b70f-48f5-b96b-845abf3605d3";
 const ORDER_ID = "f4f80773-750d-48e2-823b-ee5dd1acd93c";
 
-const ACCESS_TOKEN =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MjFjZjllMi1iNzBmLTQ4ZjUtYjk2Yi04NDVhYmYzNjA1ZDMiLCJlbWFpbCI6ImJpbW9jb3cyNjdAb2N1c2VyLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4MTk3MDkxMCwiZXhwIjoxNzgxOTc0NTEwfQ.p3dUL771dWIR1iXT1f6equn0tkaf7cveRkITDkXhbVA";
-
-// ======================================================
+const ACCESS_TOKEN ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MjFjZjllMi1iNzBmLTQ4ZjUtYjk2Yi04NDVhYmYzNjA1ZDMiLCJlbWFpbCI6ImJpbW9jb3cyNjdAb2N1c2VyLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4MjA1MDQ1MCwiZXhwIjoxNzgyMDU0MDUwfQ.HCCDSOnH7drInuagrszhrv-yxDpouBoDPBfFfPwuHrY"
 // DRIVER NAMESPACE
 // ======================================================
 
