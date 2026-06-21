@@ -259,12 +259,19 @@ export class DriverAssignmentService {
       const store = order?.items[0]?.store;
       const orderData = {
         orderId,
+        orderNumber: order?.orderNumber || orderId,
         vendorLocation,
+        storeId: store?.id?.toString() || '',
         storeName: store?.storeName || 'Store',
+        storeLogo: (store as any)?.storeLogo || '',
         totalAmount: order?.totalAmount || 0,
         orderType: order?.orderType || 'DELIVERY',
         pickupLocation: order?.pickupLocation || { lat: 0, lng: 0 },
+        dropoffLocation: order?.dropoffLocation || { lat: 0, lng: 0 },
+        storeLat: store?.latitude ?? vendorLocation.lat,
+        storeLng: store?.longitude ?? vendorLocation.lng,
         distance: calculateDistance(vendorLocation, order?.pickupLocation || { lat: 0, lng: 0 }),
+        createdAt: order?.createdAt || new Date(),
       };
 
       const pipeline = this.redis.pipeline();
@@ -282,10 +289,18 @@ export class DriverAssignmentService {
       for (const driver of drivers) {
         // EMIT WEBSOCKET EVENT IMMEDIATELY
         this.logger.log(`Emitting new order request to driver ${driver.userId} for order ${orderId}`);
-        const sent = this.driverGateway.emitNewOrderRequest(driver.userId, {
-          ...orderData,
-          distance: driver.lat + ',' + driver.lng, // Include distance if available
-        });
+        // const sent = this.driverGateway.emitNewOrderRequest(driver.userId, {
+        //   ...orderData,
+        //   distance: driver.lat + ',' + driver.lng, // Include distance if available
+
+        // });
+        const sent = await this.driverGateway.emitNewOrderRequest(
+          driver.userId,
+          orderId,
+          {
+            ...orderData,
+          },
+        );
 
         if (sent) {
           this.logger.log(`WebSocket notification sent to driver ${driver.userId} for order ${orderId}`);
@@ -342,22 +357,22 @@ export class DriverAssignmentService {
 
 
   async getNearbyDrivers(
-  lat: number,
-  lng: number,
-  radiusMeters: number,
-): Promise<NearbyDriver[]> {
-  try {
-    this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radius ${radiusMeters}m`);
+    lat: number,
+    lng: number,
+    radiusMeters: number,
+  ): Promise<NearbyDriver[]> {
+    try {
+      this.logger.log(`Fetching nearby drivers for location (${lat}, ${lng}) with radius ${radiusMeters}m`);
 
-    // Validate inputs
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      throw new Error('Invalid coordinates provided');
-    }
-    if (radiusMeters <= 0) {
-      throw new Error('Radius must be greater than 0');
-    }
+      // Validate inputs
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        throw new Error('Invalid coordinates provided');
+      }
+      if (radiusMeters <= 0) {
+        throw new Error('Radius must be greater than 0');
+      }
 
-    return this.prisma.$queryRaw<NearbyDriver[]>`
+      return this.prisma.$queryRaw<NearbyDriver[]>`
       SELECT
         dp."userId" AS "userId",
         dp."latitude" AS "lat",
@@ -378,11 +393,11 @@ export class DriverAssignmentService {
       ORDER BY distance ASC
       LIMIT 10
     `;
-  } catch (error) {
-    this.logger.error(`Error fetching nearby drivers: ${error.message}`);
-    throw error;
+    } catch (error) {
+      this.logger.error(`Error fetching nearby drivers: ${error.message}`);
+      throw error;
+    }
   }
-}
 
   async driverAccepts(orderId: string, driverId: string): Promise<boolean> {
     // 1. Check if the order is still available
@@ -802,8 +817,8 @@ export class DriverAssignmentService {
 
       const origin = { lat: driver.latitude, lng: driver.longitude };
       const destination = { lat: vendorLat, lng: vendorLng };
-       this.logger.log(`Calculating route from driver (${origin.lat}, ${origin.lng}) to vendor (${destination.lat}, ${destination.lng}) for order ${orderId}`);
-      
+      this.logger.log(`Calculating route from driver (${origin.lat}, ${origin.lng}) to vendor (${destination.lat}, ${destination.lng}) for order ${orderId}`);
+
       const { durationSec, polyline } = await this.getRouteDetails(origin, destination);
 
       // Store leg state in Redis (TTL 2 hours)
@@ -1591,8 +1606,45 @@ export class DriverAssignmentService {
   // Replace the old push‑only notification with WebSocket + push
   async notifyDriverViaWebSocket(driverId: string, orderId: string, vendorLocation: any, etaSeconds: number) {
     // Emit WebSocket event if driver is connected
+
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: {
+            include: {
+              store: true,
+            },
+          },
+        },
+      });
+    
+      const store = order?.items[0]?.store;
+      const orderData = {
+        orderId,
+        orderNumber: order?.orderNumber || orderId,
+        vendorLocation,
+        storeId: store?.id?.toString() || '',
+        storeName: store?.storeName || 'Store',
+        storeLogo: (store as any)?.storeLogo || '',
+        totalAmount: order?.totalAmount || 0,
+        orderType: order?.orderType || 'DELIVERY',
+        pickupLocation: order?.pickupLocation || { lat: 0, lng: 0 },
+        dropoffLocation: order?.dropoffLocation || { lat: 0, lng: 0 },
+        storeLat: store?.latitude ?? vendorLocation.lat,
+        storeLng: store?.longitude ?? vendorLocation.lng,
+        distance: calculateDistance(vendorLocation, order?.pickupLocation || { lat: 0, lng: 0 }),
+        createdAt: order?.createdAt || new Date(),
+      };
+
     if (this.driverSockets.has(driverId)) {
-      this.driverGateway.emitNewOrderRequest(driverId, { orderId, vendorLocation, etaSeconds });
+      // this.driverGateway.emitNewOrderRequest(driverId, { orderId, vendorLocation, etaSeconds });
+         const sent = await this.driverGateway.emitNewOrderRequest(
+          driverId,
+          orderId,
+          {
+            ...orderData,
+          },
+        );
     }
     // Also send push notification (FCM) as fallback
     await this.pushService.sendToDriver(driverId, {

@@ -153,7 +153,7 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
   //     return false;
   //   }
   // }
-  async emitNewOrderRequest(
+  async emitNewOrderRequestbk(
   driverId: string,
   order: any,
 ) {
@@ -183,6 +183,65 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     `Sent new order request to driver ${driverId}`,
   );
 
+  return true;
+}
+
+
+async emitNewOrderRequest(
+  driverId: string,
+  orderId: string,
+  orderData: {
+    vendorLocation: { lat: number; lng: number };
+    orderNumber: string;
+    storeId: string;
+    storeName: string;
+    totalAmount: number;
+    orderType: string;
+    storeLogo: string;
+    pickupLocation: any;
+    dropoffLocation: any;
+    storeLat: any;
+    storeLng: any;
+    distance: number;
+    createdAt: Date,
+
+  },
+) {
+  const socketId = this.driverSockets.get(driverId);
+  if (!socketId) {
+    this.logger.warn(`Driver ${driverId} not connected`);
+    return false;
+  }
+
+  // Fetch items summary using orderId
+  let itemsSummary: Record<string, any[]> = {};
+  try {
+    itemsSummary = await this.driverService.getOrderItemsSummary([orderId]);
+  } catch (error) {
+    this.logger.error(`Failed to get order items summary: ${error.message}`);
+    itemsSummary = {};
+  }
+
+  const payload = {
+    order_id: orderId,
+    order_number: orderData.orderNumber, // need to add this to orderData
+    order_status: 'ORDER_ACCEPTED',
+    total_amount: orderData.totalAmount,
+    pickup_location: orderData.pickupLocation,
+    dropoff_location: orderData.dropoffLocation, // add if needed
+    created_at: orderData.createdAt,
+    store_id: orderData.storeId,
+    store_name: orderData.storeName,
+    store_logo: orderData.storeLogo,
+    store_lat: orderData.storeLat,
+    store_lng: orderData.storeLng,
+    distance_meters: orderData.distance,
+    rn: '1',
+    items: itemsSummary[orderId] || [],
+  };
+
+  this.server.to(socketId).emit('new-order-request', payload);
+  this.logger.log(`Sent new order request to driver ${driverId}`);
   return true;
 }
   /**
