@@ -921,8 +921,8 @@ export class DriverAssignmentService {
       throw new Error(`Driver ${driverId} has no valid location`);
     }
 
-    const dropoff = order.dropoffLocation as { lat: number; lng: number } | null;
-    if (!dropoff?.lat || !dropoff?.lng) {
+    const dropoff = order.dropoffLocation as { latitude: number; longitude: number } | null;
+    if (!dropoff?.latitude || !dropoff?.longitude) {
       throw new Error(`Order ${orderId} has no valid dropoff location`);
     }
 
@@ -933,7 +933,7 @@ export class DriverAssignmentService {
 
     // Get route details with retry & fallback
     const origin = { lat: driver.latitude, lng: driver.longitude };
-    const destination = { lat: dropoff.lat, lng: dropoff.lng };
+    const destination = { lat: dropoff.latitude, lng: dropoff.longitude };
     const { durationSec, polyline } = await this.getRouteDetailsWithRetry(origin, destination, 2);
 
     // Use longer TTL (e.g., 6 hours) for long trips
