@@ -7,9 +7,7 @@ const { io } = require("socket.io-client");
 const SERVER_URL = "wss://backend-service-1rc7.onrender.com";
 const NAMESPACE = "/driver";
 const DRIVER_ID = "621cf9e2-b70f-48f5-b96b-845abf3605d3";
-const ACCESS_TOKEN ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MjFjZjllMi1iNzBmLTQ4ZjUtYjk2Yi04NDVhYmYzNjA1ZDMiLCJlbWFpbCI6ImJpbW9jb3cyNjdAb2N1c2VyLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4MjA1MDQ1MCwiZXhwIjoxNzgyMDU0MDUwfQ.HCCDSOnH7drInuagrszhrv-yxDpouBoDPBfFfPwuHrY"
-
-// Connect with query params and auth
+const ACCESS_TOKEN ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MjFjZjllMi1iNzBmLTQ4ZjUtYjk2Yi04NDVhYmYzNjA1ZDMiLCJlbWFpbCI6ImJpbW9jb3cyNjdAb2N1c2VyLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4MjA2Nzk4OCwiZXhwIjoxNzgyMDcxNTg4fQ.Fz9R4-52ni-ATWKUJFbfn6Tt5xzDurP7f0RXdEUsNpo"
 const socket = io(`${SERVER_URL}${NAMESPACE}`, {
   query: {
     driverId: DRIVER_ID,

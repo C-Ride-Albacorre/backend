@@ -21,6 +21,7 @@ import { MessageBody, SubscribeMessage } from '@nestjs/websockets';
 import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import Helper from 'src/shared/utils/helpers';
 import { JsonObject, JsonArray } from '@prisma/client/runtime/library';
+import { ConfigService } from '@nestjs/config';
 
 type TransitionContext = {
   actorId?: string;
@@ -68,7 +69,17 @@ export class DriverAssignmentService {
     private pushService: PushNotificationService,
     @Inject(forwardRef(() => DriverGateway))
     public readonly driverGateway: DriverGateway,
-  ) { }
+    private configService: ConfigService,
+    
+  ) { 
+    this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');
+    if (!this.googleMapsApiKey) {
+      this.logger.warn(
+        'Google Maps API key is missing – ETA calculation will fail',
+      );
+    }
+  }
+
 
   transitions: Record<
     string,
@@ -155,10 +166,13 @@ export class DriverAssignmentService {
             driverAssignedAt: new Date(),
           }),
           ...(targetStatus === OrderStatus.PICKED_UP && {
-            pickupTime: new Date(),
+            //pickupTime: new Date(),
+            pickedUpAt: new Date()
           }),
           ...(targetStatus === OrderStatus.DELIVERED && {
-            deliveryTime: new Date(),
+              deliveredAt: new Date(),
+            //deliveryTime: new Date(),
+
           }),
         },
       });
