@@ -265,11 +265,11 @@ STEP 3 – Final Step: Review (Optional save before uploads)
   @GetUser() driver: User,
   @Query('lat') lat: string,
   @Query('lng') lng: string,
-  @Query('radius') radius?: string,
+  // @Query('radius') radius?: string,
 ) {
   const driverLat = parseFloat(lat);
   const driverLng = parseFloat(lng);
-  const radiusKm = radius ? parseFloat(radius) : 10;
+  const radiusKm = 10 // radius ? parseFloat(radius) : 10;
   
   return this.driverService.findAvailableOrders(
     driver.id,   // Pass driver ID for TTL renewal
