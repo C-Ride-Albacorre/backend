@@ -140,7 +140,7 @@ export class OrderService {
             //pickupTime: new Date(),
           }),
           ...(targetStatus === OrderStatus.DELIVERED && {
-           // deliveryTime: new Date(),
+            // deliveryTime: new Date(),
             deliveredAt: new Date(),
           }),
         },
@@ -513,269 +513,6 @@ export class OrderService {
     throw lastError;
   }
 
-  // private buildCartSummaryFromCart2(cart: any): CartSummaryDto {
-  //   const items = cart.items.map((item: any) => {
-  //     if (item.itemType === 'PRODUCT') {
-  //       const product = item.product;
-  //       return {
-  //         id: item.id,
-  //         itemType: item.itemType,
-  //         productId: item.productId,
-  //         variantId: item.variantId,
-  //         packageId: null,
-  //         name: product?.productName || 'Product (deleted)',
-  //         imageUrl: product?.productImages?.[0]?.imageUrl || null,
-  //         quantity: item.quantity,
-  //         unitPrice: item.unitPrice,
-  //         totalPrice: item.totalPrice,
-  //         selectedAddons: Array.isArray(item.selectedAddons)
-  //           ? item.selectedAddons
-  //           : [],
-  //         storeId: product?.storeId || null,
-  //         storeName: product?.store?.storeName || null,
-  //         specialInstructions: item.specialInstructions,
-  //       };
-  //     } else {
-  //       const pkg = item.package;
-  //       return {
-  //         id: item.id,
-  //         itemType: item.itemType,
-  //         productId: null,
-  //         variantId: null,
-  //         packageId: item.packageId,
-  //         name: pkg?.name || 'Package (deleted)',
-  //         imageUrl: null,
-  //         quantity: item.quantity,
-  //         unitPrice: item.unitPrice,
-  //         totalPrice: item.totalPrice,
-  //         selectedAddons: [],
-  //         storeId: pkg?.storeId || null,
-  //         storeName: pkg?.store?.storeName || null,
-  //         specialInstructions: item.specialInstructions,
-  //       };
-  //     }
-  //   });
-
-  //   const subtotal = items.reduce(
-  //     (sum: number, i: any) => sum + i.totalPrice,
-  //     0,
-  //   );
-  //   // Note: deliveryFee, serviceFee, taxAmount would need to be calculated
-  //   // using the same helpers, but we want to avoid DB calls here.
-  //   // For simplicity, you can compute them synchronously if they don't depend on DB.
-  //   // Or call the helpers with the transaction client later.
-  //   // I'll assume you have a way to compute them without DB inside the transaction.
-  //   // For this example, we compute them using the transaction client later – but we are inside
-  //   // the transaction already, so we can call the helpers with `tx`. However, to keep this method pure,
-  //   // we can compute fees outside and pass them. I'll refactor: compute fees separately.
-  //   // Better: after building items, we compute fees using the transaction client (tx).
-  //   // But we don't have tx here. So let's restructure: compute fees inside the transaction
-  //   // after building items, before returning the summary.
-  //   // Actually, we are not returning this summary to the outside; we are using it to create the order.
-  //   // So we can compute the fees right after building items, still inside the transaction.
-  //   // Let's change the approach: inside the transaction, after fetching cartWithItems,
-  //   // compute items array, subtotal, then call fee helpers with tx, then build the final summary.
-  //   // I'll adjust the transaction code accordingly.
-  // }
-
-  // Therefore, instead of a separate buildCartSummaryFromCart, we compute everything inline.
-
-  async createOrderFix(
-    userId: string,
-    dto: CreateOrderDto,
-  ): Promise<OrderSummaryDto> {
-    const requestId = crypto.randomUUID();
-    this.logger.log(
-      `[${requestId}] ORDER_CREATE_STARTED user=${userId} cart=${dto.cartId}`,
-    );
-
-    // ----- Pre-transaction fast validations -----
-    const existingCart = await this.prisma.cart.findUnique({
-      where: { id: dto.cartId },
-      select: { id: true, userId: true, status: true },
-    });
-    if (!existingCart) throw new NotFoundException('Cart not found');
-    if (existingCart.userId !== userId)
-      throw new ForbiddenException('Access denied');
-    if (existingCart.status !== CartStatus.ACTIVE)
-      throw new BadRequestException(`Cart is ${existingCart.status}`);
-
-    // ----- Idempotency check (if idempotencyKey provided) -----
-    if (dto.idempotencyKey) {
-      const existing = await this.prisma.idempotencyRecord.findUnique({
-        where: { key: dto.idempotencyKey },
-      });
-      if (existing && existing.orderId) {
-        this.logger.log(
-          `[${requestId}] Idempotent request, returning existing order ${existing.orderId}`,
-        );
-        return this.getOrderSummary(existing.orderId, userId);
-      }
-    }
-
-    // ----- Precompute time‑based values (constant across retries) -----
-    const now = DateTime.now().setZone(this.TIMEZONE);
-    const currentMinutes = now.hour * 60 + now.minute;
-    const todayWeekday = now.toFormat('cccc');
-    const startOfDay = now.startOf('day').toJSDate();
-    const endOfDay = now.endOf('day').toJSDate();
-    const orderNumber = Helper.generateOrderNumber(); // deterministic, outside loop
-    const orderCode = Helper.generate4DigitCode();
-
-    const MAX_RETRIES = 3;
-    let lastError: any;
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const order = await this.prisma.$transaction(
-          async (tx) => {
-            // 1. Idempotency record creation (if key provided)
-            if (dto.idempotencyKey) {
-              await tx.idempotencyRecord.create({
-                data: { key: dto.idempotencyKey, status: 'PROCESSING' },
-              });
-            }
-
-            // 2. Atomic cart lock + mark as CHECKED_OUT
-            const lockResult = await tx.cart.updateMany({
-              where: { id: dto.cartId, userId, status: CartStatus.ACTIVE },
-              data: {
-                status: CartStatus.CHECKED_OUT,
-                checkedOutAt: new Date(),
-              },
-            });
-            if (lockResult.count === 0) {
-              throw new BadRequestException('Cart already being processed');
-            }
-
-            // 3. Get cart summary INSIDE transaction
-            const cartSummary = await this.cartService.getCartSummary(
-              dto.cartId,
-              userId,
-              undefined,
-              tx,
-            );
-            if (cartSummary.items.length === 0)
-              throw new BadRequestException('Cart is empty');
-
-            // 4. Store validation with atomic daily limits
-            const storeIds = [
-              ...new Set(
-                cartSummary.items.map((i) => i.storeId).filter(Boolean),
-              ),
-            ];
-            for (const storeId of storeIds) {
-              await this.validateStoreWithAtomicCounter(
-                tx,
-                storeId as string,
-                todayWeekday,
-                currentMinutes,
-                startOfDay,
-                endOfDay,
-              );
-            }
-
-            // 5. Create order
-            const newOrder = await tx.order.create({
-              data: {
-                orderNumber,
-                orderCode,
-                userId,
-                orderType: this.determineOrderType(cartSummary.items),
-                subtotal: cartSummary.subtotal,
-                deliveryFee: cartSummary.deliveryFee,
-                serviceFee: cartSummary.serviceFee,
-                taxAmount: cartSummary.taxAmount,
-                totalAmount: cartSummary.totalAmount,
-                deliveryOptionId: dto.deliveryOptionId,
-                // pickupLocation: dto.pickupLocation
-                //   ? (dto.pickupLocation as Prisma.JsonObject)
-                //   : null,
-                // dropoffLocation: dto.dropoffLocation
-                //   ? (dto.dropoffLocation as Prisma.JsonObject)
-                //   : null,
-                pickupLocation: dto.pickupLocation
-                  ? (dto.pickupLocation as unknown as Prisma.JsonObject)
-                  : null,
-
-                dropoffLocation: dto.dropoffLocation
-                  ? (dto.dropoffLocation as unknown as Prisma.JsonObject)
-                  : null,
-                recipientName: dto.recipientName,
-                recipientPhone: dto.recipientPhone,
-                deliveryInstructions: dto.deliveryInstructions,
-                paymentStatus: PaymentStatus.PENDING,
-                orderStatus: OrderStatus.ORDER_PLACED,
-                statusHistory: [
-                  {
-                    status: OrderStatus.ORDER_PLACED,
-                    timestamp: now.toISO(),
-                    note: 'Order created',
-                  },
-                ],
-              },
-            });
-
-            // 6. Create order items
-            await tx.orderItem.createMany({
-              data: cartSummary.items.map((item) => ({
-                orderId: newOrder.id,
-                itemType: item.itemType as CartItemType,
-                productId: item.itemType === 'PRODUCT' ? item.productId : null,
-                packageId:
-                  item.itemType === 'PACKAGE' || item.itemType === 'DOCUMENT'
-                    ? item.packageId
-                    : null,
-                storeId: item.storeId || null,
-                variantId: item.variantId || null,
-                selectedAddons: item.selectedAddons || [],
-                quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                totalPrice: item.totalPrice,
-                specialInstructions: item.specialInstructions || null,
-              })),
-            });
-
-            // 7. Update idempotency record if exists
-            if (dto.idempotencyKey) {
-              await tx.idempotencyRecord.update({
-                where: { key: dto.idempotencyKey },
-                data: { status: 'COMPLETED', orderId: newOrder.id },
-              });
-            }
-
-            return newOrder;
-          },
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-            timeout: 15000,
-          },
-        );
-
-        this.logger.log(
-          `[${requestId}] ORDER_CREATE_SUCCESS order=${order.id}`,
-        );
-        return this.getOrderSummary(order.id, userId);
-      } catch (err: any) {
-        lastError = err;
-        this.logger.error(
-          `[${requestId}] Attempt ${attempt} failed: ${err.message}`,
-          err.stack,
-        );
-
-        const isRetryable = err.code === 'P2034' || err.code === 'P2028';
-        if (!isRetryable || attempt === MAX_RETRIES) {
-          // No need to reset cart status – transaction rollback already reverted it
-          throw err;
-        }
-        this.logger.warn(
-          `[${requestId}] Retrying transaction, attempt ${attempt + 1}`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, 100 * attempt)); // backoff
-      }
-    }
-    throw lastError;
-  }
 
   // ================================
   // Atomic daily limit helper
@@ -797,19 +534,19 @@ export class OrderService {
     if (!store) throw new NotFoundException(`Store ${storeId} not found`);
 
     // Hours validation (same as before)
-    const todayHours = store.operatingHours.find(
-      (h) => h.dayOfWeek === todayWeekday,
-    );
-    if (!todayHours || !todayHours.isOpen)
-      throw new BadRequestException(`${store.storeName} is closed today`);
-    if (todayHours.closingTime) {
-      const closingMinutes = Helper.timeToMinutes(todayHours.closingTime);
-      if (currentMinutes >= closingMinutes - 30) {
-        throw new BadRequestException(
-          `${store.storeName} is no longer accepting orders`,
-        );
-      }
-    }
+    // const todayHours = store.operatingHours.find(
+    //   (h) => h.dayOfWeek === todayWeekday,
+    // );
+    // if (!todayHours || !todayHours.isOpen)
+    //   throw new BadRequestException(`${store.storeName} is closed today`);
+    // if (todayHours.closingTime) {
+    //   const closingMinutes = Helper.timeToMinutes(todayHours.closingTime);
+    //   if (currentMinutes >= closingMinutes - 30) {
+    //     throw new BadRequestException(
+    //       `${store.storeName} is no longer accepting orders`,
+    //     );
+    //   }
+    // }
 
     // Atomic daily limit using a counter table
     if (store.dailyOrderLimit && store.dailyOrderLimit > 0) {
@@ -2488,9 +2225,155 @@ export class OrderService {
   }
 
   //////////////////
+
   async getVendorOrders(
     vendorId: string,
-    filters: { page?: number; limit?: number },
+    filters: {
+      status?: OrderStatus;
+      page?: number;
+      limit?: number;
+    },
+  ) {
+    // 1. Get vendor stores
+    const stores = await this.prisma.store.findMany({
+      where: { userId: vendorId },
+      select: { id: true },
+    });
+
+    const storeIds = stores.map((s) => s.id);
+
+    if (!storeIds.length) {
+      return {
+        data: [],
+        total: 0,
+        page: filters.page || 1,
+        limit: filters.limit || 20,
+        totalPages: 0,
+      };
+    }
+
+    // 2. Pagination
+    const page = Math.max(Number(filters.page) || 1, 1);
+    const limit = Math.min(Number(filters.limit) || 20, 100);
+
+    // 3. Build filter
+    const where = {
+      orderStatus: filters.status || OrderStatus.CONFIRMED,
+      paymentStatus: PaymentStatus.PAID,
+      items: {
+        some: {
+          storeId: {
+            in: storeIds,
+          },
+        },
+      },
+    };
+
+    // 4. Fetch orders
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: {
+          items: {
+            where: {
+              storeId: {
+                in: storeIds,
+              },
+            },
+            include: {
+              store: true,
+              variant: true,
+              product: {
+                include: {
+                  productImages: true,
+                },
+              },
+            },
+          },
+          user: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+
+      this.prisma.order.count({ where }),
+    ]);
+
+    // 5. Transform response
+    const data = orders.map((order) => {
+      const vendorItems = order.items;
+
+      const vendorSubtotal = vendorItems.reduce(
+        (sum, item) => sum + item.totalPrice,
+        0,
+      );
+
+      const vendorQuantity = vendorItems.reduce(
+        (sum, item) => sum + item.quantity,
+        0,
+      );
+
+      return {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        orderCode: order.orderCode,
+        createdAt: order.createdAt,
+
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+
+        user: {
+          firstName: order.user.firstName,
+          lastName: order.user.lastName,
+          email: order.user.email,
+          phone: order.user.phoneNumber,
+          countryCode: order.user.countryCode,
+          isVerified: order.user.isVerified,
+          profilePicture: order.user.profilePicture,
+        },
+
+        items: vendorItems.map((item) => ({
+          id: item.id,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+
+          product: item.product
+            ? {
+              id: item.product.id,
+              productName: item.product.productName,
+              image:
+                item.product.productImages?.[0]?.imageUrl ?? null,
+            }
+            : null,
+
+          variant: item.variant,
+          store: item.store,
+        })),
+
+        vendorSummary: {
+          itemCount: vendorItems.length,
+          totalQuantity: vendorQuantity,
+          subtotal: vendorSubtotal,
+        },
+      };
+    });
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async getVendorOrdersWithoutStatus(
+    vendorId: string,
+    filters: { status?: string, page?: number; limit?: number },
   ) {
     // 1. Get vendor stores
     const stores = await this.prisma.store.findMany({

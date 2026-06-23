@@ -19,7 +19,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { OrderService } from './order.service';
-import { Role } from '@prisma/client';
+import { OrderStatus, Role } from '@prisma/client';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { RolesGuard } from '../../common/guards/role.guard';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
@@ -46,13 +46,13 @@ export class OrderController {
     summary: 'List vendor orders',
     description: 'Retrieve all PAID and CONFIRMED orders belonging to the authenticated vendor.',
   })
-  // @ApiQuery({
-  //   name: 'status',
-  //   required: false,
-  //   type: String,
-  //   example: 'CONFIRMED',
-  //   description: 'Filter orders by status',
-  // })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    type: String,
+    example: 'ORDER_ASSIGNED',
+    description: 'Filter orders by status',
+  })
   @ApiQuery({
     name: 'page',
     required: false,
@@ -77,7 +77,7 @@ export class OrderController {
   })
   async listOrders(
     @GetUser() user: any,
-    // @Query('status') status?: string,
+    @Query('status') status?: OrderStatus,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
@@ -89,7 +89,7 @@ export class OrderController {
 
 
     return this.orderService.getVendorOrders(user.id, {
-      // status,
+      status,
       page,
       limit,
     });
