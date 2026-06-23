@@ -219,8 +219,9 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     
     const driverId = client.data.user?.id;
-    
-    if (!driverId) throw new WsException('Unauthorized');
+        this.logger.log(`Driver Id, ${driverId}`)
+
+    // if (!driverId) throw new WsException('Unauthorized');
 
     await this.driverAssignmentService.handleDriverLocation({
       driverId,
@@ -240,7 +241,8 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { status: DriverStatus },
   ) {
     const driverId = client.data.user?.id;
-    if (!driverId) throw new WsException('Unauthorized');
+    this.logger.log(`Driver Id, ${driverId}`)
+    //if (!driverId) throw new WsException('Unauthorized');
     await this.driverAssignmentService.updateDriverStatus(driverId, data.status);
     client.emit('status-updated', { status: data.status });
   }
