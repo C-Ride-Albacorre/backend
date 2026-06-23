@@ -65,6 +65,7 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Store connection
       this.driverSockets.set(driverId, client.id);
       client.data.driverId = driverId;
+      client.data.user = { id: driverId }; // add this
 
       this.logger.log(`Driver ${driverId} connected with socket ${client.id}`);
 
@@ -217,19 +218,22 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { orderId: string; lat: number; lng: number; heading: number },
   ) {
-    
+
     const driverId = client.data.user?.id;
-        this.logger.log(`Driver Id, ${driverId}`)
+    this.logger.log(`Driver Id, ${driverId}`)
 
-     if (!driverId) throw new WsException('Unauthorized');
+    if (!driverId) throw new WsException('Unauthorized');
 
-    await this.driverAssignmentService.handleDriverLocation({
+    // await this.driverAssignmentService.handleDriverLocation({
+    await this.driverAssignmentService.updateDriverLocation(
       driverId,
-      orderId: data.orderId,
-      lat: data.lat,
-      lng: data.lng,
-      heading: data.heading,
-    });
+      data.orderId,
+      data.lat,
+      data.lng,
+      data.heading,
+    );
+
+
   }
 
   /**
@@ -240,8 +244,10 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { status: DriverStatus },
   ) {
-    const driverId = client.data.user?.id;
-    this.logger.log(`Driver Id, ${driverId}`)
+    const driverId1 = client.data.user?.id;
+      const driverId = client.data.driverId; // ✅ Use this directly
+
+    this.logger.log(`Driver Id, ${driverId}, ${driverId1}`)
     //if (!driverId) throw new WsException('Unauthorized');
     await this.driverAssignmentService.updateDriverStatus(driverId, data.status);
     client.emit('status-updated', { status: data.status });
