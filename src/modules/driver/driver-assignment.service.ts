@@ -1465,6 +1465,15 @@ export class DriverAssignmentService {
     await this.redis.setex(`driver:${driverId}:loc`, 30, JSON.stringify({ lat, lng, heading }));
     // Also store the current orderId for the driver
     if (orderId) await this.redis.setex(`driver:${driverId}:order`, 3600, orderId);
+
+      // Optional: update driver profile
+    await this.prisma.driverProfile.update({
+      where: { userId: driverId },
+      data: {
+        latitude: lat,
+        longitude: lng,
+      },
+    });
     this.logger.log(`Forward to customer's WebSocket`)
     // Forward to customer's WebSocket
     await this.mapGateway.emitDriverLocation(orderId, { lat, lng, heading });
