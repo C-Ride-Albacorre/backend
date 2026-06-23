@@ -217,8 +217,11 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { orderId: string; lat: number; lng: number; heading: number },
   ) {
+    
     const driverId = client.data.user?.id;
+    
     if (!driverId) throw new WsException('Unauthorized');
+
     await this.driverAssignmentService.handleDriverLocation({
       driverId,
       orderId: data.orderId,

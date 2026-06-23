@@ -865,42 +865,6 @@ export class DriverAssignmentService {
   }
 
 
-  async switchToCustomerLegOld(orderId: string, driverId: string) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) return;
-    const dropoff = order.dropoffLocation as any;
-    if (!dropoff?.lat || !dropoff?.lng) {
-      this.logger.error(`No dropoff location for order ${orderId}`);
-      return;
-    }
-
-    const driver = await this.prisma.driverProfile.findUnique({ where: { userId: driverId } });
-    if (!driver?.latitude || !driver?.longitude) return;
-
-    const origin = { lat: driver.latitude, lng: driver.longitude };
-    const destination = { lat: dropoff.lat, lng: dropoff.lng };
-    const { durationSec, polyline } = await this.getRouteDetails(origin, destination);
-
-    // Update Redis leg and destination
-    await this.redis.setex(`order:${orderId}:leg`, 7200, 'to-customer');
-    await this.redis.setex(`order:${orderId}:destination`, 7200, JSON.stringify(destination));
-    await this.redis.setex(`order:${orderId}:polyline`, 7200, polyline);
-
-    // Emit new ETA & polyline
-    await this.mapGateway.emitEta(orderId, durationSec, 'to-customer');
-    await this.mapGateway.emitPolyline(orderId, polyline, 'to-customer');
-
-    // Change the recurring job to use the new leg
-    await this.assignmentQueue.removeRepeatableByKey(`eta-${orderId}`);
-    await this.assignmentQueue.add(
-      'update-eta',
-      { orderId, driverId, leg: 'to-customer' },
-      { repeat: { every: 10000 }, jobId: `eta-${orderId}` }
-    );
-
-    this.logger.log(`Switched to customer leg for order ${orderId}, ETA ${durationSec}s`);
-  }
-
   async switchToCustomerLeg(orderId: string, driverId: string): Promise<void> {
     // Fetch order and driver with required fields
     const [order, driver] = await Promise.all([
@@ -1006,6 +970,7 @@ export class DriverAssignmentService {
       const response = await axios.get(url, { timeout: 8000 });
       this.logger.log(`Received response from Directions API: status ${response.status}`);
       const route = response.data.routes?.[0];
+      this.logger.log(`Getting route: ${response.data} - ${route}`)
       if (!route) throw new Error('No route found');
       const leg = route?.legs?.[0];
       if (!leg?.duration?.value) {
@@ -1040,13 +1005,6 @@ export class DriverAssignmentService {
     return Math.round(distanceMeters / speedMps);
   }
 
-  private estimateEtaFallbacold(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }): number {
-    // Simple straight-line distance at 60 km/h
-    const dx = (destination.lng - origin.lng) * 111320 * Math.cos(origin.lat * Math.PI / 180);
-    const dy = (destination.lat - origin.lat) * 110574;
-    const distanceMeters = Math.sqrt(dx * dx + dy * dy);
-    return Math.round(distanceMeters / 16.667); // seconds
-  }
 
   private async getRouteDetailsWithRetry(
     origin: { lat: number; lng: number },
@@ -1070,99 +1028,6 @@ export class DriverAssignmentService {
     return { durationSec: this.estimateEtaFallback(origin, destination), polyline: '' };
   }
 
-  // public async getRouteDetails(
-  //   origin: { lat: number; lng: number },
-  //   destination: { lat: number; lng: number },
-  // ): Promise<{ durationSec: number; polyline: string }> {
-  //   if (!this.googleMapsApiKey) {
-  //     const durationSec = this.estimateEtaFallback(origin, destination);
-  //     return { durationSec, polyline: '' };
-  //   }
-
-  //   const url = `https://maps.googleapis.com/maps/api/directions/json`;
-  //   const params = {
-  //     origin: `${origin.lat},${origin.lng}`,
-  //     destination: `${destination.lat},${destination.lng}`,
-  //     key: this.googleMapsApiKey,
-  //   };
-  //   const response = await axios.get(url, { params, timeout: 8000 }); // increased timeout
-  //   const route = response.data.routes?.[0];
-  //   const leg = route?.legs?.[0];
-  //   if (!leg?.duration?.value) {
-  //     throw new Error('No valid duration in API response');
-  //   }
-  //   return {
-  //     durationSec: leg.duration.value,
-  //     polyline: route.overview_polyline?.points ?? '',
-  //   };
-  // }
-
-  // private estimateEtaFallback(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }): number {
-  //   const R = 6371000; // Earth radius in meters
-  //   const φ1 = origin.lat * Math.PI / 180;
-  //   const φ2 = destination.lat * Math.PI / 180;
-  //   const Δφ = (destination.lat - origin.lat) * Math.PI / 180;
-  //   const Δλ = (destination.lng - origin.lng) * Math.PI / 180;
-  //   const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-  //             Math.cos(φ1) * Math.cos(φ2) *
-  //             Math.sin(Δλ/2) * Math.sin(Δλ/2);
-  //   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  //   const distanceMeters = R * c;
-  //   // Assume 40 km/h average urban speed (more realistic)
-  //   const speedMps = 11.111; // 40 km/h
-  //   return Math.round(distanceMeters / speedMps);
-  // }
-
-  // private async calculateEta(
-  //   origin: { lat: number; lng: number },
-  //   destination: { lat: number; lng: number },
-  // ): Promise<number> {
-  //   if (!this.googleMapsApiKey) {
-  //     // Fallback: simple Euclidean distance approximation (km) * 2 min per km
-  //     const R = 6371; // km
-  //     const dLat = ((destination.lat - origin.lat) * Math.PI) / 180;
-  //     const dLng = ((destination.lng - origin.lng) * Math.PI) / 180;
-  //     const a =
-  //       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-  //       Math.cos((origin.lat * Math.PI) / 180) *
-  //       Math.cos((destination.lat * Math.PI) / 180) *
-  //       Math.sin(dLng / 2) *
-  //       Math.sin(dLng / 2);
-  //     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  //     const distanceKm = R * c;
-  //     return Math.round(distanceKm * 120); // 2 min per km => seconds
-  //   }
-
-  //   try {
-  //     const response = await axios.get(
-  //       'https://maps.googleapis.com/maps/api/distancematrix/json',
-  //       {
-  //         params: {
-  //           origins: `${origin.lat},${origin.lng}`,
-  //           destinations: `${destination.lat},${destination.lng}`,
-  //           key: this.googleMapsApiKey,
-  //           units: 'metric',
-  //         },
-  //         timeout: 5000,
-  //       },
-  //     );
-  //     const element = response.data.rows[0]?.elements[0];
-  //     if (element?.status === 'OK') {
-  //       return element.duration.value; // seconds
-  //     }
-  //     throw new Error(`Google Maps returned status: ${element?.status}`);
-  //   } catch (error) {
-  //     this.logger.warn(`ETA calculation failed, using fallback`, error.message);
-  //     // Fallback to simple straight‑line estimate (60 km/h)
-  //     const dx =
-  //       (destination.lng - origin.lng) *
-  //       111320 *
-  //       Math.cos((origin.lat * Math.PI) / 180);
-  //     const dy = (destination.lat - origin.lat) * 110574;
-  //     const distanceMeters = Math.sqrt(dx * dx + dy * dy);
-  //     return Math.round(distanceMeters / 16.667); // 16.667 m/s = 60 km/h
-  //   }
-  // }
 
   async handleNoDrivers(orderId: string, attempt: number = 1) {
     this.logger.warn(`No drivers found for order ${orderId}, attempt ${attempt}`);
@@ -1571,18 +1436,22 @@ export class DriverAssignmentService {
   async handleDriverLocation(
     @MessageBody() data: { driverId: string; orderId: string; lat: number; lng: number; heading: number }
   ) {
+
+    this.logger.log('Storing latest location on redis & DB')
     // Store latest location (Redis or DB)
     await this.redis.geoadd('driver:locations', data.lng, data.lat, data.driverId);
 
-    // Optional: update driver profile
-    // await this.prisma.driverProfile.update({
-    //   where: { userId: data.driverId },
-    //   data: {
-    //     latitude: data.lat,
-    //     longitude: data.lng,
-    //   },
-    // });
 
+    // Optional: update driver profile
+    await this.prisma.driverProfile.update({
+      where: { userId: data.driverId },
+      data: {
+        latitude: data.lat,
+        longitude: data.lng,
+      },
+    });
+
+        this.logger.log('Forward to customer tracking the order')
     // Forward to customer tracking the order
     this.mapGateway.emitDriverLocation(data.orderId, { lat: data.lat, lng: data.lng, heading: data.heading });
 
