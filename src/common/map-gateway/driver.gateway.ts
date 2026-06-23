@@ -221,7 +221,7 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const driverId = client.data.user?.id;
         this.logger.log(`Driver Id, ${driverId}`)
 
-     if (!driverId) throw new WsException('Unauthorized');
+    //  if (!driverId) throw new WsException('Unauthorized');
 
     await this.driverAssignmentService.handleDriverLocation({
       driverId,
