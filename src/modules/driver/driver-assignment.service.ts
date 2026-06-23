@@ -1460,11 +1460,12 @@ export class DriverAssignmentService {
 
   async updateDriverLocation(driverId: string, orderId: string, lat: number, lng: number, heading: number) {
     // Store latest location in Redis (GeoSet or simple key)
+    this.logger.log(`Udating Drive location... ${driverId}, ${orderId}`)
     await this.redis.geoadd('driver:locations', lng, lat, driverId);
     await this.redis.setex(`driver:${driverId}:loc`, 30, JSON.stringify({ lat, lng, heading }));
     // Also store the current orderId for the driver
     if (orderId) await this.redis.setex(`driver:${driverId}:order`, 3600, orderId);
-
+    this.logger.log(`Forward to customer's WebSocket`)
     // Forward to customer's WebSocket
     await this.mapGateway.emitDriverLocation(orderId, { lat, lng, heading });
   }
