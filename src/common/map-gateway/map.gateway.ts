@@ -54,6 +54,7 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
     orderId: string,
     location: { lat: number; lng: number; heading: number },
   ) {
+    
     this.server.to(`order:${orderId}`).emit('driver-location', location);
   }
 
