@@ -220,31 +220,112 @@ async emitNewOrderRequest(
     }
   }
 
-  // Emit event to a single driver
-  emitToDriver(driverId: string, event: string, payload: any) {
+
+  /**
+   * Emit an event to a specific driver by their ID.
+   * @param driverId - The driver's user ID.
+   * @param event - The event name (e.g., 'remove-order').
+   * @param payload - The data to send.
+   * @returns true if the message was sent, false if the driver is not connected.
+   */
+  emitToDriver(driverId: string, event: string, payload: any): boolean {
     const socketId = this.driverSockets.get(driverId);
-    if (socketId) {
+    if (!socketId) {
+      this.logger.warn(
+        `Cannot emit "${event}" to driver ${driverId}: not connected`,
+      );
+      return false;
+    }
+
+    try {
       this.server.to(socketId).emit(event, payload);
+      this.logger.debug(
+        `Emitted "${event}" to driver ${driverId} (socket: ${socketId})`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Failed to emit "${event}" to driver ${driverId}: ${error.message}`,
+        error.stack,
+      );
+      return false;
     }
   }
 
-  // Emit event to multiple drivers
-  emitToManyDrivers(driverIds: string[], event: string, payload: any) {
+  /**
+   * Emit an event to multiple drivers.
+   * @param driverIds - Array of driver IDs.
+   * @param event - The event name.
+   * @param payload - The data to send.
+   */
+  emitToManyDrivers(driverIds: string[], event: string, payload: any): void {
     for (const id of driverIds) {
       this.emitToDriver(id, event, payload);
     }
   }
 
-  // Broadcast that an order is no longer available
-  broadcastOrderAssigned(orderId: string, assignedDriverId: string, driverIdsToExclude?: string[]) {
-    const payload = {
+  // ─── Specific Event Helpers ────────────────────────────────────────
+
+  /**
+   * Notify a driver that an order was assigned to another driver.
+   * Use this for drivers who were notified but didn't get the assignment.
+   */
+  emitOrderAssignedElsewhere(driverId: string, orderId: string, assignedDriverId: string): void {
+    this.emitToDriver(driverId, 'order-assigned-elsewhere', {
       orderId,
       assignedDriverId,
-      status: 'ASSIGNED',
-      // optionally include other details
-    };
-    // In your driverAcc
+      timestamp: new Date().toISOString(),
+    });
   }
+
+  /**
+   * Tell a driver to remove an order from their available list.
+   * This is the main cleanup event.
+   */
+  emitRemoveOrder(driverId: string, orderId: string, reason: string = 'ASSIGNED'): void {
+    this.emitToDriver(driverId, 'remove-order', {
+      orderId,
+      reason,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * Send a batch removal to all drivers in a list.
+   * Useful for cleanup after an order is assigned.
+   */
+  broadcastRemoveOrderToMany(driverIds: string[], orderId: string, reason: string = 'ASSIGNED'): void {
+    const payload = { orderId, reason, timestamp: new Date().toISOString() };
+    this.emitToManyDrivers(driverIds, 'remove-order', payload);
+  }
+
+  // ─── Global Room Broadcast (Alternative) ──────────────────────────
+
+  /**
+   * Broadcast a removal event to ALL connected drivers via a global room.
+   * This is simpler and more robust than per-driver lists.
+   * Make sure each driver joins the 'available-orders' room on connection.
+   */
+  broadcastRemoveOrderGlobally(orderId: string, reason: string = 'ASSIGNED'): void {
+    this.server.to('available-orders').emit('remove-order', {
+      orderId,
+      reason,
+      timestamp: new Date().toISOString(),
+    });
+    this.logger.log(`Broadcast remove-order for order ${orderId} to all connected drivers`);
+  }
+
+  // ─── Assigned Order Event ──────────────────────────────────────────
+
+  /**
+   * Send the assigned order details to the accepting driver.
+   * This typically includes full order data.
+   */
+  emitAssignedOrderAdded(driverId: string, orderData: any): void {
+    // orderData should already be formatted by your service
+    this.emitToDriver(driverId, 'active-order', { order: orderData });
+  }
+  
   /**
    * Send order accepted by another driver
    */
