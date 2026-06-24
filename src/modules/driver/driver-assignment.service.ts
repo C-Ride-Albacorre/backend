@@ -633,7 +633,15 @@ export class DriverAssignmentService {
       // // Emit assigned order to the driver
       // await this.driverGateway.emitAssignedOrderAdded(driverId, fullOrder);
       // 5. Emit the newly assigned order to the driver
-      await this.driverGateway.emitAssignedOrder(driverId);
+      // In driverAccepts, after successful transaction
+      const assignment = await this.prisma.driverAssignment.findUnique({
+        where: { orderId },
+        select: { assignmentStatus: true },
+      });
+      if (assignment?.assignmentStatus === AssignmentStatus.ASSIGNED) {
+        await this.driverGateway.emitAssignedOrder(driverId);
+      }
+      // await this.driverGateway.emitAssignedOrder(driverId);
       // Then start ETA/navigation
 
       // 5. START ETA & NAVIGATION (non-critical - fire and forget)
