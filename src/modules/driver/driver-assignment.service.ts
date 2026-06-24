@@ -581,22 +581,7 @@ export class DriverAssignmentService {
 
       // After the transaction (inside driverAccepts) and before cleanup
       const driverIds = await this.redis.smembers(notifiedDriversKey);
-      const otherDriverIds = driverIds.filter(id => id !== driverId);
-
-      if (otherDriverIds.length > 0) {
-        this.logger.log(`Notifying other drivers of assignment: ${otherDriverIds.join(', ')}`);
-        for (const otherId of otherDriverIds) {
-          try {
-            this.driverGateway?.emitToDriver(otherId, 'order-assigned-elsewhere', {
-              orderId,
-              assignedDriverId: driverId,
-              timestamp: new Date().toISOString(),
-            });
-          } catch (err) {
-            this.logger.error(`Failed to notify driver ${otherId} about order ${orderId} assignment`, err);
-          }
-        }
-      }
+      
 
       // 4. CLEANUP AFTER SUCCESSFUL TRANSACTION
       // Get all notified drivers
@@ -619,21 +604,22 @@ export class DriverAssignmentService {
       this.logger.log(`Deleted notified drivers set for order ${orderId}`);
       await this.redis.del(`driver:${driverId}:pending_claims`); // Clean up driver's set too
 
-      /////////////////////
-      // After successful cleanup, fetch full order for WebSocket payload
-      // const fullOrder = await this.prisma.order.findUnique({
-      //   where: { id: orderId },
-      //   include: {
-      //     items: { include: { store: true } },
-      //     //store: true,
-      //     driverAssignment: true,
-      //   },
-      // });
+    
 
-      // // Emit assigned order to the driver
-      // await this.driverGateway.emitAssignedOrderAdded(driverId, fullOrder);
-      // 5. Emit the newly assigned order to the driver
-      // In driverAccepts, after successful transaction
+      // 1️⃣ Send "remove-order" to EVERY driver who was notified (including the accepting one)
+      for (const id of driverIds) {
+        this.driverGateway?.emitToDriver(id, 'remove-order', {
+          orderId,
+          assignedDriverId: driverId,
+          reason: 'ASSIGNED',
+          timestamp: new Date().toISOString(),
+
+        });
+      }
+
+      // (Optional) Also broadcast to a global room to catch any missed driver:
+      //  this.server.to('available-orders').emit('remove-order', { orderId });
+
       const assignment = await this.prisma.driverAssignment.findUnique({
         where: { orderId },
         select: { assignmentStatus: true },
