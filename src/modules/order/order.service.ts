@@ -30,6 +30,7 @@ import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { NotificationService } from '../notification/notification.service';
 import { DriverAssignmentService } from '../driver/driver-assignment.service';
+import { MapGateway } from 'src/common/map-gateway/map.gateway';
 
 type TransitionContext = {
   actorId?: string;
@@ -51,6 +52,8 @@ export class OrderService {
     private driverAssignment: DriverAssignmentService,
     private notification: NotificationService,
     @InjectQueue('order-events') private orderQueue: Queue,
+    private mapGateway: MapGateway // 👈 inject the gateway
+
   ) { }
 
   transitions: Record<
@@ -89,87 +92,196 @@ export class OrderService {
       },
     };
 
-  async transition(
-    orderId: string,
-    targetStatus: OrderStatus,
-    context: TransitionContext,
-  ) {
-    return this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({
-        where: { id: orderId },
-        include: { driverAssignment: true }, //vendorAction: true,
-      });
-      if (!order) throw new Error('Order not found');
+  // async transition(
+  //   orderId: string,
+  //   targetStatus: OrderStatus,
+  //   context: TransitionContext,
+  // ) {
+  //   return this.prisma.$transaction(async (tx) => {
+  //     const order = await tx.order.findUnique({
+  //       where: { id: orderId },
+  //       include: { driverAssignment: true }, //vendorAction: true,
+  //     });
+  //     if (!order) throw new Error('Order not found');
 
-      const current = order.orderStatus;
-      const transitionKey = Object.keys(this.transitions).find(
-        (key) =>
-          this.transitions[key].to === targetStatus &&
-          this.transitions[key].from.includes(current),
-      );
-      if (!transitionKey) {
-        throw new BadRequestException(
-          `Invalid transition from ${current} to ${targetStatus}`,
-        );
-      }
-      const rule = this.transitions[transitionKey];
+  //     const current = order.orderStatus;
+  //     const transitionKey = Object.keys(this.transitions).find(
+  //       (key) =>
+  //         this.transitions[key].to === targetStatus &&
+  //         this.transitions[key].from.includes(current),
+  //     );
+  //     if (!transitionKey) {
+  //       throw new BadRequestException(
+  //         `Invalid transition from ${current} to ${targetStatus}`,
+  //       );
+  //     }
+  //     const rule = this.transitions[transitionKey];
 
-      // Update order
-      const updated = await tx.order.update({
-        where: { id: orderId },
-        data: {
-          orderStatus: targetStatus,
-          statusHistory: {
-            push: {
-              status: targetStatus,
-              timestamp: new Date().toISOString(),
-              note: rule.action,
-              actorId: context.actorId,
-              reason: context.reason,
-              respondedAt: context.respondedAt,
-            },
-          },
-          ...(targetStatus === OrderStatus.ORDER_ACCEPTED && {
-            vendorAcceptedAt: new Date(),
-          }),
-          ...(targetStatus === OrderStatus.ORDER_ASSIGNED && {
-            driverAssignedAt: new Date(),
-          }),
-          ...(targetStatus === OrderStatus.PICKED_UP && {
-            pickedUpAt: new Date()
-            //pickupTime: new Date(),
-          }),
-          ...(targetStatus === OrderStatus.DELIVERED && {
-            // deliveryTime: new Date(),
-            deliveredAt: new Date(),
-          }),
-        },
-      });
+  //     // Update order
+  //     const updated = await tx.order.update({
+  //       where: { id: orderId },
+  //       data: {
+  //         orderStatus: targetStatus,
+  //         statusHistory: {
+  //           push: {
+  //             status: targetStatus,
+  //             timestamp: new Date().toISOString(),
+  //             note: rule.action,
+  //             actorId: context.actorId,
+  //             reason: context.reason,
+  //             respondedAt: context.respondedAt,
+  //           },
+  //         },
+  //         ...(targetStatus === OrderStatus.ORDER_ACCEPTED && {
+  //           vendorAcceptedAt: new Date(),
+  //         }),
+  //         ...(targetStatus === OrderStatus.ORDER_ASSIGNED && {
+  //           driverAssignedAt: new Date(),
+  //         }),
+  //         ...(targetStatus === OrderStatus.PICKED_UP && {
+  //           pickedUpAt: new Date()
+  //           //pickupTime: new Date(),
+  //         }),
+  //         ...(targetStatus === OrderStatus.DELIVERED && {
+  //           // deliveryTime: new Date(),
+  //           deliveredAt: new Date(),
+  //         }),
+  //       },
+  //     });
 
-      // Log activity
-      await tx.orderActivityLog.create({
-        data: {
-          orderId,
-          actorId: context.actorId,
-          actorRole: context.actorRole,
-          action: rule.action,
-          fromStatus: current,
-          toStatus: targetStatus,
-          reason: context.reason,
-          metadata: context.metadata,
-        },
-      });
+  //     // Log activity
+  //     await tx.orderActivityLog.create({
+  //       data: {
+  //         orderId,
+  //         actorId: context.actorId,
+  //         actorRole: context.actorRole,
+  //         action: rule.action,
+  //         fromStatus: current,
+  //         toStatus: targetStatus,
+  //         reason: context.reason,
+  //         metadata: context.metadata,
+  //       },
+  //     });
 
-      // Fire background job for side effects (notifications, etc.)
-      await this.orderQueue.add(
-        rule.action,
-        { orderId, context },
-        { attempts: 3 },
-      );
+  //     // Fire background job for side effects (notifications, etc.)
+  //     await this.orderQueue.add(
+  //       rule.action,
+  //       { orderId, context },
+  //       { attempts: 3 },
+  //     );
 
-      return updated;
+
+  //     return updated;
+  //   });
+  // }
+
+  // order.service.ts (excerpt)
+
+async transition(
+  orderId: string,
+  targetStatus: OrderStatus,
+  context: TransitionContext,
+) {
+  // 1. Perform the database transaction
+  const updatedOrder = await this.prisma.$transaction(async (tx) => {
+    // a) Fetch current order with necessary relations
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      include: { driverAssignment: true },
     });
+    if (!order) {
+      throw new Error(`Order ${orderId} not found`);
+    }
+
+    const currentStatus = order.orderStatus;
+
+    // b) Validate transition
+    const transitionKey = Object.keys(this.transitions).find(
+      (key) =>
+        this.transitions[key].to === targetStatus &&
+        this.transitions[key].from.includes(currentStatus),
+    );
+    if (!transitionKey) {
+      throw new BadRequestException(
+        `Invalid transition from ${currentStatus} to ${targetStatus}`,
+      );
+    }
+    const rule = this.transitions[transitionKey];
+
+    // c) Build update data
+    const updateData: any = {
+      orderStatus: targetStatus,
+      statusHistory: {
+        push: {
+          status: targetStatus,
+          timestamp: new Date().toISOString(),
+          note: rule.action,
+          actorId: context.actorId,
+          reason: context.reason,
+          respondedAt: context.respondedAt,
+        },
+      },
+    };
+
+    // d) Set specialised timestamps based on target status
+    if (targetStatus === OrderStatus.ORDER_ACCEPTED) {
+      updateData.vendorAcceptedAt = new Date();
+    } else if (targetStatus === OrderStatus.ORDER_ASSIGNED) {
+      updateData.driverAssignedAt = new Date();
+    } else if (targetStatus === OrderStatus.PICKED_UP) {
+      updateData.pickedUpAt = new Date();
+    } else if (targetStatus === OrderStatus.DELIVERED) {
+      updateData.deliveredAt = new Date();
+    }
+
+    // e) Update order
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: updateData,
+    });
+
+    // f) Log activity
+    await tx.orderActivityLog.create({
+      data: {
+        orderId,
+        actorId: context.actorId,
+        actorRole: context.actorRole,
+        action: rule.action,
+        fromStatus: currentStatus,
+        toStatus: targetStatus,
+        reason: context.reason,
+        metadata: context.metadata,
+      },
+    });
+
+    // g) Enqueue background job (side effects)
+    await this.orderQueue.add(
+      rule.action,
+      { orderId, context },
+      { attempts: 3 },
+    );
+
+    // Return the updated order from the transaction
+    return updated;
+  });
+
+  // 2. 🔔 EMIT WEBSOCKET EVENT AFTER TRANSACTION COMMITS
+  try {
+    // Ensure we have a history array (if not, fallback to empty)
+    const history = updatedOrder.statusHistory || [];
+    this.mapGateway.emitOrderStatus(orderId, targetStatus, history);
+    this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
+  } catch (error) {
+    // Log but do not throw – status change is already persisted
+    this.logger.error(
+      `Failed to emit order-status for ${orderId}: ${error.message}`,
+      error.stack,
+    );
   }
+
+  // 3. Return the updated order
+  return updatedOrder;
+}
 
   /**
    * Create an order from a cart.

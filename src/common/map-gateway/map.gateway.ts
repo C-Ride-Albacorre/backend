@@ -33,21 +33,6 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.join(`order:${orderId}`);
   }
 
-
-  // @SubscribeMessage('driver-location-update')
-  // async handleDriverLocation(
-  //   @MessageBody()
-  //   data: {
-  //     driverId: string;
-  //     orderId: string;
-  //     lat: number;
-  //     lng: number;
-  //     heading: number;
-  //   },
-  // ) {
-  //   await this.driverAssignmentService.handleDriverLocation(data);
-  // }
-
   ///
 
   emitDriverLocation(
@@ -73,4 +58,12 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
   emitOrderStatus(orderId: string, status: OrderStatus, history?: any) {
     this.server.to(`order:${orderId}`).emit('order-status', { status, history });
   }
+
+  // order.gateway.ts
+// emitOrderStatus(orderId: string, status: OrderStatus, history: any[]) {
+//   this.server.to(`order:${orderId}`).emit('order-status', {
+//     status,
+//     history, // array of { status, timestamp, note, actorId, ... }
+//   });
+// }
 }
