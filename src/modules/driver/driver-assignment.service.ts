@@ -639,6 +639,7 @@ export class DriverAssignmentService {
         select: { assignmentStatus: true },
       });
       if (assignment?.assignmentStatus === AssignmentStatus.ASSIGNED) {
+        this.logger.log(`Emitting assigned or active order to driver with ${driverId}`)
         await this.driverGateway.emitAssignedOrder(driverId);
       }
       // await this.driverGateway.emitAssignedOrder(driverId);

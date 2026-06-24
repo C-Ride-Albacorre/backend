@@ -362,6 +362,9 @@ async handleSubscribeAssignedOrders(
 
 // Remove emitAssignedOrdersList, add:
 async emitAssignedOrder(driverId: string) {
+  this.logger.log(`emitAssignedOrder called for driver ${driverId}`);
+  this.logger.log('Stack trace:', new Error().stack); // 👈 log the call stack
+
   const room = `driver:${driverId}:assigned`;
   const orders = await this.driverAssignmentService.getAssignedOrders(driverId);
   const assignedOrder = orders.length > 0 ? orders[0] : null;
@@ -374,5 +377,4 @@ async emitAssignedOrder(driverId: string) {
   this.server.to(room).emit('active-order', { order: payload });
   this.logger.log(`Sent assigned order to driver ${driverId}: ${payload ? payload.order_id : 'none'}`);
 }
-
 }
