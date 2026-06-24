@@ -143,10 +143,72 @@ private async formatAssignedOrderPayload(order: any) {
   //     return false;
   //   }
   // }
+async emitNewOrderRequest(
+  driverId: string,
+  orderId: string,
+  orderStatus: string,
+  orderData: {
+    vendorLocation: { lat: number; lng: number };
+    orderNumber: string;
+    storeId: string;
+    storeName: string;
+    totalAmount: number;
+    orderType: string;
+    storeLogo: string;
+    pickupLocation: any;
+    dropoffLocation: any;
+    storeLat: any;
+    storeLng: any;
+    distance: number;
+    createdAt: Date;
+  },
+) {
+  if (orderStatus !== 'ORDER_ACCEPTED') {
+    this.logger.debug(
+      `Skipping new-order-request for order ${orderId}. Status: ${orderStatus}`,
+    );
+    return false;
+  }
+
+  const socketId = this.driverSockets.get(driverId);
+  if (!socketId) {
+    this.logger.warn(`Driver ${driverId} not connected`);
+    return false;
+  }
+
+  let itemsSummary: Record<string, any[]> = {};
+  try {
+    itemsSummary = await this.driverService.getOrderItemsSummary([orderId]);
+  } catch (error) {
+    this.logger.error(`Failed to get order items summary: ${error}`);
+  }
+
+  const payload = {
+    order_id: orderId,
+    order_number: orderData.orderNumber,
+    order_status: 'ORDER_ACCEPTED',
+    total_amount: orderData.totalAmount,
+    pickup_location: orderData.pickupLocation,
+    dropoff_location: orderData.dropoffLocation,
+    created_at: orderData.createdAt,
+    store_id: orderData.storeId,
+    store_name: orderData.storeName,
+    store_logo: orderData.storeLogo,
+    store_lat: orderData.storeLat,
+    store_lng: orderData.storeLng,
+    distance_meters: orderData.distance,
+    rn: '1',
+    items: itemsSummary[orderId] || [],
+  };
+
+  this.server.to(socketId).emit('new-order-request', payload);
+  this.logger.log(`Sent new order request to driver ${driverId}`);
+
+  return true;
+}
 
 
-
-  async emitNewOrderRequest(
+  async emitNewOrderRequestbk(
     driverId: string,
     orderId: string,
     orderData: {
@@ -214,6 +276,31 @@ private async formatAssignedOrderPayload(order: any) {
     }
   }
 
+  // Emit event to a single driver
+  emitToDriver(driverId: string, event: string, payload: any) {
+    const socketId = this.driverSockets.get(driverId);
+    if (socketId) {
+      this.server.to(socketId).emit(event, payload);
+    }
+  }
+
+  // Emit event to multiple drivers
+  emitToManyDrivers(driverIds: string[], event: string, payload: any) {
+    for (const id of driverIds) {
+      this.emitToDriver(id, event, payload);
+    }
+  }
+
+  // Broadcast that an order is no longer available
+  broadcastOrderAssigned(orderId: string, assignedDriverId: string, driverIdsToExclude?: string[]) {
+    const payload = {
+      orderId,
+      assignedDriverId,
+      status: 'ASSIGNED',
+      // optionally include other details
+    };
+    // In your driverAcc
+  }
   /**
    * Send order accepted by another driver
    */
@@ -289,6 +376,29 @@ private async formatAssignedOrderPayload(order: any) {
 
   // driver.gateway.ts
 
+// @SubscribeMessage('subscribe-assigned-orders')
+// async handleSubscribeAssignedOrders(
+//   @ConnectedSocket() client: Socket,
+//   @MessageBody() data: { driverId: string },
+// ) {
+//   const driverId = client.data.driverId || data.driverId;
+//   if (!driverId) throw new WsException('Unauthorized');
+
+//   // Join the driver’s assigned-orders room
+//   const room = `driver:${driverId}:assigned`;
+//   client.join(room);
+
+//   // Fetch current assigned orders
+//   const orders = await this.driverAssignmentService.getAssignedOrders(driverId);
+//   const payload = await Promise.all(
+//     orders.map(order => this.formatAssignedOrderPayload(order))
+//   );
+
+//   client.emit('assigned-orders-list', { orders: payload });
+
+//   this.logger.log(`Driver ${driverId} subscribed to assigned orders`);
+// }
+
 @SubscribeMessage('subscribe-assigned-orders')
 async handleSubscribeAssignedOrders(
   @ConnectedSocket() client: Socket,
@@ -297,37 +407,28 @@ async handleSubscribeAssignedOrders(
   const driverId = client.data.driverId || data.driverId;
   if (!driverId) throw new WsException('Unauthorized');
 
-  // Join the driver’s assigned-orders room
   const room = `driver:${driverId}:assigned`;
   client.join(room);
 
-  // Fetch current assigned orders
-  const orders = await this.driverAssignmentService.getAssignedOrders(driverId);
-  const payload = await Promise.all(
-    orders.map(order => this.formatAssignedOrderPayload(order))
-  );
-
-  client.emit('assigned-orders-list', { orders: payload });
+  // Send the current assigned order
+  await this.emitAssignedOrder(driverId);
 
   this.logger.log(`Driver ${driverId} subscribed to assigned orders`);
 }
 
-async emitAssignedOrderAdded(driverId: string, order: any) {
+// Remove emitAssignedOrdersList, add:
+async emitAssignedOrder(driverId: string) {
   const room = `driver:${driverId}:assigned`;
-  const payload = await this.formatAssignedOrderPayload(order);
-  this.server.to(room).emit('assigned-order-update', {
-    action: 'add',
-    order: payload,
-  });
-  this.logger.log(`Assigned order ${order.id} added to driver ${driverId}`);
+  const orders = await this.driverAssignmentService.getAssignedOrders(driverId);
+  const assignedOrder = orders.length > 0 ? orders[0] : null;
+  
+  let payload = null;
+  if (assignedOrder) {
+    payload = await this.formatAssignedOrderPayload(assignedOrder);
+  }
+  
+  this.server.to(room).emit('active-order', { order: payload });
+  this.logger.log(`Sent assigned order to driver ${driverId}: ${payload ? payload.order_id : 'none'}`);
 }
 
-emitAssignedOrderRemoved(driverId: string, orderId: string) {
-  const room = `driver:${driverId}:assigned`;
-  this.server.to(room).emit('assigned-order-update', {
-    action: 'remove',
-    orderId,
-  });
-  this.logger.log(`Assigned order ${orderId} removed for driver ${driverId}`);
-}
 }
