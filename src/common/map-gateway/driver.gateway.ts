@@ -43,6 +43,39 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private jwtService: JwtService
   ) { }
 
+  // driver.gateway.ts
+
+private async formatAssignedOrderPayload(order: any) {
+  // Fetch items summary if not already included
+  let itemsSummary: Record<string, any[]> = {};
+  if (order.id) {
+    try {
+      itemsSummary = await this.driverService.getOrderItemsSummary([order.id]);
+    } catch (error) {
+      this.logger.error(`Failed to get items summary for order ${order.id}`);
+    }
+  }
+
+  return {
+    order_id: order.id,
+    order_number: order.orderNumber,
+    order_status: order.orderStatus, // should be ORDER_ASSIGNED
+    total_amount: order.totalAmount,
+    pickup_location: order.pickupLocation,
+    dropoff_location: order.dropoffLocation,
+    created_at: order.createdAt,
+    store_id: order.store?.id || order.items?.[0]?.store?.id,
+    store_name: order.store?.storeName || order.items?.[0]?.store?.storeName || 'Store',
+    store_logo: order.store?.storeLogo || order.items?.[0]?.store?.storeLogo || null,
+    store_lat: order.store?.latitude || order.items?.[0]?.store?.latitude,
+    store_lng: order.store?.longitude || order.items?.[0]?.store?.longitude,
+    distance_meters: order.distanceMeters || 0,
+    rn: '1',
+    items: itemsSummary[order.id] || [],
+    assigned_at: order.assignedAt || order.driverAssignedAt,
+  };
+}
+
   async handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth.token;
@@ -252,4 +285,49 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.driverAssignmentService.updateDriverStatus(driverId, data.status);
     client.emit('status-updated', { status: data.status });
   }
+
+
+  // driver.gateway.ts
+
+@SubscribeMessage('subscribe-assigned-orders')
+async handleSubscribeAssignedOrders(
+  @ConnectedSocket() client: Socket,
+  @MessageBody() data: { driverId: string },
+) {
+  const driverId = client.data.driverId || data.driverId;
+  if (!driverId) throw new WsException('Unauthorized');
+
+  // Join the driver’s assigned-orders room
+  const room = `driver:${driverId}:assigned`;
+  client.join(room);
+
+  // Fetch current assigned orders
+  const orders = await this.driverAssignmentService.getAssignedOrders(driverId);
+  const payload = await Promise.all(
+    orders.map(order => this.formatAssignedOrderPayload(order))
+  );
+
+  client.emit('assigned-orders-list', { orders: payload });
+
+  this.logger.log(`Driver ${driverId} subscribed to assigned orders`);
+}
+
+async emitAssignedOrderAdded(driverId: string, order: any) {
+  const room = `driver:${driverId}:assigned`;
+  const payload = await this.formatAssignedOrderPayload(order);
+  this.server.to(room).emit('assigned-order-update', {
+    action: 'add',
+    order: payload,
+  });
+  this.logger.log(`Assigned order ${order.id} added to driver ${driverId}`);
+}
+
+emitAssignedOrderRemoved(driverId: string, orderId: string) {
+  const room = `driver:${driverId}:assigned`;
+  this.server.to(room).emit('assigned-order-update', {
+    action: 'remove',
+    orderId,
+  });
+  this.logger.log(`Assigned order ${orderId} removed for driver ${driverId}`);
+}
 }
