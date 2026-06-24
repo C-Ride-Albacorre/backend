@@ -311,6 +311,7 @@ export class DriverAssignmentService {
         const sent = await this.driverGateway.emitNewOrderRequest(
           driver.userId,
           orderId,
+          order?.orderStatus || OrderStatus.ORDER_ACCEPTED,
           {
             ...orderData,
           },
@@ -578,10 +579,29 @@ export class DriverAssignmentService {
         maxWait: 2000,
       });
 
+      // After the transaction (inside driverAccepts) and before cleanup
+      const driverIds = await this.redis.smembers(notifiedDriversKey);
+      const otherDriverIds = driverIds.filter(id => id !== driverId);
+
+      if (otherDriverIds.length > 0) {
+        this.logger.log(`Notifying other drivers of assignment: ${otherDriverIds.join(', ')}`);
+        for (const otherId of otherDriverIds) {
+          try {
+            this.driverGateway?.emitToDriver(otherId, 'order-assigned-elsewhere', {
+              orderId,
+              assignedDriverId: driverId,
+              timestamp: new Date().toISOString(),
+            });
+          } catch (err) {
+            this.logger.error(`Failed to notify driver ${otherId} about order ${orderId} assignment`, err);
+          }
+        }
+      }
+
       // 4. CLEANUP AFTER SUCCESSFUL TRANSACTION
       // Get all notified drivers
       this.logger.log(`Cleaning up after successful assignment of driver ${driverId} to order ${orderId}`);
-      const driverIds = await this.redis.smembers(notifiedDriversKey);
+      //const driverIds = await this.redis.smembers(notifiedDriversKey);
 
       // Remove timeout jobs for all drivers
       for (const id of driverIds) {
@@ -601,17 +621,20 @@ export class DriverAssignmentService {
 
       /////////////////////
       // After successful cleanup, fetch full order for WebSocket payload
-      const fullOrder = await this.prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          items: { include: { store: true } },
-          //store: true,
-          driverAssignment: true,
-        },
-      });
+      // const fullOrder = await this.prisma.order.findUnique({
+      //   where: { id: orderId },
+      //   include: {
+      //     items: { include: { store: true } },
+      //     //store: true,
+      //     driverAssignment: true,
+      //   },
+      // });
 
-      // Emit assigned order to the driver
-      await this.driverGateway.emitAssignedOrderAdded(driverId, fullOrder);
+      // // Emit assigned order to the driver
+      // await this.driverGateway.emitAssignedOrderAdded(driverId, fullOrder);
+      // 5. Emit the newly assigned order to the driver
+      await this.driverGateway.emitAssignedOrder(driverId);
+      // Then start ETA/navigation
 
       // 5. START ETA & NAVIGATION (non-critical - fire and forget)
       this.logger.log(`Starting ETA and navigation for order ${orderId} with driver ${driverId}`);
@@ -1546,10 +1569,10 @@ export class DriverAssignmentService {
     };
 
     if (this.driverSockets.has(driverId)) {
-      // this.driverGateway.emitNewOrderRequest(driverId, { orderId, vendorLocation, etaSeconds });
       const sent = await this.driverGateway.emitNewOrderRequest(
         driverId,
         orderId,
+        order?.orderStatus || OrderStatus.ORDER_ACCEPTED,
         {
           ...orderData,
         },
