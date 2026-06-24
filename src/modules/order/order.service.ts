@@ -177,111 +177,111 @@ export class OrderService {
 
   // order.service.ts (excerpt)
 
-async transition(
-  orderId: string,
-  targetStatus: OrderStatus,
-  context: TransitionContext,
-) {
-  // 1. Perform the database transaction
-  const updatedOrder = await this.prisma.$transaction(async (tx) => {
-    // a) Fetch current order with necessary relations
-    const order = await tx.order.findUnique({
-      where: { id: orderId },
-      include: { driverAssignment: true },
+  async transition(
+    orderId: string,
+    targetStatus: OrderStatus,
+    context: TransitionContext,
+  ) {
+    // 1. Perform the database transaction
+    const updatedOrder = await this.prisma.$transaction(async (tx) => {
+      // a) Fetch current order with necessary relations
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        include: { driverAssignment: true },
+      });
+      if (!order) {
+        throw new Error(`Order ${orderId} not found`);
+      }
+
+      const currentStatus = order.orderStatus;
+
+      // b) Validate transition
+      const transitionKey = Object.keys(this.transitions).find(
+        (key) =>
+          this.transitions[key].to === targetStatus &&
+          this.transitions[key].from.includes(currentStatus),
+      );
+      if (!transitionKey) {
+        throw new BadRequestException(
+          `Invalid transition from ${currentStatus} to ${targetStatus}`,
+        );
+      }
+      const rule = this.transitions[transitionKey];
+
+      // c) Build update data
+      const updateData: any = {
+        orderStatus: targetStatus,
+        statusHistory: {
+          push: {
+            status: targetStatus,
+            timestamp: new Date().toISOString(),
+            note: rule.action,
+            actorId: context.actorId,
+            reason: context.reason,
+            respondedAt: context.respondedAt,
+          },
+        },
+      };
+
+      // d) Set specialised timestamps based on target status
+      if (targetStatus === OrderStatus.ORDER_ACCEPTED) {
+        updateData.vendorAcceptedAt = new Date();
+      } else if (targetStatus === OrderStatus.ORDER_ASSIGNED) {
+        updateData.driverAssignedAt = new Date();
+      } else if (targetStatus === OrderStatus.PICKED_UP) {
+        updateData.pickedUpAt = new Date();
+      } else if (targetStatus === OrderStatus.DELIVERED) {
+        updateData.deliveredAt = new Date();
+      }
+
+      // e) Update order
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: updateData,
+      });
+
+      // f) Log activity
+      await tx.orderActivityLog.create({
+        data: {
+          orderId,
+          actorId: context.actorId,
+          actorRole: context.actorRole,
+          action: rule.action,
+          fromStatus: currentStatus,
+          toStatus: targetStatus,
+          reason: context.reason,
+          metadata: context.metadata,
+        },
+      });
+
+      // g) Enqueue background job (side effects)
+      await this.orderQueue.add(
+        rule.action,
+        { orderId, context },
+        { attempts: 3 },
+      );
+
+      // Return the updated order from the transaction
+      return updated;
     });
-    if (!order) {
-      throw new Error(`Order ${orderId} not found`);
-    }
 
-    const currentStatus = order.orderStatus;
-
-    // b) Validate transition
-    const transitionKey = Object.keys(this.transitions).find(
-      (key) =>
-        this.transitions[key].to === targetStatus &&
-        this.transitions[key].from.includes(currentStatus),
-    );
-    if (!transitionKey) {
-      throw new BadRequestException(
-        `Invalid transition from ${currentStatus} to ${targetStatus}`,
+    // 2. 🔔 EMIT WEBSOCKET EVENT AFTER TRANSACTION COMMITS
+    try {
+      // Ensure we have a history array (if not, fallback to empty)
+      const history = updatedOrder.statusHistory || [];
+      this.mapGateway.emitOrderStatus(orderId, targetStatus, history);
+      this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
+    } catch (error) {
+      // Log but do not throw – status change is already persisted
+      this.logger.error(
+        `Failed to emit order-status for ${orderId}: ${error.message}`,
+        error.stack,
       );
     }
-    const rule = this.transitions[transitionKey];
 
-    // c) Build update data
-    const updateData: any = {
-      orderStatus: targetStatus,
-      statusHistory: {
-        push: {
-          status: targetStatus,
-          timestamp: new Date().toISOString(),
-          note: rule.action,
-          actorId: context.actorId,
-          reason: context.reason,
-          respondedAt: context.respondedAt,
-        },
-      },
-    };
-
-    // d) Set specialised timestamps based on target status
-    if (targetStatus === OrderStatus.ORDER_ACCEPTED) {
-      updateData.vendorAcceptedAt = new Date();
-    } else if (targetStatus === OrderStatus.ORDER_ASSIGNED) {
-      updateData.driverAssignedAt = new Date();
-    } else if (targetStatus === OrderStatus.PICKED_UP) {
-      updateData.pickedUpAt = new Date();
-    } else if (targetStatus === OrderStatus.DELIVERED) {
-      updateData.deliveredAt = new Date();
-    }
-
-    // e) Update order
-    const updated = await tx.order.update({
-      where: { id: orderId },
-      data: updateData,
-    });
-
-    // f) Log activity
-    await tx.orderActivityLog.create({
-      data: {
-        orderId,
-        actorId: context.actorId,
-        actorRole: context.actorRole,
-        action: rule.action,
-        fromStatus: currentStatus,
-        toStatus: targetStatus,
-        reason: context.reason,
-        metadata: context.metadata,
-      },
-    });
-
-    // g) Enqueue background job (side effects)
-    await this.orderQueue.add(
-      rule.action,
-      { orderId, context },
-      { attempts: 3 },
-    );
-
-    // Return the updated order from the transaction
-    return updated;
-  });
-
-  // 2. 🔔 EMIT WEBSOCKET EVENT AFTER TRANSACTION COMMITS
-  try {
-    // Ensure we have a history array (if not, fallback to empty)
-    const history = updatedOrder.statusHistory || [];
-    this.mapGateway.emitOrderStatus(orderId, targetStatus, history);
-    this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
-  } catch (error) {
-    // Log but do not throw – status change is already persisted
-    this.logger.error(
-      `Failed to emit order-status for ${orderId}: ${error.message}`,
-      error.stack,
-    );
+    // 3. Return the updated order
+    return updatedOrder;
   }
-
-  // 3. Return the updated order
-  return updatedOrder;
-}
 
   /**
    * Create an order from a cart.
@@ -2369,8 +2369,8 @@ async transition(
     const limit = Math.min(Number(filters.limit) || 20, 100);
 
     // 3. Build filter
+
     const where = {
-      orderStatus: filters.status || OrderStatus.CONFIRMED,
       paymentStatus: PaymentStatus.PAID,
       items: {
         some: {
@@ -2379,6 +2379,9 @@ async transition(
           },
         },
       },
+      ...(filters.status && {
+        orderStatus: filters.status,
+      }),
     };
 
     // 4. Fetch orders
