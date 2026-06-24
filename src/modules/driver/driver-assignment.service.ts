@@ -70,8 +70,8 @@ export class DriverAssignmentService {
     @Inject(forwardRef(() => DriverGateway))
     public readonly driverGateway: DriverGateway,
     private configService: ConfigService,
-    
-  ) { 
+
+  ) {
     this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');
     if (!this.googleMapsApiKey) {
       this.logger.warn(
@@ -170,7 +170,7 @@ export class DriverAssignmentService {
             pickedUpAt: new Date()
           }),
           ...(targetStatus === OrderStatus.DELIVERED && {
-              deliveredAt: new Date(),
+            deliveredAt: new Date(),
             //deliveryTime: new Date(),
 
           }),
@@ -413,6 +413,8 @@ export class DriverAssignmentService {
     }
   }
 
+
+
   async driverAccepts(orderId: string, driverId: string): Promise<boolean> {
     // 1. Check if the order is still available
     const order = await this.prisma.order.findUnique({
@@ -596,6 +598,20 @@ export class DriverAssignmentService {
       await this.redis.del(notifiedDriversKey);
       this.logger.log(`Deleted notified drivers set for order ${orderId}`);
       await this.redis.del(`driver:${driverId}:pending_claims`); // Clean up driver's set too
+
+      /////////////////////
+      // After successful cleanup, fetch full order for WebSocket payload
+      const fullOrder = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: { include: { store: true } },
+          //store: true,
+          driverAssignment: true,
+        },
+      });
+
+      // Emit assigned order to the driver
+      await this.driverGateway.emitAssignedOrderAdded(driverId, fullOrder);
 
       // 5. START ETA & NAVIGATION (non-critical - fire and forget)
       this.logger.log(`Starting ETA and navigation for order ${orderId} with driver ${driverId}`);
@@ -1451,7 +1467,7 @@ export class DriverAssignmentService {
       },
     });
 
-        this.logger.log('Forward to customer tracking the order')
+    this.logger.log('Forward to customer tracking the order')
     // Forward to customer tracking the order
     this.mapGateway.emitDriverLocation(data.orderId, { lat: data.lat, lng: data.lng, heading: data.heading });
 
@@ -1466,7 +1482,7 @@ export class DriverAssignmentService {
     // Also store the current orderId for the driver
     if (orderId) await this.redis.setex(`driver:${driverId}:order`, 3600, orderId);
 
-      // Optional: update driver profile
+    // Optional: update driver profile
     await this.prisma.driverProfile.update({
       where: { userId: driverId },
       data: {
@@ -1500,44 +1516,44 @@ export class DriverAssignmentService {
   async notifyDriverViaWebSocket(driverId: string, orderId: string, vendorLocation: any, etaSeconds: number) {
     // Emit WebSocket event if driver is connected
 
-      const order = await this.prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          items: {
-            include: {
-              store: true,
-            },
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            store: true,
           },
         },
-      });
-    
-      const store = order?.items[0]?.store;
-      const orderData = {
-        orderId,
-        orderNumber: order?.orderNumber || orderId,
-        vendorLocation,
-        storeId: store?.id?.toString() || '',
-        storeName: store?.storeName || 'Store',
-        storeLogo: (store as any)?.storeLogo || '',
-        totalAmount: order?.totalAmount || 0,
-        orderType: order?.orderType || 'DELIVERY',
-        pickupLocation: order?.pickupLocation || { lat: 0, lng: 0 },
-        dropoffLocation: order?.dropoffLocation || { lat: 0, lng: 0 },
-        storeLat: store?.latitude ?? vendorLocation.lat,
-        storeLng: store?.longitude ?? vendorLocation.lng,
-        distance: calculateDistance(vendorLocation, order?.pickupLocation || { lat: 0, lng: 0 }),
-        createdAt: order?.createdAt || new Date(),
-      };
+      },
+    });
+
+    const store = order?.items[0]?.store;
+    const orderData = {
+      orderId,
+      orderNumber: order?.orderNumber || orderId,
+      vendorLocation,
+      storeId: store?.id?.toString() || '',
+      storeName: store?.storeName || 'Store',
+      storeLogo: (store as any)?.storeLogo || '',
+      totalAmount: order?.totalAmount || 0,
+      orderType: order?.orderType || 'DELIVERY',
+      pickupLocation: order?.pickupLocation || { lat: 0, lng: 0 },
+      dropoffLocation: order?.dropoffLocation || { lat: 0, lng: 0 },
+      storeLat: store?.latitude ?? vendorLocation.lat,
+      storeLng: store?.longitude ?? vendorLocation.lng,
+      distance: calculateDistance(vendorLocation, order?.pickupLocation || { lat: 0, lng: 0 }),
+      createdAt: order?.createdAt || new Date(),
+    };
 
     if (this.driverSockets.has(driverId)) {
       // this.driverGateway.emitNewOrderRequest(driverId, { orderId, vendorLocation, etaSeconds });
-         const sent = await this.driverGateway.emitNewOrderRequest(
-          driverId,
-          orderId,
-          {
-            ...orderData,
-          },
-        );
+      const sent = await this.driverGateway.emitNewOrderRequest(
+        driverId,
+        orderId,
+        {
+          ...orderData,
+        },
+      );
     }
     // Also send push notification (FCM) as fallback
     await this.pushService.sendToDriver(driverId, {
@@ -1642,6 +1658,25 @@ export class DriverAssignmentService {
       }
       await this.redis.srem(`driver:${driverId}:pending_claims`, orderId);
     }
+  }
+
+
+  // driver-assignment.service.ts (or driver.service.ts)
+  async getAssignedOrders(driverId: string): Promise<any[]> {
+    return this.prisma.order.findMany({
+      where: {
+        driverAssignment: {
+          driverId,
+          assignmentStatus: AssignmentStatus.ASSIGNED,
+        },
+        orderStatus: OrderStatus.ORDER_ASSIGNED,
+      },
+      include: {
+        items: { include: { store: true } },
+        driverAssignment: true,
+      },
+      orderBy: { driverAssignedAt: 'desc' },
+    });
   }
 
 }
