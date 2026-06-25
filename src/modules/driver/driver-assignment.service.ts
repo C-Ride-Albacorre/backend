@@ -581,7 +581,7 @@ export class DriverAssignmentService {
 
       // After the transaction (inside driverAccepts) and before cleanup
       const driverIds = await this.redis.smembers(notifiedDriversKey);
-      
+
 
       // 4. CLEANUP AFTER SUCCESSFUL TRANSACTION
       // Get all notified drivers
@@ -604,7 +604,7 @@ export class DriverAssignmentService {
       this.logger.log(`Deleted notified drivers set for order ${orderId}`);
       await this.redis.del(`driver:${driverId}:pending_claims`); // Clean up driver's set too
 
-    
+
 
       // 1️⃣ Send "remove-order" to EVERY driver who was notified (including the accepting one)
       for (const id of driverIds) {
@@ -1003,9 +1003,25 @@ export class DriverAssignmentService {
       const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&key=${this.googleMapsApiKey}`;
       const response = await axios.get(url, { timeout: 8000 });
       this.logger.log(`Received response from Directions API: status ${response.status}`);
+
+      this.logger.log(
+        `Directions response: ${JSON.stringify(response.data)}`,
+      );
+      if (response.data.status !== 'OK') {
+        throw new Error(
+          `Directions API returned ${response.data.status}: ${response.data.error_message ?? ''
+          }`,
+        );
+      }
       const route = response.data.routes?.[0];
       this.logger.log(`Getting route: ${response.data} - ${route}`)
-      if (!route) throw new Error('No route found');
+      //if (!route) throw new Error('No route found');
+
+      if (!route) {
+        throw new Error(
+          `No route found. Response: ${JSON.stringify(response.data)}`,
+        );
+      }
       const leg = route?.legs?.[0];
       if (!leg?.duration?.value) {
         this.logger.warn(`Invalid duration in API response for: ${JSON.stringify(leg?.duration)}`);
