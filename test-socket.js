@@ -4,66 +4,66 @@ const { io } = require("socket.io-client");
 
 const SERVER_URL = "wss://backend-service-1rc7.onrender.com";
 
-const DRIVER_ID = "621cf9e2-b70f-48f5-b96b-845abf3605d3";
+//const DRIVER_ID = "621cf9e2-b70f-48f5-b96b-845abf3605d3";
 // const ORDER_ID = "f4f80773-750d-48e2-823b-ee5dd1acd93c";
-const ORDER_ID = "59b388f2-4146-4feb-bc74-dece5e9d1353"
+const ORDER_ID = "99338483-3813-4296-b0bd-e547d77d2fee"
 
 //"0b916838-d817-474f-ad57-f8a27899d7b9";
 
-const ACCESS_TOKEN ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MjFjZjllMi1iNzBmLTQ4ZjUtYjk2Yi04NDVhYmYzNjA1ZDMiLCJlbWFpbCI6ImJpbW9jb3cyNjdAb2N1c2VyLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4MjI0NzU4NSwiZXhwIjoxNzgyMjUxMTg1fQ.-oRHr8ajOHORO3m0x7GIyzbP5bwnXshIerKGcDdwkos"
-const driverSocket = io(`${SERVER_URL}/driver`, {
-  query: {
-    driverId: DRIVER_ID,
-  },
-  auth: {
-    token: ACCESS_TOKEN,
-  },
-  transports: ["websocket"],
-});
+const ACCESS_TOKEN ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MjFjZjllMi1iNzBmLTQ4ZjUtYjk2Yi04NDVhYmYzNjA1ZDMiLCJlbWFpbCI6ImJpbW9jb3cyNjdAb2N1c2VyLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4MjMyNDk5NywiZXhwIjoxNzgyMzI4NTk3fQ.5pKGH4NFse74t9vgocayJ9Q6txl_r_mKLv55kfI5Ya4"
+// const driverSocket = io(`${SERVER_URL}/driver`, {
+//   query: {
+//     driverId: DRIVER_ID,
+//   },
+//   auth: {
+//     token: ACCESS_TOKEN,
+//   },
+//   transports: ["websocket"],
+// });
 
-driverSocket.on("connect", () => {
-  console.log("✅ DRIVER CONNECTED:", driverSocket.id);
-});
+// driverSocket.on("connect", () => {
+//   console.log("✅ DRIVER CONNECTED:", driverSocket.id);
+// });
 
-driverSocket.on("connected", (data) => {
-  console.log("🟢 Driver Connection Confirmed");
-  console.dir(data, { depth: null });
-});
+// driverSocket.on("connected", (data) => {
+//   console.log("🟢 Driver Connection Confirmed");
+//   console.dir(data, { depth: null });
+// });
 
-driverSocket.on("new-order-request", (data) => {
-  console.log('📦 Order:', data)
-  //console.log("📦 NEW ORDER REQUEST");
-  //console.dir(data, { depth: null });
-});
+// driverSocket.on("new-order-request", (data) => {
+//   console.log('📦 Order:', data)
+//   //console.log("📦 NEW ORDER REQUEST");
+//   //console.dir(data, { depth: null });
+// });
 
-driverSocket.on("request-timeout", (data) => {
-  console.log("⏰ REQUEST TIMEOUT");
-  console.dir(data, { depth: null });
-});
+// driverSocket.on("request-timeout", (data) => {
+//   console.log("⏰ REQUEST TIMEOUT");
+//   console.dir(data, { depth: null });
+// });
 
-driverSocket.on("order-taken", (data) => {
-  console.log("🚫 ORDER TAKEN BY ANOTHER DRIVER");
-  console.dir(data, { depth: null });
-});
+// driverSocket.on("order-taken", (data) => {
+//   console.log("🚫 ORDER TAKEN BY ANOTHER DRIVER");
+//   console.dir(data, { depth: null });
+// });
 
-driverSocket.on("status-updated", (data) => {
-  console.log("🟢 STATUS UPDATED");
-  console.dir(data, { depth: null });
-});
+// driverSocket.on("status-updated", (data) => {
+//   console.log("🟢 STATUS UPDATED");
+//   console.dir(data, { depth: null });
+// });
 
-driverSocket.on("connect_error", (err) => {
-  console.error("❌ DRIVER CONNECTION ERROR");
-  console.error(err.message);
-});
+// driverSocket.on("connect_error", (err) => {
+//   console.error("❌ DRIVER CONNECTION ERROR");
+//   console.error(err.message);
+// });
 
-driverSocket.on("disconnect", (reason) => {
-  console.log("🔴 DRIVER DISCONNECTED:", reason);
-});
+// driverSocket.on("disconnect", (reason) => {
+//   console.log("🔴 DRIVER DISCONNECTED:", reason);
+// });
 
-driverSocket.on("error", (err) => {
-  console.error("⚠️ DRIVER ERROR");
-  console.dir(err, { depth: null });
-});
+// driverSocket.on("error", (err) => {
+//   console.error("⚠️ DRIVER ERROR");
+//   console.dir(err, { depth: null });
+// });
 
 // ======================================================
 // MAP NAMESPACE
@@ -139,10 +139,10 @@ mapSocket.on("disconnect", (reason) => {
 // DEBUG EVERYTHING
 // ======================================================
 
-driverSocket.onAny((event, ...args) => {
-  console.log(`🔥 DRIVER EVENT -> ${event}`);
-  console.dir(args, { depth: null });
-});
+// driverSocket.onAny((event, ...args) => {
+//   console.log(`🔥 DRIVER EVENT -> ${event}`);
+//   console.dir(args, { depth: null });
+// });
 
 mapSocket.onAny((event, ...args) => {
   console.log(`🔥 MAP EVENT -> ${event}`);
