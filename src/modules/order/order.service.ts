@@ -283,6 +283,19 @@ export class OrderService {
     return updatedOrder;
   }
 
+  buildFullAddress(location: DropoffLocationDto): string {
+    return [
+      location.address,
+      location.country,
+      location.city,
+      location.state,
+      location.postalCode,
+      location.country,
+    ]
+      .filter(Boolean)
+      .join(', ');
+  }
+
   /**
    * Create an order from a cart.
    * - Uses row‑level locking to prevent double checkout.
@@ -337,6 +350,28 @@ export class OrderService {
 
     const MAX_RETRIES = 3;
     let lastError: any;
+
+    // Before transaction
+    let enrichedDropoffLocation = null;
+
+    if (dto.dropoffLocation) {
+      const address = this.buildFullAddress(dto.dropoffLocation);
+
+      const coordinates = await Helper.geocodeAddress(address);
+
+      if (!coordinates) {
+        this.logger.log('Invalid dropoff address. Unable to determine location.')
+        throw new BadRequestException(
+          'Invalid dropoff address. Unable to determine location.',
+        );
+      }
+
+      enrichedDropoffLocation = {
+        ...dto.dropoffLocation,
+        latitude: coordinates.lat,
+        longitude: coordinates.lng,
+      };
+    }
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -517,6 +552,8 @@ export class OrderService {
               );
             }
 
+
+
             // --------------------------------------------------------------
             // 7. Create order
             // --------------------------------------------------------------
@@ -542,9 +579,22 @@ export class OrderService {
                   latitude: store.latitude,
                   longitude: store.longitude,
                 } as Prisma.JsonObject,
-                dropoffLocation: dto.dropoffLocation
-                  ? (dto.dropoffLocation as unknown as Prisma.JsonObject)
+                dropoffLocation: enrichedDropoffLocation
+                  ? (enrichedDropoffLocation as Prisma.JsonObject)
                   : null,
+                // dropoffLocation: {
+                //   address: dto.dropoffLocation.address,
+                //   city: dto.dropoffLocation.city,
+                //   state: dto.dropoffLocation.state,
+                //   country: dto.dropoffLocation.country,
+                //   postalCode: dto.dropoffLocation.postalCode,
+                //   latitude: dto.dropoffLocation.latitude,
+                //   longitude: dto.dropoffLocation.longitude,
+                // } as Prisma.JsonObject,
+
+                // dropoffLocation: dto.dropoffLocation
+                //   ? (dto.dropoffLocation as unknown as Prisma.JsonObject)
+                //   : null,
                 recipientName: dto.recipientName,
                 recipientPhone: dto.recipientPhone,
                 deliveryInstructions: dto.deliveryInstructions,

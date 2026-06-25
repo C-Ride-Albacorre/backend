@@ -1607,7 +1607,9 @@ export class DriverService {
     // Update driver assignment record
     await this.prisma.driverAssignment.update({
       where: { orderId },
-      data: { deliveryConfirmedAt: new Date() },
+      data: { deliveryConfirmedAt: new Date(), assignmentStatus: AssignmentStatus.EXPIRED  
+        
+      },
     });
 
     // Trigger customer rating request (async – fire and forget)
