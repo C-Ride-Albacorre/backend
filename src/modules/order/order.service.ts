@@ -357,6 +357,9 @@ export class OrderService {
     if (dto.dropoffLocation) {
       const address = this.buildFullAddress(dto.dropoffLocation);
 
+              this.logger.log(`checking customer's address ${address}`)
+
+
       const coordinates = await Helper.geocodeAddress(address);
 
       if (!coordinates) {
