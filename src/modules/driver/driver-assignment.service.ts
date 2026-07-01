@@ -23,12 +23,12 @@ import Helper from 'src/shared/utils/helpers';
 import { JsonObject, JsonArray } from '@prisma/client/runtime/library';
 import { ConfigService } from '@nestjs/config';
 
-type TransitionContext = {
-  actorId?: string;
-  actorRole?: Role;
-  reason?: string;
-  metadata?: any;
-};
+// type TransitionContext = {
+//   actorId?: string;
+//   actorRole?: Role;
+//   reason?: string;
+//   metadata?: any;
+// };
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',
@@ -81,126 +81,126 @@ export class DriverAssignmentService {
   }
 
 
-  transitions: Record<
-    string,
-    { from: OrderStatus[]; to: OrderStatus; action: string }
-  > = {
-      confirm_payment: {
-        from: [OrderStatus.ORDER_PLACED], // after payment verification
-        to: OrderStatus.CONFIRMED,
-        action: 'CONFIRMED',
-      },
-      vendor_accept: {
-        from: [OrderStatus.CONFIRMED],
-        to: OrderStatus.ORDER_ACCEPTED,
-        action: 'VENDOR_ACCEPT',
-      },
-      assign_driver: {
-        from: [OrderStatus.ORDER_ACCEPTED],
-        to: OrderStatus.ORDER_ASSIGNED,
-        action: 'ASSIGN_DRIVER',
-      },
-      pickup: {
-        from: [OrderStatus.ORDER_ASSIGNED],
-        to: OrderStatus.PICKED_UP,
-        action: 'PICKUP',
-      },
-      deliver: {
-        from: [OrderStatus.PICKED_UP],
-        to: OrderStatus.DELIVERED,
-        action: 'DELIVER',
-      },
-      cancel: {
-        from: [OrderStatus.ORDER_PLACED,
-        OrderStatus.CONFIRMED,
-        OrderStatus.ORDER_ACCEPTED
-        ],
-        to: OrderStatus.CANCELLED,
-        action: 'CANCEL',
-      },
-    };
+  // transitions: Record<
+  //   string,
+  //   { from: OrderStatus[]; to: OrderStatus; action: string }
+  // > = {
+  //     confirm_payment: {
+  //       from: [OrderStatus.ORDER_PLACED], // after payment verification
+  //       to: OrderStatus.CONFIRMED,
+  //       action: 'CONFIRMED',
+  //     },
+  //     vendor_accept: {
+  //       from: [OrderStatus.CONFIRMED],
+  //       to: OrderStatus.ORDER_ACCEPTED,
+  //       action: 'VENDOR_ACCEPT',
+  //     },
+  //     assign_driver: {
+  //       from: [OrderStatus.ORDER_ACCEPTED],
+  //       to: OrderStatus.ORDER_ASSIGNED,
+  //       action: 'ASSIGN_DRIVER',
+  //     },
+  //     pickup: {
+  //       from: [OrderStatus.ORDER_ASSIGNED],
+  //       to: OrderStatus.PICKED_UP,
+  //       action: 'PICKUP',
+  //     },
+  //     deliver: {
+  //       from: [OrderStatus.PICKED_UP],
+  //       to: OrderStatus.DELIVERED,
+  //       action: 'DELIVER',
+  //     },
+  //     cancel: {
+  //       from: [OrderStatus.ORDER_PLACED,
+  //       OrderStatus.CONFIRMED,
+  //       OrderStatus.ORDER_ACCEPTED
+  //       ],
+  //       to: OrderStatus.CANCELLED,
+  //       action: 'CANCEL',
+  //     },
+  //   };
 
-  async transition(
-    orderId: string,
-    targetStatus: OrderStatus,
-    context: TransitionContext,
-  ) {
-    return this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({
-        where: { id: orderId },
-        include: { driverAssignment: true }, //vendorAction: true,
-      });
-      if (!order) throw new Error('Order not found');
+  // async transition(
+  //   orderId: string,
+  //   targetStatus: OrderStatus,
+  //   context: TransitionContext,
+  // ) {
+  //   return this.prisma.$transaction(async (tx) => {
+  //     const order = await tx.order.findUnique({
+  //       where: { id: orderId },
+  //       include: { driverAssignment: true }, //vendorAction: true,
+  //     });
+  //     if (!order) throw new Error('Order not found');
 
-      const current = order.orderStatus;
-      const transitionKey = Object.keys(this.transitions).find(
-        (key) =>
-          this.transitions[key].to === targetStatus &&
-          this.transitions[key].from.includes(current),
-      );
-      if (!transitionKey) {
-        throw new BadRequestException(
-          `Invalid transition from ${current} to ${targetStatus}`,
-        );
-      }
-      const rule = this.transitions[transitionKey];
+  //     const current = order.orderStatus;
+  //     const transitionKey = Object.keys(this.transitions).find(
+  //       (key) =>
+  //         this.transitions[key].to === targetStatus &&
+  //         this.transitions[key].from.includes(current),
+  //     );
+  //     if (!transitionKey) {
+  //       throw new BadRequestException(
+  //         `Invalid transition from ${current} to ${targetStatus}`,
+  //       );
+  //     }
+  //     const rule = this.transitions[transitionKey];
 
-      // Update order
-      const updated = await tx.order.update({
-        where: { id: orderId },
-        data: {
-          orderStatus: targetStatus,
-          statusHistory: {
-            push: {
-              status: targetStatus,
-              timestamp: new Date().toISOString(),
-              note: rule.action,
-              actorId: context.actorId,
-              reason: context.reason,
-            },
-          },
-          ...(targetStatus === OrderStatus.ORDER_ACCEPTED && {
-            vendorAcceptedAt: new Date(),
-          }),
-          ...(targetStatus === OrderStatus.ORDER_ASSIGNED && {
-            driverAssignedAt: new Date(),
-          }),
-          ...(targetStatus === OrderStatus.PICKED_UP && {
-            //pickupTime: new Date(),
-            pickedUpAt: new Date()
-          }),
-          ...(targetStatus === OrderStatus.DELIVERED && {
-            deliveredAt: new Date(),
-            //deliveryTime: new Date(),
+  //     // Update order
+  //     const updated = await tx.order.update({
+  //       where: { id: orderId },
+  //       data: {
+  //         orderStatus: targetStatus,
+  //         statusHistory: {
+  //           push: {
+  //             status: targetStatus,
+  //             timestamp: new Date().toISOString(),
+  //             note: rule.action,
+  //             actorId: context.actorId,
+  //             reason: context.reason,
+  //           },
+  //         },
+  //         ...(targetStatus === OrderStatus.ORDER_ACCEPTED && {
+  //           vendorAcceptedAt: new Date(),
+  //         }),
+  //         ...(targetStatus === OrderStatus.ORDER_ASSIGNED && {
+  //           driverAssignedAt: new Date(),
+  //         }),
+  //         ...(targetStatus === OrderStatus.PICKED_UP && {
+  //           //pickupTime: new Date(),
+  //           pickedUpAt: new Date()
+  //         }),
+  //         ...(targetStatus === OrderStatus.DELIVERED && {
+  //           deliveredAt: new Date(),
+  //           //deliveryTime: new Date(),
 
-          }),
-        },
-      });
+  //         }),
+  //       },
+  //     });
 
-      // Log activity
-      await tx.orderActivityLog.create({
-        data: {
-          orderId,
-          actorId: context.actorId,
-          actorRole: context.actorRole,
-          action: rule.action,
-          fromStatus: current,
-          toStatus: targetStatus,
-          reason: context.reason,
-          metadata: context.metadata,
-        },
-      });
+  //     // Log activity
+  //     await tx.orderActivityLog.create({
+  //       data: {
+  //         orderId,
+  //         actorId: context.actorId,
+  //         actorRole: context.actorRole,
+  //         action: rule.action,
+  //         fromStatus: current,
+  //         toStatus: targetStatus,
+  //         reason: context.reason,
+  //         metadata: context.metadata,
+  //       },
+  //     });
 
-      // Fire background job for side effects (notifications, etc.)
-      await this.orderQueue.add(
-        rule.action,
-        { orderId, context },
-        { attempts: 3 },
-      );
+  //     // Fire background job for side effects (notifications, etc.)
+  //     await this.orderQueue.add(
+  //       rule.action,
+  //       { orderId, context },
+  //       { attempts: 3 },
+  //     );
 
-      return updated;
-    });
-  }
+  //     return updated;
+  //   });
+  // }
 
   async initiateDriverSearch(
     orderId: string,
