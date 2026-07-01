@@ -80,128 +80,6 @@ export class DriverAssignmentService {
     }
   }
 
-
-  // transitions: Record<
-  //   string,
-  //   { from: OrderStatus[]; to: OrderStatus; action: string }
-  // > = {
-  //     confirm_payment: {
-  //       from: [OrderStatus.ORDER_PLACED], // after payment verification
-  //       to: OrderStatus.CONFIRMED,
-  //       action: 'CONFIRMED',
-  //     },
-  //     vendor_accept: {
-  //       from: [OrderStatus.CONFIRMED],
-  //       to: OrderStatus.ORDER_ACCEPTED,
-  //       action: 'VENDOR_ACCEPT',
-  //     },
-  //     assign_driver: {
-  //       from: [OrderStatus.ORDER_ACCEPTED],
-  //       to: OrderStatus.ORDER_ASSIGNED,
-  //       action: 'ASSIGN_DRIVER',
-  //     },
-  //     pickup: {
-  //       from: [OrderStatus.ORDER_ASSIGNED],
-  //       to: OrderStatus.PICKED_UP,
-  //       action: 'PICKUP',
-  //     },
-  //     deliver: {
-  //       from: [OrderStatus.PICKED_UP],
-  //       to: OrderStatus.DELIVERED,
-  //       action: 'DELIVER',
-  //     },
-  //     cancel: {
-  //       from: [OrderStatus.ORDER_PLACED,
-  //       OrderStatus.CONFIRMED,
-  //       OrderStatus.ORDER_ACCEPTED
-  //       ],
-  //       to: OrderStatus.CANCELLED,
-  //       action: 'CANCEL',
-  //     },
-  //   };
-
-  // async transition(
-  //   orderId: string,
-  //   targetStatus: OrderStatus,
-  //   context: TransitionContext,
-  // ) {
-  //   return this.prisma.$transaction(async (tx) => {
-  //     const order = await tx.order.findUnique({
-  //       where: { id: orderId },
-  //       include: { driverAssignment: true }, //vendorAction: true,
-  //     });
-  //     if (!order) throw new Error('Order not found');
-
-  //     const current = order.orderStatus;
-  //     const transitionKey = Object.keys(this.transitions).find(
-  //       (key) =>
-  //         this.transitions[key].to === targetStatus &&
-  //         this.transitions[key].from.includes(current),
-  //     );
-  //     if (!transitionKey) {
-  //       throw new BadRequestException(
-  //         `Invalid transition from ${current} to ${targetStatus}`,
-  //       );
-  //     }
-  //     const rule = this.transitions[transitionKey];
-
-  //     // Update order
-  //     const updated = await tx.order.update({
-  //       where: { id: orderId },
-  //       data: {
-  //         orderStatus: targetStatus,
-  //         statusHistory: {
-  //           push: {
-  //             status: targetStatus,
-  //             timestamp: new Date().toISOString(),
-  //             note: rule.action,
-  //             actorId: context.actorId,
-  //             reason: context.reason,
-  //           },
-  //         },
-  //         ...(targetStatus === OrderStatus.ORDER_ACCEPTED && {
-  //           vendorAcceptedAt: new Date(),
-  //         }),
-  //         ...(targetStatus === OrderStatus.ORDER_ASSIGNED && {
-  //           driverAssignedAt: new Date(),
-  //         }),
-  //         ...(targetStatus === OrderStatus.PICKED_UP && {
-  //           //pickupTime: new Date(),
-  //           pickedUpAt: new Date()
-  //         }),
-  //         ...(targetStatus === OrderStatus.DELIVERED && {
-  //           deliveredAt: new Date(),
-  //           //deliveryTime: new Date(),
-
-  //         }),
-  //       },
-  //     });
-
-  //     // Log activity
-  //     await tx.orderActivityLog.create({
-  //       data: {
-  //         orderId,
-  //         actorId: context.actorId,
-  //         actorRole: context.actorRole,
-  //         action: rule.action,
-  //         fromStatus: current,
-  //         toStatus: targetStatus,
-  //         reason: context.reason,
-  //         metadata: context.metadata,
-  //       },
-  //     });
-
-  //     // Fire background job for side effects (notifications, etc.)
-  //     await this.orderQueue.add(
-  //       rule.action,
-  //       { orderId, context },
-  //       { attempts: 3 },
-  //     );
-
-  //     return updated;
-  //   });
-  // }
-
   async initiateDriverSearch(
     orderId: string,
     vendorLocation: { lat: number; lng: number },
@@ -489,6 +367,8 @@ export class DriverAssignmentService {
     await this.redis.srem(driverPendingSet, orderId);
 
     try {
+      let updatedOrder: any;
+
       // 3. EXECUTE DATABASE TRANSACTION WITH RACE CONDITION CHECK
       await this.prisma.$transaction(async (tx) => {
         // RE-VERIFY: Check if order is still in ACCEPTED state (prevents race)
@@ -544,14 +424,34 @@ export class DriverAssignmentService {
 
         // Update order status
         this.logger.log(`Updating order ${orderId} status to ORDER_ASSIGNED and recording driver assignment`);
-        await tx.order.update({
+        // await tx.order.update({
+        //   where: { id: orderId },
+        //   data: {
+        //     orderStatus: OrderStatus.ORDER_ASSIGNED,
+        //     //assignedDriverId: driverId, // ✅ Include this for frontend
+        //     driverAssignedAt: new Date(),
+        //   },
+        // });
+        // Inside the transaction, change the order update to:
+        const updatedOrder = await tx.order.update({
           where: { id: orderId },
           data: {
             orderStatus: OrderStatus.ORDER_ASSIGNED,
-            //assignedDriverId: driverId, // ✅ Include this for frontend
+            statusHistory: {
+              push: {
+                status: OrderStatus.ORDER_ASSIGNED,
+                timestamp: new Date().toISOString(),
+                note: 'ASSIGN_DRIVER', // matches the transition key
+                actorId: driverId,
+              },
+            },
             driverAssignedAt: new Date(),
           },
         });
+
+        
+
+
 
         // Mark driver as busy
         this.logger.log(`Marking driver ${driverId} as BUSY in driver profile`);
@@ -573,11 +473,27 @@ export class DriverAssignmentService {
           },
         });
 
+        // ... other updates (driverAssignment, driverProfile, activity log)
+
+        // Return the updated order from the transaction
+        return updatedOrder;
       }, {
         timeout: 5000,
         isolationLevel: 'ReadCommitted',
         maxWait: 2000,
       });
+
+      // 🔔 Emit order-status for the customer
+        try {
+          this.mapGateway.emitOrderStatus(
+            orderId,
+            OrderStatus.ORDER_ASSIGNED,
+            updatedOrder.statusHistory,
+          );
+          this.logger.log(`📡 Emitted order-status for ${orderId}: ORDER_ASSIGNED`);
+        } catch (err) {
+          this.logger.error(`Failed to emit order-status for ${orderId}: ${err.message}`);
+        }
 
       // After the transaction (inside driverAccepts) and before cleanup
       const driverIds = await this.redis.smembers(notifiedDriversKey);
@@ -608,6 +524,7 @@ export class DriverAssignmentService {
 
       // 1️⃣ Send "remove-order" to EVERY driver who was notified (including the accepting one)
       for (const id of driverIds) {
+        this.logger.log(`Emitting "remove-order" to driver ${id} for order ${orderId}`);
         this.driverGateway?.emitToDriver(id, 'remove-order', {
           orderId,
           assignedDriverId: driverId,
@@ -1510,7 +1427,9 @@ export class DriverAssignmentService {
 
   async updateDriverLocation(driverId: string, orderId: string, lat: number, lng: number, heading: number) {
     // Store latest location in Redis (GeoSet or simple key)
-    this.logger.log(`Updating Drive location... ${driverId}, ${orderId}`)
+    // this.logger.log(`Updating Drive location... ${driverId}, ${orderId}`)
+    this.logger.log(`Updating Driver location... driverId: ${driverId}, orderId: ${orderId}, lat: ${lat}, lng: ${lng}, heading: ${heading}`)
+
     await this.redis.geoadd('driver:locations', lng, lat, driverId);
     await this.redis.setex(`driver:${driverId}:loc`, 30, JSON.stringify({ lat, lng, heading }));
     // Also store the current orderId for the driver
