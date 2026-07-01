@@ -14,18 +14,14 @@ import { DriverStep3MetadataDto } from './dto/step3-driver.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { UserRole, UserStatus } from '../../shared/enums';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
-import { NotificationType, OnBoardingStatus, Role } from '@prisma/client';
+import { OnBoardingStatus, Role } from '@prisma/client';
 import { DriverOnboardingDto } from './dto/driver-onboarding.dto';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { DriverDocumentMetadataDto } from './dto/driver-document-metadata.dto';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../modules/redis/redis.provider';
 import { OrderStatus, AssignmentStatus, DriverStatus } from '@prisma/client';
-import { MapGateway } from 'src/common/map-gateway/map.gateway'
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
 import { OrderService } from '../order/order.service';
 
 export enum DriverDocumentType {
@@ -1607,8 +1603,9 @@ export class DriverService {
     // Update driver assignment record
     await this.prisma.driverAssignment.update({
       where: { orderId },
-      data: { deliveryConfirmedAt: new Date(), assignmentStatus: AssignmentStatus.EXPIRED  
-        
+      data: {
+        deliveryConfirmedAt: new Date(), assignmentStatus: AssignmentStatus.EXPIRED
+
       },
     });
 
@@ -1645,5 +1642,6 @@ export class DriverService {
     // Send push notification if user has FCM token
     // await this.pushService.sendToCustomer(order.userId, { title: 'Rate your ride', ... });
   }
+
 
 }

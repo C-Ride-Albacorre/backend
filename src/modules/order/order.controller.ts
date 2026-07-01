@@ -162,4 +162,34 @@ export class OrderController {
 
     return this.orderService.handleVendorAction(orderId, user.id, dto);
   }
+
+  @Get(':orderId/tracking')
+  @ApiOperation({
+    summary: 'Get tracking data for an order',
+    description: 'Retrieve tracking information for a specific order.',
+  })
+  @ApiParam({
+    name: 'orderId',
+    type: String,
+    description: 'Order ID',
+    example: 'clx123abc456',
+  })
+  @ApiOkResponse({
+    description: 'Tracking data retrieved successfully',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Order not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - User is not a vendor',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getTracking(@Param('orderId') orderId: string) {
+    return this.orderService.getTrackingData(orderId);
+  }
 }
