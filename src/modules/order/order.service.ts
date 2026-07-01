@@ -2638,7 +2638,7 @@ export class OrderService {
     const order = await this.prisma.order.findFirst({
       where: {
         id: orderId,
-        orderStatus: "CONFIRMED",
+        //orderStatus: "CONFIRMED",
         paymentStatus: "PAID",
         items: {
           some: {
