@@ -3673,63 +3673,6 @@ private generateResetTokenForMobile(userId: string, identifier: string): string 
     };
   }
 
-  async submitVendorOnboardingold(
-    vendorId: string,
-    files: Express.Multer.File[],
-    documentsMetadata: VendorDocumentMetadataDto[],
-  ): Promise<{
-    success: boolean;
-    message: string;
-    vendor: Partial<User>;
-    uploadedDocuments: any[];
-  }> {
-    this.logger.log(`Submitting final onboarding for vendor ${vendorId}`);
-
-    const vendor = await this.validateVendorForOnboarding(vendorId);
-
-    if (vendor.onboardingStep < 4) {
-      throw new ConflictException(
-        'Complete all previous steps before submitting documents',
-      );
-    }
-
-    if (!files || files.length === 0) {
-      throw new BadRequestException(
-        'At least one document file must be uploaded',
-      );
-    }
-
-    const uploadedDocuments = await this.uploadVendorDocuments(
-      vendorId,
-      files,
-      documentsMetadata,
-    );
-
-    const updatedVendor = await this.userRepository.update(vendorId, {
-      onboardingStatus: OnBoardingStatus.COMPLETED,
-      onboardingStep: 5,
-      onboardingCompletedAt: new Date(),
-      status: UserStatus.UNDER_REVIEW, // Now under admin review
-    });
-
-    return {
-      success: true,
-      message:
-        'Onboarding submitted successfully. Your account is under review.',
-      vendor: {
-        id: updatedVendor.id,
-        email: updatedVendor.email,
-        status: updatedVendor.status,
-        onboardingStatus: updatedVendor.onboardingStatus,
-        onboardingStep: updatedVendor.onboardingStep,
-      },
-      uploadedDocuments: uploadedDocuments.map((doc) => ({
-        documentType: doc.documentType,
-        documentUrl: doc.documentUrl,
-        publicId: doc.publicId,
-      })),
-    };
-  }
 
   async getVendorOnboardingState(vendorId: string) {
     const vendor = await this.userRepository.findById(vendorId);
