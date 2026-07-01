@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   ConflictException,
+  Inject,
 } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import {
@@ -21,7 +22,6 @@ import {
   PaymentStatus,
   Prisma,
   Role,
-  VendorActionStatus,
 } from '@prisma/client';
 import { CartService } from '../cart/cart.service';
 import Helper from 'src/shared/utils/helpers';
@@ -31,6 +31,9 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { NotificationService } from '../notification/notification.service';
 import { DriverAssignmentService } from '../driver/driver-assignment.service';
 import { MapGateway } from 'src/common/map-gateway/map.gateway';
+import { TrackingDataResponseDto } from './dto/tracking-response.dto';
+import { REDIS_CLIENT } from '../redis/redis.provider';
+import Redis from 'ioredis';
 
 type TransitionContext = {
   actorId?: string;
@@ -48,7 +51,7 @@ export class OrderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cartService: CartService,
-    // private driverAssignment: DriverService,
+    @Inject(REDIS_CLIENT) public redis: Redis,
     private driverAssignment: DriverAssignmentService,
     private notification: NotificationService,
     @InjectQueue('order-events') private orderQueue: Queue,
@@ -2826,4 +2829,161 @@ export class OrderService {
 
     return { success: true };
   }
+
+
+  
+
+  // order.service.ts (or a dedicated TrackingService)
+  async getTrackingData(orderId: string): Promise<TrackingDataResponseDto> {
+    // 1. Fetch order with store, items, driver assignment and driver profile
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: { store: true }, // include store from first item (assuming one store per order)
+        },
+        driverAssignment: true,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order ${orderId} not found`);
+    }
+
+    // 2. Extract store info (from first order item's store)
+    const firstItem = order.items[0];
+    const store = firstItem?.store;
+
+    // 3. Build order object
+    const statusHistory = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+    const orderData = {
+      id: order.id,
+      number: order.orderNumber,
+      status: order.orderStatus,
+      statusHistory,
+      totalAmount: order.totalAmount,
+      orderType: order.orderType,
+      createdAt: order.createdAt,
+      pickupLocation: order.pickupLocation,
+      dropoffLocation: order.dropoffLocation,
+    };
+
+    // 4. Build store object
+    const storeData = {
+      id: store?.id || '',
+      name: store?.storeName || '',
+      logo: store?.storeLogo || '',
+      address: store?.storeAddress || '',
+      lat: store?.latitude ?? null,
+      lng: store?.longitude ?? null,
+    };
+
+    // 5. Build driver & assignment data (if assigned)
+    let driverData = undefined;
+    let assignmentData = null;
+    let driverId: string | null = null;
+
+    const assignment = order.driverAssignment;
+    if (assignment?.driverId) {
+      driverId = assignment.driverId;
+
+      // Fetch driver's user info and driver profile
+      const driverUser = await this.prisma.user.findUnique({
+        where: { id: driverId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profilePicture: true,
+          phoneNumber: true,
+          // if you have rating/trips, add them here
+        },
+      });
+      const driverProfile = await this.prisma.driverProfile.findUnique({
+        where: { userId: driverId },
+        select: { status: true },
+      });
+
+      if (driverUser) {
+        driverData = {
+          id: driverUser.id,
+          fullName: `${driverUser.firstName} ${driverUser.lastName}` || 'Driver',
+          photo: driverUser.profilePicture || null,
+          phone: driverUser.phoneNumber || '',
+          rating: 0, // if you have a rating field, fetch it
+          totalTrips: 0, // similarly
+          status: driverProfile?.status || 'OFFLINE',
+        };
+      }
+
+      assignmentData = {
+        status: assignment.assignmentStatus,
+        assignedAt: assignment.assignedAt,
+        etaSeconds: assignment.etaSeconds ?? null,
+      };
+    }
+
+    // 6. Fetch real‑time data from Redis
+    let leg: 'to-vendor' | 'to-customer' | null = null;
+    let etaSeconds: number | null = null;
+    let polyline: string | null = null;
+    let driverLocation: { lat: number; lng: number; heading: number; timestamp: number } | null = null;
+    let destination: { lat: number; lng: number } | null = null;
+
+    try {
+      // ETA and leg from Redis
+      const etaKey = `order:${orderId}:eta`;
+      const etaRaw = await this.redis.get(etaKey);
+      if (etaRaw) {
+        const parsed = JSON.parse(etaRaw);
+        leg = parsed.leg || null;
+        etaSeconds = parsed.etaSeconds || null;
+      }
+
+      // Polyline
+      const polylineKey = `order:${orderId}:polyline`;
+      polyline = await this.redis.get(polylineKey) || null;
+
+      // Destination
+      const destKey = `order:${orderId}:destination`;
+      const destRaw = await this.redis.get(destKey);
+      if (destRaw) {
+        destination = JSON.parse(destRaw);
+      }
+
+      // Driver location (if driver assigned)
+      if (driverId) {
+        const locKey = `driver:${driverId}:loc`;
+        const locRaw = await this.redis.get(locKey);
+        if (locRaw) {
+          const parsed = JSON.parse(locRaw);
+          driverLocation = {
+            lat: parsed.lat,
+            lng: parsed.lng,
+            heading: parsed.heading || 0,
+            timestamp: parsed.timestamp || Date.now(),
+          };
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to fetch Redis data for order ${orderId}: ${error.message}`);
+    }
+
+    // 7. Assemble final response
+    return {
+      order: orderData,
+      store: storeData,
+      driver: driverData,
+      assignment: assignmentData,
+      tracking: {
+        leg,
+        etaSeconds: etaSeconds ?? assignment?.etaSeconds ?? null,
+        polyline,
+        driverLocation,
+        destination,
+      },
+    };
+  }
+
+
 }
