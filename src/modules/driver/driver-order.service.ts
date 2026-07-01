@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { AssignmentStatus, OrderStatus, Role } from '@prisma/client';
 import { DriverAssignmentService } from './driver-assignment.service';
 import { PrismaService } from '../../shared/services/prisma.service';
+import { OrderService } from '../order/order.service';
 
 @Injectable()
 export class DriverOrderService {
@@ -10,6 +11,8 @@ export class DriverOrderService {
   constructor(
     private readonly driverAssignmentService: DriverAssignmentService,
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => OrderService))
+    private orderService: OrderService, 
   ) {}
 
   async acceptOrder(orderId: string, driverId: string): Promise<boolean> {
@@ -40,7 +43,8 @@ export class DriverOrderService {
   }
 
   // 3. Transition order status (idempotent – if already PICKED_UP, Prisma will throw)
-  await this.driverAssignmentService.transition(orderId, OrderStatus.PICKED_UP, {
+  // await this.driverAssignmentService.transition(orderId, OrderStatus.PICKED_UP, {
+  await this.orderService.transition(orderId, OrderStatus.PICKED_UP, {
     actorId: driverId,
     actorRole: Role.DISPATCHER,   // ✅ corrected role
   });
@@ -49,7 +53,8 @@ export class DriverOrderService {
 }
 
   async confirmPickupOld(orderId: string, driverId: string) {
-    await this.driverAssignmentService.transition(
+    // await this.driverAssignmentService.transition(
+    await this.orderService.transition(
       orderId,
       OrderStatus.PICKED_UP,
       {
