@@ -21,6 +21,10 @@ export class SubmitByOrderDto {
   @Max(5)
   rating: number;
 
+   @ApiProperty({
+    example: 'The driver was very professional and delivered on time.',
+    description: 'Optional comment about the delivery',
+  })
   @IsOptional()
   @IsString()
   comment?: string;

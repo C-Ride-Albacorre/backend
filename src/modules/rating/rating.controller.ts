@@ -80,6 +80,10 @@ export class RatingController {
     description:
       'Allows a customer or vendor to submit a rating for a completed delivery.',
   })
+  @ApiResponse({
+    status: 200,
+    description: 'Rating submitted successfully.',
+  })
   async submitByOrder(@Body() dto: SubmitByOrderDto, @Req() req) {
     return this.ratingService.submitRatingByOrder(
       dto.orderId,
