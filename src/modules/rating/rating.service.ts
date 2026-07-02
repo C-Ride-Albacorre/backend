@@ -255,6 +255,63 @@ export class RatingService {
     return { success: true };
   }
 
+
+  /**
+ * Submit a rating using orderId – finds the pending rating for the current user.
+ * The reviewerRole is obtained from the authenticated user's role.
+ */
+async submitRatingByOrder(
+  orderId: string,
+  reviewerId: string,
+  reviewerRole: Role,
+  ratingValue: number,
+  comment?: string,
+): Promise<{ success: boolean }> {
+  // Find the pending rating for this reviewer and order
+  const rating = await this.prisma.rating.findUnique({
+    where: {
+      orderId_reviewerId_reviewerRole: {
+        orderId,
+        reviewerId,
+        reviewerRole,
+      },
+    },
+  });
+
+  if (!rating) {
+    throw new NotFoundException('No pending rating found for this order');
+  }
+  if (rating.status !== 'PENDING') {
+    throw new BadRequestException(`Rating is already ${rating.status}`);
+  }
+  if (new Date() > rating.expiresAt) {
+    await this.prisma.rating.update({
+      where: { id: rating.id },
+      data: { status: 'EXPIRED' },
+    });
+    throw new BadRequestException('Rating window has expired');
+  }
+
+  // Delegate to the main submit logic (reuse validation & transaction)
+  return this.submitRating(rating.id, reviewerId, ratingValue, comment);
+}
+
+/**
+ * Helper to get the pending rating for the current user for a given order
+ * (useful for UI to pre‑fetch)
+ */
+async getPendingRatingForUser(orderId: string, reviewerId: string, reviewerRole: Role) {
+  return this.prisma.rating.findUnique({
+    where: {
+      orderId_reviewerId_reviewerRole: {
+        orderId,
+        reviewerId,
+        reviewerRole,
+      },
+    },
+  });
+}
+
   // -------------------------------------------------------------------------
   // HELPERS
   // -------------------------------------------------------------------------
