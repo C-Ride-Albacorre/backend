@@ -28,6 +28,7 @@ import {
   ApiBody,
   ApiConflictResponse,
   ApiQuery,
+  ApiOkResponse,
 } from '@nestjs/swagger';
 import { RolesGuard } from '../../common/guards/role.guard';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
@@ -43,6 +44,7 @@ import { DriverAssignmentService } from './driver-assignment.service';
 import { UpdateDriverLocationDto } from './dto/update-driver-location.dto';
 import { DriverStatusResponseDto } from './dto/driver-status-response.dto';
 import { UpdateDriverStatusDto } from './dto/update-driver-status.dto';
+import { OrderService } from '../order/order.service';
 
 @ApiTags('Dispatcher')
 @Controller('driver')
@@ -52,7 +54,8 @@ export class DriverController {
   constructor(
     private readonly driverService: DriverService,
     private readonly driverOrderService: DriverOrderService,
-    private readonly driverAssignmentService: DriverAssignmentService
+    private readonly driverAssignmentService: DriverAssignmentService,
+    private readonly orderService: OrderService,
   ) { }
 
   // ================================
@@ -498,6 +501,37 @@ async getAvailableOrder(
     };
   }
 
+
+
+    @Get(':orderId/tracking')
+    @ApiOperation({
+      summary: 'Get tracking data for an order',
+      description: 'Retrieve tracking information for a specific order.',
+    })
+    @ApiParam({
+      name: 'orderId',
+      type: String,
+      description: 'Order ID',
+      example: 'clx123abc456',
+    })
+    @ApiOkResponse({
+      description: 'Tracking data retrieved successfully',
+    })
+    @ApiResponse({
+      status: 404,
+      description: 'Order not found',
+    })
+    @ApiResponse({
+      status: 403,
+      description: 'Forbidden - User is not a vendor',
+    })
+    @ApiResponse({
+      status: 500,
+      description: 'Internal server error',
+    })
+    async getTracking(@Param('orderId') orderId: string) {
+      return this.orderService.getTrackingData(orderId);
+    }
   
  
 
