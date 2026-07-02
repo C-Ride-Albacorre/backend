@@ -19,13 +19,14 @@ import { SubmitRatingDto } from './dto/submit-rating.dto';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 
 @ApiTags('Ratings')
-@ApiBearerAuth()
 @Controller('ratings')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
+
 export class RatingController {
   constructor(private readonly ratingService: RatingService) {}
 
   @Patch(':ratingId/submit')
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({
     summary: 'Submit a driver rating',
     description:
