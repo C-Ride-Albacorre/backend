@@ -7,6 +7,7 @@ import { RatingReminderProcessor } from './rating-reminder.processor';
 
 import { NotificationModule } from '../notification/notification.module';
 import { PrismaService } from 'src/shared/services/prisma.service';
+import { RatingController } from './rating.controller';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { PrismaService } from 'src/shared/services/prisma.service';
     }),
     ScheduleModule.forRoot(),
   ],
+  controllers: [RatingController],
   providers: [RatingService, RatingReminderProcessor, PrismaService],
   exports: [RatingService],
 })
