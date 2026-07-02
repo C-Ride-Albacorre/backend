@@ -2859,6 +2859,7 @@ export class OrderService {
     const orderData = {
       id: order.id,
       number: order.orderNumber,
+      code: order.orderCode,
       status: order.orderStatus,
       statusHistory,
       totalAmount: order.totalAmount,

@@ -74,23 +74,7 @@ export class GeocodeProcessor implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Store updated with coordinates`);
   }
 
-  // async geocodeAddress(address: string) {
-  //   const response = await axios.get(
-  //     'https://maps.googleapis.com/maps/api/geocode/json',
-  //     {
-  //       params: {
-  //         address,
-  //         key: process.env.GOOGLE_MAPS_API_KEY,
-  //       },
-  //     },
-  //   );
 
-  //   if (response.data.status !== 'OK') {
-  //     throw new Error('Geocoding failed');
-  //   }
-
-  //   return response.data.results[0].geometry.location;
-  // }
 
   async onModuleDestroy() {
     await this.worker?.close();
