@@ -20,6 +20,7 @@ import { CartModule } from './modules/cart/cart.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { BullModule } from '@nestjs/bullmq';
 import { ChatModule } from './modules/chat/chat.module';
+import { RatingModule } from './modules/rating/rating.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { ChatModule } from './modules/chat/chat.module';
     CartModule,
     NotificationModule,
     ChatModule,
+    RatingModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],

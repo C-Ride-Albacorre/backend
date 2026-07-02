@@ -23,6 +23,7 @@ import { REDIS_CLIENT } from '../../modules/redis/redis.provider';
 import { OrderStatus, AssignmentStatus, DriverStatus } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { OrderService } from '../order/order.service';
+import { RatingService } from '../rating/rating.service';
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',
@@ -58,6 +59,7 @@ export class DriverService {
     private configService: ConfigService,
     @Inject(forwardRef(() => OrderService))
     private readonly orderService: OrderService,
+    private readonly ratingService: RatingService,
   ) {
     this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');
     if (!this.googleMapsApiKey) {
@@ -802,27 +804,6 @@ export class DriverService {
     };
   }
 
-  async getDriverDashboardbk(driverId: string) {
-    const driver = await this.prisma.user.findUnique({
-      where: { id: driverId },
-      include: {
-        driverProfile: true,
-      },
-    });
-
-    if (!driver || driver.status !== 'ACTIVE') {
-      throw new BadRequestException('Driver account is not active');
-    }
-
-    return {
-      profile: driver.driverProfile,
-      stats: {
-        totalDeliveries: driver.driverProfile?.totalDeliveries || 0,
-        rating: driver.driverProfile?.rating || 0,
-        staus: driver.driverProfile?.status,
-      },
-    };
-  }
 
   private getRedirectUrl(
     status: string,
@@ -1571,7 +1552,95 @@ export class DriverService {
    * Confirm delivery: transition order to DELIVERED, update driver stats,
    * and trigger customer rating request.
    */
+
   async confirmDelivery(orderId: string, driverId: string) {
+    // Verify that the driver is assigned to this order
+    const assignment = await this.prisma.driverAssignment.findUnique({
+      where: { orderId },
+      select: { driverId: true, assignmentStatus: true },
+    });
+
+    if (!assignment || assignment.driverId !== driverId) {
+      throw new BadRequestException('You are not assigned to this order');
+    }
+    if (assignment.assignmentStatus !== AssignmentStatus.ASSIGNED) {
+      throw new BadRequestException('Order not in assigned state');
+    }
+
+    // Use the state machine to transition
+    await this.orderService.transition(orderId, OrderStatus.DELIVERED, {
+      actorId: driverId,
+      actorRole: Role.DISPATCHER,
+    });
+
+    // Update driver profile: total deliveries +1, set status back to ONLINE
+    await this.prisma.driverProfile.update({
+      where: { userId: driverId },
+      data: {
+        status: DriverStatus.ONLINE,
+        totalDeliveries: { increment: 1 },
+      },
+    });
+
+    // Update driver assignment record
+    await this.prisma.driverAssignment.update({
+      where: { orderId },
+      data: {
+        deliveryConfirmedAt: new Date(), assignmentStatus: AssignmentStatus.EXPIRED
+
+      },
+    });
+
+
+    // Fetch order details including its items to know which stores are involved
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        userId: true,          // customer
+        orderNumber: true,
+        items: {
+          select: { storeId: true },
+          where: { storeId: { not: null } }, // only items that belong to a store
+        },
+      },
+    });
+
+    if (!order) throw new BadRequestException('Order not found');
+
+    // 1. Customer rating request (always)
+    await this.ratingService.createRatingRequest(orderId, order.userId, Role.CUSTOMER, driverId)
+      .catch(err => this.logger.error(`Customer rating request failed for order ${orderId}`, err));
+
+    // 2. Vendor rating requests (one per unique store)
+    const storeIds = [...new Set(order.items.map(item => item.storeId).filter(Boolean))];
+    for (const storeId of storeIds) {
+      // Get the store's vendor (user) ID
+      const store = await this.prisma.store.findUnique({
+        where: { id: storeId! },
+        select: { userId: true },
+      });
+      if (store?.userId) {
+        await this.ratingService.createRatingRequest(orderId, store.userId, Role.VENDOR, driverId)
+          .catch(err => this.logger.error(`Vendor rating request failed for order ${orderId}, store ${storeId}`, err));
+      } else {
+        this.logger.warn(`Store ${storeId} not found or has no vendor; skipping vendor rating for order ${orderId}`);
+      }
+    }
+
+      // Trigger customer rating request (async – fire and forget)
+    this.requestCustomerRating(orderId).catch((err) =>
+      this.logger.error(`Failed to request rating for order ${orderId}`, err),
+    );
+
+
+    this.logger.log(`Order ${orderId} delivered by driver ${driverId}`);
+    return { success: true, message: 'Order delivered successfully' };
+  }
+
+
+
+
+  async confirmDeliverybk(orderId: string, driverId: string) {
     // Verify that the driver is assigned to this order
     const assignment = await this.prisma.driverAssignment.findUnique({
       where: { orderId },
@@ -1613,6 +1682,7 @@ export class DriverService {
     this.requestCustomerRating(orderId).catch((err) =>
       this.logger.error(`Failed to request rating for order ${orderId}`, err),
     );
+
 
     this.logger.log(`Order ${orderId} delivered by driver ${driverId}`);
     return { success: true, message: 'Order delivered successfully' };

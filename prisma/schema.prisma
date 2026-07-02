@@ -49,6 +49,8 @@ model User {
   stores                Store[]
   documents             VendorDocument[]
   notifications         Notification[]
+  subjectRatings        Rating[]           @relation("subjectRatings")
+  reviewerRatings       Rating[]           @relation("reviewerRatings")
 
   @@index([email])
   @@index([phoneNumber])
@@ -152,6 +154,7 @@ model Store {
   products         Product[]
   category         Category        @relation(fields: [categoryId], references: [id])
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders           Order[]
 
   @@index([userId])
   @@index([categoryId])
@@ -457,6 +460,9 @@ model Order {
   vendorOrderAction    VendorOrderAction?
   orderActivityLogs    OrderActivityLog[]
   driverAssignment     DriverAssignment?
+  ratings              Rating[]
+  store                Store?             @relation(fields: [storeId], references: [id])
+  storeId              String?
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -627,6 +633,38 @@ model VendorOrderAction {
   order       Order              @relation(fields: [orderId], references: [id])
 
   @@index([vendorId])
+}
+
+model Rating {
+  id             String        @id @default(uuid())
+  orderId        String
+  order          Order         @relation(fields: [orderId], references: [id])
+  subjectId      String        // ID of the user being rated (driver)
+  subject        User          @relation("subjectRatings", fields: [subjectId], references: [id])
+  reviewerId     String        // ID of the user giving the rating
+  reviewer       User          @relation("reviewerRatings", fields: [reviewerId], references: [id])
+  reviewerRole   Role          // CUSTOMER, VENDOR, etc.
+  rating         Int?          // 1–5, null if not yet submitted
+  comment        String?
+  status         RatingStatus  @default(PENDING)
+  requestedAt    DateTime      @default(now())
+  submittedAt    DateTime?
+  expiresAt      DateTime
+  reminderCount  Int           @default(0)   // for tracking reminders
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([orderId, reviewerId, reviewerRole])
+  @@index([subjectId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+enum RatingStatus {
+  PENDING
+  SUBMITTED
+  EXPIRED
+  REMINDED // optional – for tracking reminder count
 }
 
 enum VendorActionStatus {
