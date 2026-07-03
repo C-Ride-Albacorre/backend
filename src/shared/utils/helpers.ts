@@ -738,6 +738,40 @@ export default class Helper {
   }
 
   static isStoreOpen(operatingHours: any[]): boolean {
+  const DAYS = [
+    'SUNDAY',
+    'MONDAY',
+    'TUESDAY',
+    'WEDNESDAY',
+    'THURSDAY',
+    'FRIDAY',
+    'SATURDAY',
+  ] as const;
+
+  const now = new Date();
+  const today = DAYS[now.getDay()];
+  const currentTime = now.toTimeString().slice(0, 5);
+
+  const todayHours = operatingHours.find(
+    (h) => h.dayOfWeek === today,
+  );
+
+  if (
+    !todayHours ||
+    !todayHours.isOpen ||
+    !todayHours.openingTime ||
+    !todayHours.closingTime
+  ) {
+    return false;
+  }
+
+  return (
+    currentTime >= todayHours.openingTime &&
+    currentTime <= todayHours.closingTime
+  );
+}
+
+  static isStoreOpenbk(operatingHours: any[]): boolean {
     const now = new Date();
     const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
     const currentTime = now.toTimeString().slice(0, 5); // "HH:MM"
