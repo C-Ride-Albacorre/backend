@@ -737,7 +737,7 @@ export default class Helper {
     }
   }
 
-  static isStoreOpen(operatingHours: any[]): boolean {
+static isStoreOpen(operatingHours: any[]): boolean {
   const DAYS = [
     'SUNDAY',
     'MONDAY',
@@ -746,26 +746,38 @@ export default class Helper {
     'THURSDAY',
     'FRIDAY',
     'SATURDAY',
-  ] as const;
+  ];
 
   const now = new Date();
+
+  console.log('Server date:', now);
+  console.log('getDay():', now.getDay());
+
   const today = DAYS[now.getDay()];
   const currentTime = now.toTimeString().slice(0, 5);
+
+  console.log({
+    today,
+    currentTime,
+    operatingHours,
+  });
 
   const todayHours = operatingHours.find(
     (h) => h.dayOfWeek === today,
   );
 
-  if (
-    !todayHours ||
-    !todayHours.isOpen ||
-    !todayHours.openingTime ||
-    !todayHours.closingTime
-  ) {
-    return false;
-  }
+  console.log('todayHours:', todayHours);
+
+  if (!todayHours) return false;
+
+  console.log({
+    opening: todayHours.openingTime,
+    closing: todayHours.closingTime,
+    isOpen: todayHours.isOpen,
+  });
 
   return (
+    todayHours.isOpen &&
     currentTime >= todayHours.openingTime &&
     currentTime <= todayHours.closingTime
   );
