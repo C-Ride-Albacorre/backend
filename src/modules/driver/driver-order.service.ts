@@ -46,7 +46,8 @@ export class DriverOrderService {
   // await this.driverAssignmentService.transition(orderId, OrderStatus.PICKED_UP, {
   await this.orderService.transition(orderId, OrderStatus.PICKED_UP, {
     actorId: driverId,
-    actorRole: Role.DISPATCHER,   // ✅ corrected role
+    actorRole: Role.DISPATCHER, 
+    respondedAt: new Date()
   });
 
   this.logger.log(`Driver ${driverId} confirmed pickup for order ${orderId}`);
@@ -60,6 +61,7 @@ export class DriverOrderService {
       {
         actorId: driverId,
         actorRole: Role.DISPATCHER,
+        respondedAt: new Date()
       },
     );
     // Switch navigation to leg2: vendor → customer

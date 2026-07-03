@@ -6,6 +6,7 @@ import {
   ForbiddenException,
   ConflictException,
   Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import {
@@ -52,11 +53,14 @@ export class OrderService {
     private readonly prisma: PrismaService,
     private readonly cartService: CartService,
     @Inject(REDIS_CLIENT) public redis: Redis,
-    private driverAssignment: DriverAssignmentService,
+    //private driverAssignment: DriverAssignmentService,
+
+     @Inject(forwardRef(() => DriverAssignmentService))
+  private readonly driverAssignment: DriverAssignmentService,
     private notification: NotificationService,
     @InjectQueue('order-events') private orderQueue: Queue,
     private mapGateway: MapGateway // 👈 inject the gateway
-
+    
   ) { }
 
   transitions: Record<

@@ -23,7 +23,6 @@ import { RatingModule } from '../rating/rating.module';
     forwardRef(() => UserModule),
     forwardRef(() => NotificationModule),
     forwardRef(() => AuthModule),
-    forwardRef(() => OrderModule),
     forwardRef(() => RatingModule),
   ],
   controllers: [DriverController],
