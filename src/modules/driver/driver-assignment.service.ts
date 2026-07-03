@@ -54,7 +54,7 @@ const CLAIM_SCRIPT = `
 
 @Injectable()
 export class DriverAssignmentService {
-  private readonly logger = new Logger(DriverAssignmentService.name);
+  public readonly logger = new Logger(DriverAssignmentService.name);
   private readonly googleMapsApiKey: string;
   private readonly driverSockets = new Map<string, string>();
 
