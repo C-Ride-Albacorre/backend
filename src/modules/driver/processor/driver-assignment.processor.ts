@@ -6,6 +6,7 @@ import { DriverAssignmentService } from '../driver-assignment.service';
 
 @Processor('driver-assignment')
 export class DriverAssignmentProcessor extends WorkerHost {
+ p
   constructor(
     private driverAssignmentService: DriverAssignmentService,
     public readonly prisma: PrismaService,
@@ -60,8 +61,22 @@ export class DriverAssignmentProcessor extends WorkerHost {
   private async handleEtaUpdate(
     job: Job<{ orderId: string; driverId: string; leg: 'to-vendor' | 'to-customer' }>
   ) {
-    const { orderId, driverId, leg } = job.data;
+ 
+    //////
+    let { orderId, driverId, leg } = job.data;
     const service = this.driverAssignmentService;
+
+    ////////
+
+  // 1. Read the current leg from Redis (or fallback to job.data.leg)
+  const legKey = `order:${orderId}:leg`;
+  const legFromRedis = await service.redis.get(legKey);
+  leg = legFromRedis as 'to-vendor' | 'to-customer' || job.data.leg;
+
+  if (!leg) {
+    console.log(`No leg found for order ${orderId}, skipping ETA update`);
+    return;
+  }
 
     // Get driver's current location from Redis
     const driverLocStr = await service.redis.get(`driver:${driverId}:loc`);
