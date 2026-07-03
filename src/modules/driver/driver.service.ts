@@ -24,6 +24,8 @@ import { OrderStatus, AssignmentStatus, DriverStatus } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { OrderService } from '../order/order.service';
 import { RatingService } from '../rating/rating.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',
@@ -60,6 +62,8 @@ export class DriverService {
     @Inject(forwardRef(() => OrderService))
     private readonly orderService: OrderService,
     private readonly ratingService: RatingService,
+    @InjectQueue('driver-assignment') private assignmentQueue: Queue,
+
   ) {
     this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');
     if (!this.googleMapsApiKey) {
@@ -1542,6 +1546,13 @@ export class DriverService {
       await redis.srem(`order:${orderId}:candidates`, driverId);
     }
 
+
+    // Stop the ETA scheduler for this assignment
+    await this.assignmentQueue
+      .removeJobScheduler(`eta-${orderId}`)
+      .catch(() => null);
+
+
     this.logger.log(
       `Driver ${driverId} declined order ${orderId}, reason: ${reason || 'none'}`,
     );
@@ -1593,6 +1604,13 @@ export class DriverService {
     });
 
 
+    // Remove the ETA scheduler since the order is complete
+    await this.assignmentQueue
+      .removeJobScheduler(`eta-${orderId}`)
+      .catch(() => null);
+
+
+
     // Fetch order details including its items to know which stores are involved
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -1628,10 +1646,11 @@ export class DriverService {
       }
     }
 
-      // Trigger customer rating request (async – fire and forget)
+    // Trigger customer rating request (async – fire and forget)
     this.requestCustomerRating(orderId).catch((err) =>
       this.logger.error(`Failed to request rating for order ${orderId}`, err),
     );
+
 
 
     this.logger.log(`Order ${orderId} delivered by driver ${driverId}`);
