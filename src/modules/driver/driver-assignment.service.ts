@@ -22,6 +22,7 @@ import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import Helper from 'src/shared/utils/helpers';
 import { JsonObject, JsonArray } from '@prisma/client/runtime/library';
 import { ConfigService } from '@nestjs/config';
+import { OrderService } from '../order/order.service';
 
 // type TransitionContext = {
 //   actorId?: string;
@@ -70,7 +71,8 @@ export class DriverAssignmentService {
     @Inject(forwardRef(() => DriverGateway))
     public readonly driverGateway: DriverGateway,
     private configService: ConfigService,
-
+    @Inject(forwardRef(() => OrderService))
+    private readonly orderService: OrderService,
   ) {
     this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');
     if (!this.googleMapsApiKey) {
@@ -449,7 +451,7 @@ export class DriverAssignmentService {
           },
         });
 
-        
+
 
 
 
@@ -484,17 +486,22 @@ export class DriverAssignmentService {
       });
 
       // 🔔 Emit order-status for the customer
-        try {
-          this.mapGateway.emitOrderStatus(
-            orderId,
-            OrderStatus.ORDER_ASSIGNED,
-            updatedOrder.statusHistory,
-          );
-          this.logger.log(`📡 Emitted order-status for ${orderId}: ORDER_ASSIGNED`);
-        } catch (err) {
-          this.logger.error(`Failed to emit order-status for ${orderId}: ${err.message}`);
-        }
+      // try {
+      //   this.mapGateway.emitOrderStatus(
+      //     orderId,
+      //     OrderStatus.ORDER_ASSIGNED,
+      //     updatedOrder.statusHistory,
+      //   );
+      //   this.logger.log(`📡 Emitted order-status for ${orderId}: ORDER_ASSIGNED`);
+      // } catch (err) {
+      //   this.logger.error(`Failed to emit order-status for ${orderId}: ${err.message}`);
+      // }
+      await this.orderService.transition(orderId, OrderStatus.ORDER_ASSIGNED, {
+        actorId: driverId,
+        actorRole: Role.DISPATCHER,   // ✅ corrected role
+        respondedAt: new Date()
 
+      });
       // After the transaction (inside driverAccepts) and before cleanup
       const driverIds = await this.redis.smembers(notifiedDriversKey);
 

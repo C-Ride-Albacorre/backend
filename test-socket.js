@@ -1,24 +1,19 @@
 // npm install socket.io-client
-
 const { io } = require("socket.io-client");
 
 const SERVER_URL = "wss://backend-service-1rc7.onrender.com";
 
 const DRIVER_ID = "621cf9e2-b70f-48f5-b96b-845abf3605d3";
-// const ORDER_ID = "f4f80773-750d-48e2-823b-ee5dd1acd93c";
-const ORDER_ID = "dca61f00-1c04-4308-b482-8588640299db"
+const ORDER_ID = "8f0a41fe-fde8-4359-ab26-e1e150280d97";
 
-//"0b916838-d817-474f-ad57-f8a27899d7b9";
+const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MjFjZjllMi1iNzBmLTQ4ZjUtYjk2Yi04NDVhYmYzNjA1ZDMiLCJlbWFpbCI6ImJpbW9jb3cyNjdAb2N1c2VyLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4MzA3OTMwNywiZXhwIjoxNzgzMDgyOTA3fQ.60UqgT_L4QbfTJdp_OEmF3CsWJV66S98z2LlB3laCTk";
 
-const ACCESS_TOKEN ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2MjFjZjllMi1iNzBmLTQ4ZjUtYjk2Yi04NDVhYmYzNjA1ZDMiLCJlbWFpbCI6ImJpbW9jb3cyNjdAb2N1c2VyLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4Mjk5NDQ3MywiZXhwIjoxNzgyOTk4MDczfQ.Wc9nVnBfRUmrG9-khEvuFut8Q89CjQDDko34X4ZPYeI"
-
+// ───────────────────────────────────────────────
+// 1. DRIVER SOCKET
+// ───────────────────────────────────────────────
 const driverSocket = io(`${SERVER_URL}/driver`, {
-  auth: {
-    token: ACCESS_TOKEN,
-  },
-  query: {
-    driverId: DRIVER_ID,   // add this
-  },
+  auth: { token: ACCESS_TOKEN },
+  query: { driverId: DRIVER_ID },
   transports: ["websocket"],
 });
 
@@ -28,9 +23,7 @@ driverSocket.on("connected", (data) => {
 });
 
 driverSocket.on("new-order-request", (data) => {
-  console.log('📦 Order:', data)
-  //console.log("📦 NEW ORDER REQUEST");
-  //console.dir(data, { depth: null });
+  console.log("📦 Order:", data);
 });
 
 driverSocket.on("request-timeout", (data) => {
@@ -62,48 +55,76 @@ driverSocket.on("error", (err) => {
   console.dir(err, { depth: null });
 });
 
-// ======================================================
-// MAP NAMESPACE
-// ======================================================
-
+// ───────────────────────────────────────────────
+// 2. MAP SOCKET
+// ───────────────────────────────────────────────
 const mapSocket = io(`${SERVER_URL}/map`, {
-  query: {
-    orderId: ORDER_ID,
-  },
+  query: { orderId: ORDER_ID },
   transports: ["websocket"],
 });
+
+// location interval (declared once)
+let locationInterval = null;
+
+function startLocationUpdates() {
+  if (locationInterval) return; // prevent duplicate intervals
+
+  locationInterval = setInterval(() => {
+    // Only send if both sockets are connected
+    if (!driverSocket.connected || !mapSocket.connected) {
+      console.log("⏳ Sockets not ready, skipping location");
+      return;
+    }
+
+    const fakeLocation = {
+      lat: 6.5460833,
+      lng: 3.3805733,
+      heading: 0,
+    };
+
+    driverSocket.emit("driver-location", {
+      driverId: DRIVER_ID,
+      orderId: ORDER_ID,
+      lat: fakeLocation.lat,
+      lng: fakeLocation.lng,
+      heading: fakeLocation.heading,
+    });
+
+    console.log("📍 Location sent:", fakeLocation);
+  }, 2000);
+}
+
+function stopLocationUpdates() {
+  if (locationInterval) {
+    clearInterval(locationInterval);
+    locationInterval = null;
+  }
+}
 
 mapSocket.on("connect", () => {
   console.log("🗺 MAP CONNECTED:", mapSocket.id);
 
-  // Optional. Your gateway already joins the room using
-  // handshake.query.orderId, but this doesn't hurt.
+  // 1. Subscribe to order room
   mapSocket.emit("subscribe-order", ORDER_ID);
+
+  // 2. Start location updates (if not already running)
+  startLocationUpdates();
+});
+
+mapSocket.on("disconnect", (reason) => {
+  console.log("🔴 MAP DISCONNECTED:", reason);
+  // Optionally stop updates on disconnect (but will restart on reconnect)
+  // stopLocationUpdates(); // uncomment if you want to stop on disconnect
 });
 
 mapSocket.on("driver-location", (data) => {
-  console.log("📍 DRIVER LOCATION");
+  console.log("📍 DRIVER LOCATION (received from backend)");
   console.dir(data, { depth: null });
-
-  /*
-    {
-      lat: 12.345,
-      lng: 7.890,
-      heading: 180
-    }
-  */
 });
 
 mapSocket.on("eta-update", (data) => {
   console.log("⏱ ETA UPDATE");
   console.dir(data, { depth: null });
-
-  /*
-    {
-      leg: "to-vendor",
-      etaSeconds: 420
-    }
-  */
 });
 
 mapSocket.on("polyline-update", (data) => {
@@ -114,13 +135,6 @@ mapSocket.on("polyline-update", (data) => {
 mapSocket.on("order-status", (data) => {
   console.log("📋 ORDER STATUS UPDATE");
   console.dir(data, { depth: null });
-
-  /*
-    {
-      status: "...",
-      history: [...]
-    }
-  */
 });
 
 mapSocket.on("connect_error", (err) => {
@@ -128,19 +142,13 @@ mapSocket.on("connect_error", (err) => {
   console.error(err.message);
 });
 
-mapSocket.on("disconnect", (reason) => {
-  console.log("🔴 MAP DISCONNECTED:", reason);
-});
-
-// ======================================================
-// DEBUG EVERYTHING
-// ======================================================
-
+// ───────────────────────────────────────────────
+// DEBUG: Listen to all events (optional)
+// ───────────────────────────────────────────────
 // driverSocket.onAny((event, ...args) => {
 //   console.log(`🔥 DRIVER EVENT -> ${event}`);
 //   console.dir(args, { depth: null });
 // });
-
 // mapSocket.onAny((event, ...args) => {
 //   console.log(`🔥 MAP EVENT -> ${event}`);
 //   console.dir(args, { depth: null });

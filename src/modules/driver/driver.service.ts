@@ -1571,6 +1571,7 @@ export class DriverService {
     await this.orderService.transition(orderId, OrderStatus.DELIVERED, {
       actorId: driverId,
       actorRole: Role.DISPATCHER,
+      respondedAt: new Date()
     });
 
     // Update driver profile: total deliveries +1, set status back to ONLINE
