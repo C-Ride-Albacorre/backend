@@ -294,7 +294,7 @@ export class DriverAssignmentService {
     }
   }
 
-  async driverAccepts(orderId: string, driverId: string): Promise<boolean> {
+  async driverAcceptsNewfail(orderId: string, driverId: string): Promise<boolean> {
   // 1. Check if the order is still available
   const order = await this.prisma.order.findUnique({
     where: { id: orderId },
@@ -536,7 +536,7 @@ export class DriverAssignmentService {
 }
 
 
-  async driverAcceptsbk(orderId: string, driverId: string): Promise<boolean> {
+  async driverAccepts(orderId: string, driverId: string): Promise<boolean> {
     // 1. Check if the order is still available
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
