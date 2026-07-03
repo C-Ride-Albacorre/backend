@@ -709,8 +709,11 @@ export class DriverAssignmentService {
     const jobSchedulerId = `eta-${orderId}`; // The same identifier used as repeat key
 
     // Remove existing scheduler if any (ignore errors – scheduler may not exist)
-    await this.assignmentQueue.removeJobScheduler(jobSchedulerId).catch(() => null);
+    // await this.assignmentQueue.removeJobScheduler(jobSchedulerId).catch(() => null);
 
+    const removed = await this.assignmentQueue.removeJobScheduler(jobSchedulerId).catch(() => null);
+
+    this.logger.log(`Removed scheduler ${jobSchedulerId}: ${removed}`);
     // Add the new repeatable job – BullMQ will create a job scheduler internally
     await this.assignmentQueue.add(
       'update-eta',
