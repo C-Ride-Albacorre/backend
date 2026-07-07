@@ -1564,7 +1564,7 @@ export class DriverService {
    * and trigger customer rating request.
    */
 
-  async confirmDelivery(orderId: string, driverId: string) {
+  async confirmDelivery(orderId: string, driverId: string, orderCode: string) {
     // Verify that the driver is assigned to this order
     const assignment = await this.prisma.driverAssignment.findUnique({
       where: { orderId },
@@ -1577,6 +1577,29 @@ export class DriverService {
     if (assignment.assignmentStatus !== AssignmentStatus.ASSIGNED) {
       throw new BadRequestException('Order not in assigned state');
     }
+
+    
+    // Fetch order details including its items to know which stores are involved
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        userId: true,          // customer
+        orderNumber: true,
+        orderCode: true,
+        items: {
+          select: { storeId: true },
+          where: { storeId: { not: null } }, // only items that belong to a store
+        },
+      },
+    });
+
+    if (!order) throw new BadRequestException('Order not found');
+
+     // // Validate the order code
+    if (order.orderCode !== orderCode) {
+      throw new BadRequestException('Invalid order confirmation code');
+    }  
+
 
     // Use the state machine to transition
     await this.orderService.transition(orderId, OrderStatus.DELIVERED, {
@@ -1611,20 +1634,6 @@ export class DriverService {
 
 
 
-    // Fetch order details including its items to know which stores are involved
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      select: {
-        userId: true,          // customer
-        orderNumber: true,
-        items: {
-          select: { storeId: true },
-          where: { storeId: { not: null } }, // only items that belong to a store
-        },
-      },
-    });
-
-    if (!order) throw new BadRequestException('Order not found');
 
     // 1. Customer rating request (always)
     await this.ratingService.createRatingRequest(orderId, order.userId, Role.CUSTOMER, driverId)
@@ -1657,6 +1666,124 @@ export class DriverService {
     return { success: true, message: 'Order delivered successfully' };
   }
 
+
+  async getOrderDetailsByCode(code: string, driverId: string) {
+  // 1. Find order by orderCode
+  const order = await this.prisma.order.findFirst({
+    where: { orderCode: code },
+    include: {
+      user: true,                    // customer
+      items: {
+        include: {
+          store: true,
+          variant: true,
+          product: {
+            include: {
+              productImages: true,
+            },
+          },
+        },
+      },
+      driverAssignments: true,
+    },
+  });
+
+  if (!order) {
+    throw new NotFoundException('Order not found with this code');
+  }
+
+  // 2. Verify that the driver is assigned to this order
+  const assignment = ((order.driverAssignments ?? []) as any[]).find(
+    (a: any) => a.driverId === driverId && a.assignmentStatus === AssignmentStatus.ASSIGNED,
+  );
+  if (!assignment) {
+    throw new ForbiddenException('You are not assigned to this order');
+  }
+
+  // 3. Compute totals across all items
+  const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
+  const subtotal = order.items.reduce((sum, item) => sum + item.totalPrice, 0);
+
+  // 4. Build the exact same response shape as getVendorOrderById
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    orderCode: order.orderCode,
+    createdAt: order.createdAt,
+    orderStatus: order.orderStatus,
+    paymentStatus: order.paymentStatus,
+    recipientName: order.recipientName,
+    recipientPhone: order.recipientPhone,
+    deliveryInstructions: order.deliveryInstructions,
+    pickupLocation: order.pickupLocation,
+    dropoffLocation: order.dropoffLocation,
+
+    user: order.user,
+
+    items: order.items.map((item) => ({
+      id: item.id,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
+
+      product: item.product
+        ? {
+            id: item.product.id,
+            productName: item.product.productName,
+            image: item.product.productImages?.[0]?.imageUrl ?? null,
+          }
+        : null,
+
+      variant: item.variant,
+      store: item.store,
+    })),
+
+    // Keep the key name "vendorSummary" for strict compatibility
+    vendorSummary: {
+      itemCount: order.items.length,
+      totalQuantity: totalQuantity,
+      subtotal: subtotal,
+    },
+  };
+}
+
+
+  async getOrderDetailsByCodebk(code: string, driverId: string) {
+  // Find the order by orderNumber (or deliveryConfirmationCode)
+  const order = await this.prisma.order.findUnique({
+    where: { orderNumber: code },
+    include: {
+      items: { include: { product: true } },
+      customer: true,
+      store: true,
+      driverAssignments: true,
+    },
+  });
+  if (!order) throw new NotFoundException('Order not found');
+
+  // Verify that this driver is assigned to the order
+  const assignment = await this.prisma.driverAssignment.findFirst({
+    where: {
+      orderId: order.id,
+      driverId: driverId,
+      assignmentStatus: { in: [AssignmentStatus.ASSIGNED] },
+    },
+  });
+  if (!assignment) {
+    throw new ForbiddenException('You are not assigned to this order');
+  }
+
+  // Remove sensitive data if needed, or return full order details
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    status: order.orderStatus,
+    customer: order.customer,
+    items: order.items,
+    //deliveryAddress: order.deliveryAddress,
+    // ... other fields you want to expose
+  };
+}
 
 
 
