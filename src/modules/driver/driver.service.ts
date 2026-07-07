@@ -1684,7 +1684,7 @@ export class DriverService {
           },
         },
       },
-      driverAssignments: true,
+      driverAssignment: true,
     },
   });
 
@@ -1693,10 +1693,8 @@ export class DriverService {
   }
 
   // 2. Verify that the driver is assigned to this order
-  const assignment = ((order.driverAssignments ?? []) as any[]).find(
-    (a: any) => a.driverId === driverId && a.assignmentStatus === AssignmentStatus.ASSIGNED,
-  );
-  if (!assignment) {
+  const assignment = order.driverAssignment;
+  if (!assignment || assignment.driverId !== driverId || assignment.assignmentStatus !== AssignmentStatus.ASSIGNED) {
     throw new ForbiddenException('You are not assigned to this order');
   }
 
@@ -1748,42 +1746,42 @@ export class DriverService {
 }
 
 
-  async getOrderDetailsByCodebk(code: string, driverId: string) {
-  // Find the order by orderNumber (or deliveryConfirmationCode)
-  const order = await this.prisma.order.findUnique({
-    where: { orderNumber: code },
-    include: {
-      items: { include: { product: true } },
-      customer: true,
-      store: true,
-      driverAssignments: true,
-    },
-  });
-  if (!order) throw new NotFoundException('Order not found');
+//   async getOrderDetailsByCodebk(code: string, driverId: string) {
+//   // Find the order by orderNumber (or deliveryConfirmationCode)
+//   const order = await this.prisma.order.findUnique({
+//     where: { orderNumber: code },
+//     include: {
+//       items: { include: { product: true } },
+//       customer: true,
+//       store: true,
+//       driverAssignments: true,
+//     },
+//   });
+//   if (!order) throw new NotFoundException('Order not found');
 
-  // Verify that this driver is assigned to the order
-  const assignment = await this.prisma.driverAssignment.findFirst({
-    where: {
-      orderId: order.id,
-      driverId: driverId,
-      assignmentStatus: { in: [AssignmentStatus.ASSIGNED] },
-    },
-  });
-  if (!assignment) {
-    throw new ForbiddenException('You are not assigned to this order');
-  }
+//   // Verify that this driver is assigned to the order
+//   const assignment = await this.prisma.driverAssignment.findFirst({
+//     where: {
+//       orderId: order.id,
+//       driverId: driverId,
+//       assignmentStatus: { in: [AssignmentStatus.ASSIGNED] },
+//     },
+//   });
+//   if (!assignment) {
+//     throw new ForbiddenException('You are not assigned to this order');
+//   }
 
-  // Remove sensitive data if needed, or return full order details
-  return {
-    id: order.id,
-    orderNumber: order.orderNumber,
-    status: order.orderStatus,
-    customer: order.customer,
-    items: order.items,
-    //deliveryAddress: order.deliveryAddress,
-    // ... other fields you want to expose
-  };
-}
+//   // Remove sensitive data if needed, or return full order details
+//   return {
+//     id: order.id,
+//     orderNumber: order.orderNumber,
+//     status: order.orderStatus,
+//     customer: order.customer,
+//     items: order.items,
+//     //deliveryAddress: order.deliveryAddress,
+//     // ... other fields you want to expose
+//   };
+// }
 
 
 
