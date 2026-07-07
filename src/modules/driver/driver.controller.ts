@@ -432,17 +432,42 @@ async getAvailableOrder(
     example: 'clx123abc456',
     description: 'Order ID',
   })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        orderCode: {
+          type: 'string',
+          example: 'ORD123456',
+          description: 'Order code provided to the customer for verification',
+        },
+      },
+      required: ['orderCode'],
+    },
+  })
   @ApiResponse({
     status: 200,
     description: 'Order delivered successfully',
   })
   async deliverOrder(
     @Param('orderId') orderId: string,
+    @Body('orderCode') orderCode: string,
     @GetUser() driver: User,
   ) {
-    return this.driverService.confirmDelivery(orderId, driver.id);
+    return this.driverService.confirmDelivery(orderId, driver.id, orderCode);
   }
 
+
+// @Get('by-code/:code')
+// @ApiOperation({ summary: 'Get order details by confirmation code', description: 'Returns full order details for the driver assigned to this order.' })
+// @ApiParam({ name: 'code', type: String, example: 'ORD-123456' })
+// @ApiResponse({ status: 200, description: 'Order details retrieved' })
+// async getOrderByCode(
+//   @Param('code') code: string,
+//   @GetUser() driver: User,
+// ) {
+//   return this.driverService.getOrderDetailsByCode(code, driver.id);
+// }
 
 
   @Post('location')

@@ -751,7 +751,7 @@ static isStoreOpen(operatingHours: any[]): boolean {
   const now = new Date();
 
   console.log('Server date:', now);
-  console.log('getDay():', now.getDay());
+ // console.log('getDay():', now.getDay());
 
   const today = DAYS[now.getDay()];
   const currentTime = now.toTimeString().slice(0, 5);

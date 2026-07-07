@@ -197,8 +197,8 @@ export class OrderService {
     } catch (error) {
       // Log but do not throw – status change is already persisted
       this.logger.error(
-        `Failed to emit order-status for ${orderId}: ${error.message}`,
-        error.stack,
+        `Failed to emit order-status for ${orderId}: ${error}`,
+        error,
       );
     }
 
@@ -2971,7 +2971,7 @@ export class OrderService {
         }
       }
     } catch (error) {
-      this.logger.warn(`Failed to fetch Redis data for order ${orderId}: ${error.message}`);
+      this.logger.warn(`Failed to fetch Redis data for order ${orderId}: ${error}`);
     }
 
     // 7. Assemble final response
