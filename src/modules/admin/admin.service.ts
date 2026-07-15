@@ -1080,6 +1080,66 @@ export class AdminService {
    * Get dashboard statistics
    */
   async getDashboardStats() {
+  const [
+    totalUsers,
+    totalStores,
+    totalProducts,
+    vendorStats,
+    storeStats,
+  ] = await Promise.all([
+    this.prisma.user.count(),
+    this.prisma.store.count(),
+    this.prisma.product.count(),
+
+    this.prisma.user.groupBy({
+      by: ['status'],
+      where: {
+        role: UserRole.VENDOR,
+      },
+      _count: {
+        _all: true,
+      },
+    }),
+
+    this.prisma.store.groupBy({
+      by: ['status'],
+      _count: {
+        _all: true,
+      },
+    }),
+  ]);
+
+  const getVendorCount = (status: UserStatus) =>
+    vendorStats.find((item) => item.status === status)?._count._all ?? 0;
+
+  const getStoreCount = (status: StoreStatus) =>
+    storeStats.find((item) => item.status === status)?._count._all ?? 0;
+
+  return {
+    success: true,
+    data: {
+      totalUsers,
+      totalVendors: vendorStats.reduce(
+        (sum, item) => sum + item._count._all,
+        0,
+      ),
+      totalStores,
+      totalProducts,
+
+      pendingApprovals: {
+        vendors: getVendorCount(UserStatus.UNDER_REVIEW),
+        stores: getStoreCount(StoreStatus.INACTIVE),
+      },
+
+      approved: {
+        vendors: getVendorCount(UserStatus.APPROVED),
+        stores: getStoreCount(StoreStatus.ACTIVE), // Change if your approved status differs
+      },
+    },
+  };
+}
+
+  async getDashboardStatsbk() {
     const [
       totalUsers,
       totalVendors,
