@@ -257,6 +257,95 @@ export class ProductService {
    * Update product
    */
   async updateProduct(
+  productId: string,
+  storeId: string,
+  userId: string,
+  dto: UpdateProductDto,
+  newImages?: Express.Multer.File[],
+) {
+  // Verify ownership
+  const product = await this.prisma.product.findFirst({
+    where: {
+      id: productId,
+      storeId,
+      store: {
+        userId,
+      },
+    },
+    include: {
+      productImages: true,
+    },
+  });
+
+  if (!product) {
+    throw new NotFoundException('Product not found or access denied');
+  }
+
+  // Replace images if new ones were uploaded
+  if (newImages && newImages.length > 0) {
+    // Upload images to Cloudinary
+    const uploadedImages = await Promise.all(
+      newImages.map(async (file) => {
+        const uploaded = await this.cloudinaryService.uploadLogo(file);
+
+        return {
+          imageUrl: uploaded.secure_url,
+        };
+      }),
+    );
+
+    // Delete existing image records
+    await this.prisma.productImage.deleteMany({
+      where: {
+        productId,
+      },
+    });
+
+    // Save newly uploaded images
+    await this.prisma.productImage.createMany({
+      data: uploadedImages.map((image, index) => ({
+        productId,
+        imageUrl: image.imageUrl,
+        isPrimary: index === 0,
+        displayOrder: index,
+      })),
+    });
+  }
+
+  // Update product
+  const updatedProduct = await this.prisma.product.update({
+    where: {
+      id: productId,
+    },
+    data: {
+      productName: dto.productName,
+      subcategoryId: dto.subcategoryId,
+      description: dto.description,
+      stockStatus: dto.stockStatus,
+      productStatus: dto.productStatus,
+      basePrice: dto.basePrice,
+      stockQuantity: dto.stockQuantity,
+      lowStockThreshold: dto.lowStockThreshold,
+    },
+    include: {
+      productImages: {
+        orderBy: {
+          displayOrder: 'asc',
+        },
+      },
+      variants: true,
+      addons: true,
+    },
+  });
+
+  return {
+    success: true,
+    message: 'Product updated successfully',
+    product: updatedProduct,
+  };
+}
+
+  async updateProductbk(
     productId: string,
     storeId: string,
     userId: string,
