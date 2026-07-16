@@ -1139,6 +1139,9 @@ export class AuthService {
       };
     }
 
+      // Determine flow: for dispatchers on mobile, use OTP-only
+   const isMobileFlow = dto.client === 'mobile' || user.role === UserRole.DISPATCHER;
+
     const resetToken = await this.generateResetToken(user);
     const method = email ? 'email' : 'sms';
 
@@ -1157,9 +1160,14 @@ export class AuthService {
 
       return {
         success: true,
-        message: 'Password reset instructions sent successfully.',
-        identifier,
+        message: isMobileFlow
+        ? 'A verification code has been sent to your registered contact.'
+        : 'Password reset instructions sent successfully.',
+        //message: 'Password reset instructions sent successfully.',
+        identifier: user.email || user.phoneNumber,
         method,
+        //requiresOtp: isMobileFlow,
+
       };
     } catch (error) {
       this.logger.error(
@@ -1370,6 +1378,46 @@ private generateResetTokenForMobile(userId: string, identifier: string): string 
  * Step 2: Reset password using the verification token
  */
 // src/auth/auth.service.ts
+
+// auth.service.ts
+async verifyResetOtp(dto: VerifyOtpDto): Promise<{
+  success: boolean;
+  message: string;
+  resetToken?: string;   // returned only on success
+}> {
+  const { identifier, otp } = dto;
+
+  // 1. Validate the OTP
+  const isValid = await this.verificationService.verifyOtp({
+    identifier,
+    otp,
+    purpose: VerificationPurpose.PASSWORD_RESET,
+  });
+
+  if (!isValid) {
+    return { success: false, message: 'Invalid or expired OTP.' };
+  }
+
+  // 2. Retrieve the user and the stored reset token
+  const user = await this.userService.findUserByIdentifier(identifier);
+  if (!user) {
+    // Should not happen, but keep it secure
+    return { success: false, message: 'User not found.' };
+  }
+
+  // 3. Generate a new reset token (or retrieve existing one if still valid)
+  //    For simplicity, generate a fresh token that will be used for the final reset.
+  const resetToken = await this.generateResetToken(user);
+
+  // (Optional) Invalidate the OTP so it cannot be reused
+    await this.verificationCacheService.revokeOtp(identifier);
+
+  return {
+    success: true,
+    message: 'OTP verified. You can now reset your password.',
+    resetToken,
+  };
+}
 
   /**
    * Verifies the OTP and returns a temporary reset token.

@@ -838,7 +838,8 @@ STEP 4 – Bank Details
     },
   })
   async verifyOtp(@Body() dto: VerifyOtpDto) {
-    return this.authService.verifyOtpAndGenerateToken(dto.identifier, dto.otp);
+   return this.authService.verifyResetOtp(dto);
+    // return this.authService.verifyOtpAndGenerateToken(dto.identifier, dto.otp);
   }
 
   /**
