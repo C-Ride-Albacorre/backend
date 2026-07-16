@@ -7,6 +7,8 @@ import {
   Matches,
   ValidateIf,
   IsNotEmpty,
+  IsOptional,
+  IsIn,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -54,6 +56,14 @@ export class ForgotPasswordDto {
   // @IsPhoneNumber()
   @IsNotEmpty()
   phoneNumber?: string;
+
+  @ApiPropertyOptional({
+    description: 'Client type (web or mobile)',
+    example: 'web | mobile',
+  })
+  @IsOptional()
+  @IsIn(['web', 'mobile'])
+  client?: 'web' | 'mobile';   // default to 'web'
 }
 
 export class ResetPasswordDto {
