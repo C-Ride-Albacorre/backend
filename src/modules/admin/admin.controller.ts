@@ -243,6 +243,13 @@ export class AdminController {
   }
 
   @Put('category/:id')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'image', maxCount: 1 },
+      { name: 'icon', maxCount: 1 },
+    ]),
+  )
   @ApiOperation({
     summary: 'Update category',
     description:
@@ -278,8 +285,13 @@ export class AdminController {
   async updateCategory(
     @Param('id') id: string,
     @Body() dto: UpdateCategoryDto,
+    @UploadedFiles()
+    files: {
+      image?: Express.Multer.File[];
+      icon?: Express.Multer.File[];
+    },
   ) {
-    return this.adminService.updateCategory(id, dto);
+    return this.adminService.updateCategory(id, dto, files);
   }
 
   @Delete('category/:id')
@@ -485,6 +497,13 @@ export class AdminController {
   }
 
   @Put('subcategories/:id')
+   @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'image', maxCount: 1 },
+      { name: 'icon', maxCount: 1 },
+    ]),
+  )
   @ApiOperation({
     summary: 'Update subcategory',
     description:
@@ -520,8 +539,13 @@ export class AdminController {
   async updateSubcategory(
     @Param('id') id: string,
     @Body() dto: UpdateSubcategoryDto,
+     @UploadedFiles()
+    files: {
+      image?: Express.Multer.File[];
+      icon?: Express.Multer.File[];
+    },
   ) {
-    return this.adminService.updateSubcategory(id, dto);
+    return this.adminService.updateSubcategory(id, dto, files);
   }
 
   @Delete('subcategories/:id')

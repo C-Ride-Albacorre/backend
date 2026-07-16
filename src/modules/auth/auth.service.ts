@@ -1109,8 +1109,10 @@ export class AuthService {
     identifier?: string;
     method?: 'email' | 'sms';
   }> {
-    const { email, phoneNumber } = dto;
-    const identifier = email || phoneNumber;
+    // const { email, phoneNumber } = dto;
+      const { identifier, client = 'web' } = dto;
+
+   // const identifier = email || phoneNumber;
 
     this.logger.log(`Password reset requested for: ${identifier}`);
 
@@ -1143,7 +1145,7 @@ export class AuthService {
    const isMobileFlow = dto.client === 'mobile' || user.role === UserRole.DISPATCHER;
 
     const resetToken = await this.generateResetToken(user);
-    const method = email ? 'email' : 'sms';
+    const method = identifier.includes('@') ? 'email' : 'sms';
 
     try {
       if (method === 'email' && user.email) {
