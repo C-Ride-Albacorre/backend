@@ -41,21 +41,29 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 // }
 
 export class ForgotPasswordDto {
-  @ApiPropertyOptional({
-    example: 'user@example.com',
-  })
-  @ValidateIf((o) => !o.phoneNumber)
-  @IsEmail()
-  @IsNotEmpty()
-  email?: string;
+  // @ApiPropertyOptional({
+  //   example: 'user@example.com',
+  // })
+  // @ValidateIf((o) => !o.phoneNumber)
+  // @IsEmail()
+  // @IsNotEmpty()
+  // email?: string;
 
-  @ApiPropertyOptional({
-    example: '+1234567890',
+  // @ApiPropertyOptional({
+  //   example: '+1234567890',
+  // })
+  // @ValidateIf((o) => !o.email)
+  // // @IsPhoneNumber()
+  // @IsNotEmpty()
+  // phoneNumber?: string;
+
+  @ApiProperty({
+    description: 'Identifier for password reset (email or phone number)',
+    example: 'user@example.com | +1234567890',
   })
-  @ValidateIf((o) => !o.email)
-  // @IsPhoneNumber()
   @IsNotEmpty()
-  phoneNumber?: string;
+  identifier: string;   // can be email or phone number
+
 
   @ApiPropertyOptional({
     description: 'Client type (web or mobile)',
