@@ -778,37 +778,38 @@ STEP 4 – Bank Details
     return this.authService.resetPassword(dto);
   }
 
-  @Post('reset-password/otp')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Reset password using OTP' })
-  @ApiBody({ type: ResetPasswordWithOtpDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Password has been reset successfully',
-    schema: {
-      example: {
-        success: true,
-        message: 'Password has been reset successfully.',
-      },
-    },
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Invalid or expired OTP, or user not found/inactive',
-  })
-  async resetPasswordWithOtp(@Body() dto: ResetPasswordWithOtpDto) {
-    return this.authService.resetPasswordWithOtp({
-      identifier: dto.phoneNumber, // Map to identifier expected by the service
-      otp: dto.otp,
-      newPassword: dto.newPassword,
-    });
-  }
+  // @Post('reset-password/otp')
+  // @HttpCode(200)
+  // @ApiOperation({ summary: 'Reset password using OTP' })
+  // @ApiBody({ type: ResetPasswordWithOtpDto })
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'Password has been reset successfully',
+  //   schema: {
+  //     example: {
+  //       success: true,
+  //       message: 'Password has been reset successfully.',
+  //     },
+  //   },
+  // })
+  // @ApiResponse({
+  //   status: 401,
+  //   description: 'Invalid or expired OTP, or user not found/inactive',
+  // })
+  // async resetPasswordWithOtp(@Body() dto: ResetPasswordWithOtpDto) {
+  //   return this.authService.resetPasswordWithOtp({
+  //     identifier: dto.phoneNumber, // Map to identifier expected by the service
+  //     otp: dto.otp,
+  //     newPassword: dto.newPassword,
+  //   });
+  // }
 
   /**
    * Step 2: Verify OTP and get reset token
    */
   @Post('verify-otp')
   @HttpCode(200)
+  @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Verify OTP and generate reset token',
     description:
@@ -845,51 +846,51 @@ STEP 4 – Bank Details
   /**
    * Step 3: Reset password with token
    */
-  @Post('reset-password/token')
-  @HttpCode(200)
-  @ApiOperation({
-    summary: 'Reset password using verification token',
-    description:
-      'Resets the user\'s password using the temporary token obtained from OTP verification.',
-  })
-  @ApiBody({ type: ResetPasswordWithTokenDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Password has been reset successfully',
-    schema: {
-      example: {
-        success: true,
-        message: 'Password has been reset successfully.',
-      },
-    },
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Invalid or expired reset token',
-    schema: {
-      example: {
-        statusCode: 401,
-        message: 'Invalid or expired reset token',
-        error: 'Unauthorized',
-      },
-    },
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Password validation failed',
-    schema: {
-      example: {
-        statusCode: 400,
-        message: ['Password must contain at least 1 uppercase letter, 1 lowercase letter, and 1 number'],
-        error: 'Bad Request',
-      },
-    },
-  })
-  async resetPasswordWithToken(@Body() dto: ResetPasswordWithTokenDto) {
-   // return this.authService.resetPasswordWithToken(dto);
-      return this.authService.resetPasswordWithToken(dto.token, dto.newPassword);
+  // @Post('reset-password/token')
+  // @HttpCode(200)
+  // @ApiOperation({
+  //   summary: 'Reset password using verification token',
+  //   description:
+  //     'Resets the user\'s password using the temporary token obtained from OTP verification.',
+  // })
+  // @ApiBody({ type: ResetPasswordWithTokenDto })
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'Password has been reset successfully',
+  //   schema: {
+  //     example: {
+  //       success: true,
+  //       message: 'Password has been reset successfully.',
+  //     },
+  //   },
+  // })
+  // @ApiResponse({
+  //   status: 401,
+  //   description: 'Invalid or expired reset token',
+  //   schema: {
+  //     example: {
+  //       statusCode: 401,
+  //       message: 'Invalid or expired reset token',
+  //       error: 'Unauthorized',
+  //     },
+  //   },
+  // })
+  // @ApiResponse({
+  //   status: 400,
+  //   description: 'Password validation failed',
+  //   schema: {
+  //     example: {
+  //       statusCode: 400,
+  //       message: ['Password must contain at least 1 uppercase letter, 1 lowercase letter, and 1 number'],
+  //       error: 'Bad Request',
+  //     },
+  //   },
+  // })
+  // async resetPasswordWithToken(@Body() dto: ResetPasswordWithTokenDto) {
+  //  // return this.authService.resetPasswordWithToken(dto);
+  //     return this.authService.resetPasswordWithToken(dto.token, dto.newPassword);
 
-  }
+  // }
 
 
   @Get('profile')
