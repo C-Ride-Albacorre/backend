@@ -600,11 +600,12 @@ model ChatMessage {
   orderId    String
   senderId   String
   senderRole Role
-  message    String
+  message    String      @db.Text
   type       MessageType @default(TEXT)
   isRead     Boolean     @default(false)
   readAt     DateTime?
   createdAt  DateTime    @default(now())
+  deletedAt   DateTime? // soft delete
   order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 

@@ -19,14 +19,14 @@ import { Role } from '@prisma/client';
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
 
-  constructor(private chatService: ChatService) {}
+  constructor(private chatService: ChatService) { }
 
   handleConnection(client: Socket) {
     const userId = client.data.user?.id;
     if (!userId) client.disconnect();
   }
 
-  handleDisconnect(client: Socket) {}
+  handleDisconnect(client: Socket) { }
 
   @SubscribeMessage('join-chat')
   async handleJoinChat(
@@ -80,5 +80,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       userId: client.data.user.id,
       isTyping: data.isTyping,
     });
+  }
+
+  @SubscribeMessage('delete-message')
+  async handleDeleteMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { orderId: string; messageId: string },
+  ) {
+    const userId = client.data.user.id;
+    const role = client.data.user.role;
+    await this.chatService.deleteMessage(data.messageId, userId, role);
+    this.server.to(`chat:${data.orderId}`).emit('message-deleted', { messageId: data.messageId });
   }
 }

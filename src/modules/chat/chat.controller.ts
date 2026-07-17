@@ -1,9 +1,11 @@
 
-import { Controller, Get, Post, Body, Param, UseGuards, Request, Patch } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Param, UseGuards, Request, Patch, ForbiddenException, Delete, UploadedFile, UseInterceptors, ParseUUIDPipe } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { ChatService } from './chat.service';
 import { SendMessageDto } from './dto/send-message.dto';
+import { UploadImageResponseDto } from './dto/upload-image-response.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('Chat')
 @ApiBearerAuth()
@@ -36,4 +38,48 @@ export class ChatController {
     await this.chatService.markMessageAsRead(messageId, req.user.id);
     return { success: true };
   }
+
+
+  @Post('orders/:orderId/images')
+  @UseInterceptors(FileInterceptor('image'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        image: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, type: UploadImageResponseDto })
+  async uploadImage(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req,
+  ) {
+    const { imageUrl, message } = await this.chatService.uploadImage(
+      orderId,
+      req.user.id,
+      req.user.role,
+      file,
+    );
+    return {
+      imageUrl,
+      orderId,
+      message: 'Image uploaded successfully',
+    };
+  }
+  
+  // chat.controller.ts
+@Delete('messages/:messageId')
+@ApiOperation({ summary: 'Delete a message (soft delete)' })
+@ApiResponse({ status: 200, description: 'Message deleted' })
+async deleteMessage(@Param('messageId') messageId: string, @Request() req) {
+  await this.chatService.deleteMessage(messageId, req.user.id, req.user.role);
+  return { success: true };
+}
+
 }
