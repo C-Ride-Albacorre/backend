@@ -1,7 +1,8 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { PushNotificationService } from '../notification/push-notification.service';
 import { ChatMessage, MessageType, Role } from '@prisma/client';
+import { CloudinaryService } from 'src/shared/services/cloudinary.service';
 
 @Injectable()
 export class ChatService {
@@ -10,7 +11,8 @@ export class ChatService {
   constructor(
     private prisma: PrismaService,
     private pushService: PushNotificationService,
-  ) {}
+    private cloudinaryService: CloudinaryService,
+  ) { }
 
   async validateChatAccess(orderId: string, userId: string, role: Role): Promise<boolean> {
     const order = await this.prisma.order.findUnique({
@@ -45,7 +47,7 @@ export class ChatService {
     const canAccess = await this.validateChatAccess(orderId, userId, role);
     if (!canAccess) throw new ForbiddenException();
     return this.prisma.chatMessage.findMany({
-      where: { orderId },
+     where: { orderId, deletedAt: null },
       orderBy: { createdAt: 'asc' },
     });
   }
@@ -81,6 +83,65 @@ export class ChatService {
       title: `New message from ${title}`,
       body: message.message.length > 100 ? message.message.slice(0, 97) + '...' : message.message,
       data: { orderId: message.orderId, type: 'chat' },
+    });
+  }
+
+
+  /**
+   * Upload an image to Cloudinary and return the URL.
+   * Automatically sends a message of type IMAGE.
+   */
+  async uploadImage(
+    orderId: string,
+    senderId: string,
+    senderRole: Role,
+    file: Express.Multer.File,
+  ): Promise<{ imageUrl: string; message: ChatMessage }> {
+    // Validate access
+    const canAccess = await this.validateChatAccess(orderId, senderId, senderRole);
+    if (!canAccess) throw new ForbiddenException('You do not have access to this chat');
+
+    // Validate file
+    if (!file) throw new BadRequestException('No file uploaded');
+    const allowedMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic'];
+    if (!allowedMime.includes(file.mimetype)) {
+      throw new BadRequestException('Only image files are allowed');
+    }
+    if (file.size > 5 * 1024 * 1024) { // 5MB
+      throw new BadRequestException('File size exceeds 5MB limit');
+    }
+
+    // Upload to Cloudinary
+    const result = await this.cloudinaryService.uploadFile(file, `chat/${orderId}`);
+    const imageUrl = result.secure_url;
+
+    // Save as a message with type IMAGE
+    const savedMessage = await this.prisma.chatMessage.create({
+      data: {
+        orderId,
+        senderId,
+        senderRole,
+        message: imageUrl, // store the URL in the message field
+        type: 'IMAGE',
+      },
+    });
+
+    return { imageUrl, message: savedMessage };
+  }
+
+  // chat.service.ts
+  async deleteMessage(messageId: string, userId: string, role: Role): Promise<void> {
+    const message = await this.prisma.chatMessage.findUnique({
+      where: { id: messageId },
+      include: { order: true },
+    });
+    if (!message) throw new NotFoundException('Message not found');
+    // Only the sender can delete their own message
+    if (message.senderId !== userId) throw new ForbiddenException('You can only delete your own messages');
+    // Soft delete
+    await this.prisma.chatMessage.update({
+      where: { id: messageId },
+      data: { deletedAt: new Date() },
     });
   }
 }
