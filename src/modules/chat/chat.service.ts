@@ -129,8 +129,25 @@ export class ChatService {
     return { imageUrl, message: savedMessage };
   }
 
-  // chat.service.ts
-  async deleteMessage(messageId: string, userId: string, role: Role): Promise<void> {
+async editMessage(messageId: string, userId: string, newMessage: string): Promise<ChatMessage> {
+  const message = await this.prisma.chatMessage.findUnique({
+    where: { id: messageId },
+  });
+  if (!message) throw new NotFoundException('Message not found');
+  if (message.senderId !== userId) throw new ForbiddenException('Only the sender can edit');
+  if (message.deletedAt) throw new BadRequestException('Cannot edit a deleted message');
+  if (newMessage.trim().length === 0) throw new BadRequestException('Message cannot be empty');
+
+  return this.prisma.chatMessage.update({
+    where: { id: messageId },
+    data: {
+      message: newMessage.trim(),
+      editedAt: new Date(),
+    },
+  });
+}  
+
+async deleteMessage(messageId: string, userId: string, role: Role): Promise<void> {
     const message = await this.prisma.chatMessage.findUnique({
       where: { id: messageId },
       include: { order: true },
