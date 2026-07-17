@@ -1,5 +1,5 @@
 
-import { Controller, Get, Post, Body, Param, UseGuards, Request, Patch, ForbiddenException, Delete, UploadedFile, UseInterceptors, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Request, Patch, Put, Delete, UploadedFile, UseInterceptors, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { ChatService } from './chat.service';
@@ -80,6 +80,19 @@ export class ChatController {
 async deleteMessage(@Param('messageId') messageId: string, @Request() req) {
   await this.chatService.deleteMessage(messageId, req.user.id, req.user.role);
   return { success: true };
+}
+
+@Patch('messages/:messageId')
+@ApiOperation({ summary: 'Edit a message' })
+@ApiResponse({ status: 200, description: 'Message edited' })
+async editMessage(
+  @Param('messageId') messageId: string,
+  @Body('newMessage') newMessage: string,
+  @Request() req,
+) {
+  const updatedMessage = await this.chatService.editMessage(messageId, req.user.id, newMessage);
+  return { success: true, message: updatedMessage };
+
 }
 
 }

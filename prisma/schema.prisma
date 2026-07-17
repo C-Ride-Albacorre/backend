@@ -605,8 +605,9 @@ model ChatMessage {
   isRead     Boolean     @default(false)
   readAt     DateTime?
   createdAt  DateTime    @default(now())
-  deletedAt   DateTime? // soft delete
-  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  editedAt   DateTime?
+  deletedAt DateTime? // soft delete
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
 model Notification {
@@ -637,23 +638,23 @@ model VendorOrderAction {
 }
 
 model Rating {
-  id             String        @id @default(uuid())
-  orderId        String
-  order          Order         @relation(fields: [orderId], references: [id])
-  subjectId      String        // ID of the user being rated (driver)
-  subject        User          @relation("subjectRatings", fields: [subjectId], references: [id])
-  reviewerId     String        // ID of the user giving the rating
-  reviewer       User          @relation("reviewerRatings", fields: [reviewerId], references: [id])
-  reviewerRole   Role          // CUSTOMER, VENDOR, etc.
-  rating         Int?          // 1–5, null if not yet submitted
-  comment        String?
-  status         RatingStatus  @default(PENDING)
-  requestedAt    DateTime      @default(now())
-  submittedAt    DateTime?
-  expiresAt      DateTime
-  reminderCount  Int           @default(0)   // for tracking reminders
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id            String       @id @default(uuid())
+  orderId       String
+  order         Order        @relation(fields: [orderId], references: [id])
+  subjectId     String // ID of the user being rated (driver)
+  subject       User         @relation("subjectRatings", fields: [subjectId], references: [id])
+  reviewerId    String // ID of the user giving the rating
+  reviewer      User         @relation("reviewerRatings", fields: [reviewerId], references: [id])
+  reviewerRole  Role // CUSTOMER, VENDOR, etc.
+  rating        Int? // 1–5, null if not yet submitted
+  comment       String?
+  status        RatingStatus @default(PENDING)
+  requestedAt   DateTime     @default(now())
+  submittedAt   DateTime?
+  expiresAt     DateTime
+  reminderCount Int          @default(0) // for tracking reminders
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@unique([orderId, reviewerId, reviewerRole])
   @@index([subjectId])
