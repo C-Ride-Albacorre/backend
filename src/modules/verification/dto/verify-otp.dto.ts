@@ -6,7 +6,7 @@ import {
   IsEnum,
   IsNotEmpty,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { VerificationPurpose } from '../../../shared/enums';
 
 export class VerifyOtpDto {
@@ -14,6 +14,7 @@ export class VerifyOtpDto {
     description: 'Email address or phone number to verify',
     example: 'user@example.com', //or +1234567890',
   })
+
   @IsString()
   @IsNotEmpty()
   identifier: string;
@@ -27,8 +28,9 @@ export class VerifyOtpDto {
   @Length(6, 6)
   otp: string;
 
-  @ApiProperty({
-    description: 'Verification Token',
+
+  @ApiPropertyOptional({
+    description: 'Verification Token (optional)',
     example: 'abTheherbf^YhHDhddjdOkdkfhffdnfmffmaj^jklnnn',
   })
   @IsOptional()
