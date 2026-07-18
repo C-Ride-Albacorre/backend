@@ -1,7 +1,6 @@
 // eslint-disable-next-line prettier/prettier
 import { Module } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { PrismaService } from '../../shared/services/prisma.service';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtStrategy } from '../../common/strategies/jwt.strategy';
@@ -30,7 +29,6 @@ import { CartModule } from '../cart/cart.module';
 
   providers: [
     AuthService,
-    PrismaService,
     JwtStrategy,
     GoogleAuthGuard,
     GoogleStrategy,
