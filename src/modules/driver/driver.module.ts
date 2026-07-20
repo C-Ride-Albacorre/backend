@@ -11,6 +11,7 @@ import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import { AuthModule } from '../auth/auth.module';
 import { DriverAssignmentProcessor } from './processor/driver-assignment.processor';
 import { RatingModule } from '../rating/rating.module';
+import { DriverNotificationProcessor } from './processor/driver-notification.processor';
 
 @Module({
   imports: [
@@ -26,7 +27,7 @@ import { RatingModule } from '../rating/rating.module';
     forwardRef(() => RatingModule),
   ],
   controllers: [DriverController],
-  providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverAssignmentProcessor],
+  providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverAssignmentProcessor, DriverNotificationProcessor],
   exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway],
 })
 export class DriverModule {}

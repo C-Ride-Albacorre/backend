@@ -232,6 +232,7 @@ export class ChatGateway
       messageId: updated.id,
       newMessage: updated.message,
       editedAt: updated.editedAt,
+      editedBy: userId,
     });
   }
 
