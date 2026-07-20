@@ -113,142 +113,143 @@ export class DriverAssignmentService {
 
 
 
-  async findAndNotifyDriversBK(orderId: string, vendorLocation: { lat: number; lng: number }) {
-    this.logger.log(`Finding nearby drivers for order ${orderId} at location (${vendorLocation.lat}, ${vendorLocation.lng})`);
+  // async findAndNotifyDriversBK(orderId: string, vendorLocation: { lat: number; lng: number }) {
+  //   this.logger.log(`Finding nearby drivers for order ${orderId} at location (${vendorLocation.lat}, ${vendorLocation.lng})`);
 
-    const dispatchLockKey = `order:${orderId}:dispatch_lock`;
-    const pendingDriversKey = `order:${orderId}:pending_drivers`;
+  //   const dispatchLockKey = `order:${orderId}:dispatch_lock`;
+  //   const pendingDriversKey = `order:${orderId}:pending_drivers`;
 
-    try {
-      this.logger.log(`Acquiring dispatch lock for order ${orderId}`);
-      const locked = await this.redis.set(dispatchLockKey, '1', 'EX', 120, 'NX');
-      if (!locked) {
-        this.logger.log(`Failed to acquire dispatch lock for order ${orderId}`);
-        return;
-      }
+  //   try {
+  //     this.logger.log(`Acquiring dispatch lock for order ${orderId}`);
+  //     const locked = await this.redis.set(dispatchLockKey, '1', 'EX', 120, 'NX');
+  //     if (!locked) {
+  //       this.logger.log(`Failed to acquire dispatch lock for order ${orderId}`);
+  //       return;
+  //     }
 
-      const drivers = await this.getNearbyDrivers(
-        vendorLocation.lat,
-        vendorLocation.lng,
-        5000,
-      );
+  //     const drivers = await this.getNearbyDrivers(
+  //       vendorLocation.lat,
+  //       vendorLocation.lng,
+  //       5000,
+  //     );
 
-      if (!drivers.length) {
-        await this.handleNoDrivers(orderId);
-        return;
-      }
+  //     if (!drivers.length) {
+  //       await this.handleNoDrivers(orderId);
+  //       return;
+  //     }
 
-      // Get order details for the notification
-      const order = await this.prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          items: {
-            include: {
-              store: true,
-            },
-          },
-        },
-      });
+  //     // Get order details for the notification
+  //     const order = await this.prisma.order.findUnique({
+  //       where: { id: orderId },
+  //       include: {
+  //         items: {
+  //           include: {
+  //             store: true,
+  //           },
+  //         },
+  //       },
+  //     });
 
-      const store = order?.items[0]?.store;
-      const orderData = {
-        orderId,
-        orderNumber: order?.orderNumber || orderId,
-        vendorLocation,
-        storeId: store?.id?.toString() || '',
-        storeName: store?.storeName || 'Store',
-        storeLogo: (store as any)?.storeLogo || '',
-        totalAmount: order?.totalAmount || 0,
-        orderType: order?.orderType || 'DELIVERY',
-        pickupLocation: order?.pickupLocation || { lat: 0, lng: 0 },
-        dropoffLocation: order?.dropoffLocation || { lat: 0, lng: 0 },
-        storeLat: store?.latitude ?? vendorLocation.lat,
-        storeLng: store?.longitude ?? vendorLocation.lng,
-        distance: calculateDistance(vendorLocation, order?.pickupLocation || { lat: 0, lng: 0 }),
-        createdAt: order?.createdAt || new Date(),
-      };
+  //     const store = order?.items[0]?.store;
+  //     const orderData = {
+  //       orderId,
+  //       orderNumber: order?.orderNumber || orderId,
+  //       vendorLocation,
+  //       storeId: store?.id?.toString() || '',
+  //       storeName: store?.storeName || 'Store',
+  //       storeLogo: (store as any)?.storeLogo || '',
+  //       totalAmount: order?.totalAmount || 0,
+  //       orderType: order?.orderType || 'DELIVERY',
+  //       pickupLocation: order?.pickupLocation || { lat: 0, lng: 0 },
+  //       dropoffLocation: order?.dropoffLocation || { lat: 0, lng: 0 },
+  //       storeLat: store?.latitude ?? vendorLocation.lat,
+  //       storeLng: store?.longitude ?? vendorLocation.lng,
+  //       distance: calculateDistance(vendorLocation, order?.pickupLocation || { lat: 0, lng: 0 }),
+  //       createdAt: order?.createdAt || new Date(),
+  //     };
 
-      const pipeline = this.redis.pipeline();
+  //     const pipeline = this.redis.pipeline();
 
-      for (const driver of drivers) {
-        this.logger.debug(`Processing driver ${driver.userId} for order ${orderId}`);
-        const pendingKey = `order:${orderId}:pending:${driver.userId}`;
-        pipeline.setex(pendingKey, 300, 'pending');
-        pipeline.sadd(`driver:${driver.userId}:pending_claims`, orderId);
-        pipeline.sadd(pendingDriversKey, driver.userId);
-      }
+  //     for (const driver of drivers) {
+  //       this.logger.debug(`Processing driver ${driver.userId} for order ${orderId}`);
+  //       const pendingKey = `order:${orderId}:pending:${driver.userId}`;
+  //       pipeline.setex(pendingKey, 300, 'pending');
+  //       pipeline.sadd(`driver:${driver.userId}:pending_claims`, orderId);
+  //       pipeline.sadd(pendingDriversKey, driver.userId);
+  //     }
 
-      await pipeline.exec();
+  //     await pipeline.exec();
 
-      for (const driver of drivers) {
-        // EMIT WEBSOCKET EVENT IMMEDIATELY
-        this.logger.log(`Emitting new order request to driver ${driver.userId} for order ${orderId}`);
-        // const sent = this.driverGateway.emitNewOrderRequest(driver.userId, {
-        //   ...orderData,
-        //   distance: driver.lat + ',' + driver.lng, // Include distance if available
+  //     for (const driver of drivers) {
+  //       // EMIT WEBSOCKET EVENT IMMEDIATELY
+  //       this.logger.log(`Emitting new order request to driver ${driver.userId} for order ${orderId}`);
+  //       // const sent = this.driverGateway.emitNewOrderRequest(driver.userId, {
+  //       //   ...orderData,
+  //       //   distance: driver.lat + ',' + driver.lng, // Include distance if available
 
-        // });
-        const sent = await this.driverGateway.emitNewOrderRequest(
-          driver.userId,
-          orderId,
-          order?.orderStatus || OrderStatus.ORDER_ACCEPTED,
-          {
-            ...orderData,
-          },
-        );
+  //       // });
+  //       const sent = await this.driverGateway.emitNewOrderRequest(
+  //         driver.userId,
+  //         orderId,
+  //         order?.orderStatus || OrderStatus.ORDER_ACCEPTED,
+  //         {
+  //           ...orderData,
+  //         },
+  //       );
 
-        if (sent) {
-          this.logger.log(`WebSocket notification sent to driver ${driver.userId} for order ${orderId}`);
-        } else {
-          this.logger.log(`Driver ${driver.userId} not connected via WebSocket, sending push notification as fallback`);
-          // Send push notification as fallback
-          await this.notificationQueue.add(
-            'notify-driver',
-            {
-              driverId: driver.userId,
-              orderId,
-              vendorLocation,
-            },
-            {
-              jobId: `notify-${orderId}-${driver.userId}`,
-              attempts: 2,
-              backoff: 1000,
-              removeOnComplete: true,
-            },
-          );
-        }
+  //       if (sent) {
+  //         this.logger.log(`WebSocket notification sent to driver ${driver.userId} for order ${orderId}`);
+  //       } else {
+  //         this.logger.log(`Driver ${driver.userId} not connected via WebSocket, sending push notification as fallback`);
+  //         this.logger.log(`Queuing push for driver ${driver.userId}`);
+  //         // Send push notification as fallback
+  //         await this.notificationQueue.add(
+  //           'notify-driver',
+  //           {
+  //             driverId: driver.userId,
+  //             orderId,
+  //             vendorLocation,
+  //           },
+  //           {
+  //             jobId: `notify-${orderId}-${driver.userId}`,
+  //             attempts: 2,
+  //             backoff: 1000,
+  //             removeOnComplete: true,
+  //           },
+  //         );
+  //       }
 
-        // Still add timeout job (no need to change this)
-        await this.assignmentQueue.add(
-          'driver-response-timeout',
-          {
-            orderId,
-            driverId: driver.userId,
-          },
-          {
-            delay: 300000,
-            jobId: `timeout-${orderId}-${driver.userId}`,
-            removeOnComplete: true,
-          },
-        );
-      }
+  //       // Still add timeout job (no need to change this)
+  //       await this.assignmentQueue.add(
+  //         'driver-response-timeout',
+  //         {
+  //           orderId,
+  //           driverId: driver.userId,
+  //         },
+  //         {
+  //           delay: 300000,
+  //           jobId: `timeout-${orderId}-${driver.userId}`,
+  //           removeOnComplete: true,
+  //         },
+  //       );
+  //     }
 
-      await this.assignmentQueue.add(
-        'assignment-timeout',
-        { orderId },
-        {
-          delay: 300000,
-          jobId: `assignment-timeout-${orderId}`,
-          removeOnComplete: true,
-        },
-      );
+  //     await this.assignmentQueue.add(
+  //       'assignment-timeout',
+  //       { orderId },
+  //       {
+  //         delay: 300000,
+  //         jobId: `assignment-timeout-${orderId}`,
+  //         removeOnComplete: true,
+  //       },
+  //     );
 
-      this.logger.log(`Notified ${drivers.length} drivers for order ${orderId}`);
-    } catch (error) {
-      this.logger.error(`Failed driver assignment for ${orderId}`, error instanceof Error ? error.stack : String(error));
-      throw error;
-    }
-  }
+  //     this.logger.log(`Notified ${drivers.length} drivers for order ${orderId}`);
+  //   } catch (error) {
+  //     this.logger.error(`Failed driver assignment for ${orderId}`, error instanceof Error ? error.stack : String(error));
+  //     throw error;
+  //   }
+  // }
 
 
   async findAndNotifyDrivers(orderId: string, vendorLocation: { lat: number; lng: number }) {
@@ -341,6 +342,7 @@ export class DriverAssignmentService {
           this.logger.log(`Driver ${driver.userId} not connected via WebSocket, sending push notification as fallback`);
         }
 
+        this.logger.log(`Queuing push for driver ${driver.userId}`);
         // Send push notification as fallback
         await this.notificationQueue.add(
           'notify-driver',
