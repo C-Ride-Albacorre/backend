@@ -122,6 +122,7 @@ export class PushNotificationService {
         },
         token: driver.fcmToken,
       };
+      this.logger.log(`Sending message to driver ${driverId}: ${JSON.stringify(message)}`);
 
       const response = await admin.messaging().send(message);
       this.logger.log(`Push sent to driver ${driverId}: ${response}`);
