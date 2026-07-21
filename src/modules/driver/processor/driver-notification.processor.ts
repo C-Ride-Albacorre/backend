@@ -2,7 +2,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
-import { PushNotificationService } from 'src/modules/notification/push-notification.service';
+import { PushNotificationService } from '../../../modules/notification/push-notification.service';
 
 @Processor('driver-notification')
 export class DriverNotificationProcessor extends WorkerHost {
@@ -23,6 +23,7 @@ export class DriverNotificationProcessor extends WorkerHost {
         orderId,
         vendorLat: vendorLocation.lat.toString(),
         vendorLng: vendorLocation.lng.toString(),
+        vendorLocation: JSON.stringify(vendorLocation),
         type: 'delivery_request',
       },
       priority: 'high',
