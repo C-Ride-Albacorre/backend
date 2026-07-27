@@ -1,4 +1,3 @@
-// src/customer/customer.module.ts
 import { Module, forwardRef } from '@nestjs/common';
 import { CustomerService } from './customer.service';
 import { CustomerController } from './customer.controller';
@@ -11,6 +10,6 @@ import { CartService } from '../cart/cart.service';
   imports: [StoreModule, forwardRef(() => OrderModule), PaymentModule],
   controllers: [CustomerController],
   providers: [CustomerService, CartService],
-  exports: [CartService, CustomerService], // ✅ export CartService
+  exports: [CartService, CustomerService], 
 })
 export class CustomerModule {}

@@ -105,7 +105,7 @@ private async formatAssignedOrderPayload(order: any) {
       // Send connection confirmation
       client.emit('connected', { driverId, status: 'online' });
     } catch (error) {
-      this.logger.error(`Connection error: ${error.message}`);
+      this.logger.error(`Connection error: ${error}`);
       client.disconnect();
     }
   }
@@ -152,6 +152,7 @@ async emitNewOrderRequest(
     orderNumber: string;
     storeId: string;
     storeName: string;
+    deliveryFee: number;
     totalAmount: number;
     orderType: string;
     storeLogo: string;
@@ -243,11 +244,17 @@ async emitNewOrderRequest(
         `Emitted "${event}" to driver ${driverId} (socket: ${socketId})`,
       );
       return true;
-    } catch (error) {
-      this.logger.error(
-        `Failed to emit "${event}" to driver ${driverId}: ${error.message}`,
-        error.stack,
-      );
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        this.logger.error(
+          `Failed to emit "${event}" to driver ${driverId}: ${error.message}`,
+          error.stack,
+        );
+      } else {
+        this.logger.error(
+          `Failed to emit "${event}" to driver ${driverId}: ${String(error)}`,
+        );
+      }
       return false;
     }
   }

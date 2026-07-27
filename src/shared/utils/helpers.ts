@@ -756,11 +756,11 @@ static isStoreOpen(operatingHours: any[]): boolean {
   const today = DAYS[now.getDay()];
   const currentTime = now.toTimeString().slice(0, 5);
 
-  console.log({
-    today,
-    currentTime,
-    operatingHours,
-  });
+  // console.log({
+  //   today,
+  //   currentTime,
+  //   operatingHours,
+  // });
 
   const todayHours = operatingHours.find(
     (h) => h.dayOfWeek === today,
