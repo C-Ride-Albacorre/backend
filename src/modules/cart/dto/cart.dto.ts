@@ -91,6 +91,9 @@ export class CartItemDto {
 
   @ApiProperty()
   variantId?: string;
+
+  @ApiProperty()
+  variantType?: string | null;
 }
 
 export class CartSummaryDto {
@@ -120,4 +123,6 @@ export class CartSummaryDto {
 
   @ApiProperty()
   totalAmount: number;
+
+ 
 }

@@ -75,15 +75,6 @@ export class PushNotificationService {
     }
 
     try {
-      // Fetch driver's FCM token from database
-      // const driver = await this.prisma.driverProfile.findUnique({
-      //   where: { userId: driverId },
-      //   select: { fcmToken: true, deviceType: true },
-      // });
-      // if (!driver?.fcmToken) {
-      //   this.logger.warn(`Driver ${driverId} has no FCM token`);
-      //   return false;
-      // }
       // Fetch driver's FCM token from User table
         const driver = await this.prisma.user.findUnique({
           where: { id: driverId },
