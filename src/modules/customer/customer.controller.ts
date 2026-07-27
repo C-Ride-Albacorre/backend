@@ -35,7 +35,6 @@ import { StoreResponseDto } from './dto/store-response.dto';
 import { GetNearbyStoresQueryDto } from './dto/near-by-store.dto';
 import { RolesGuard } from '../../common/guards/role.guard';
 import { Public } from '../../common/decorators/public.decorator';
-import { CartService } from '../cart/cart.service';
 
 @ApiTags('Customer')
 @Controller('customer')
@@ -144,10 +143,7 @@ export class CustomerController {
   })
   async getNearbyStores(
     @Query() query: GetNearbyStoresQueryDto,
-    // @Request() req,
   ) {
-    // const customerId = req.user?.id;
-    // return this.storeDiscoveryService.getNearbyStores({ ...query, customerId });
     return this.storeDiscoveryService.getNearbyStores(query);
   }
 

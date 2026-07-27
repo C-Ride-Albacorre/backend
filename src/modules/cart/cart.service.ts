@@ -426,82 +426,7 @@ export class CartService {
       return cart;
     }
   }
-  /**
-   * Add item to cart
-   */
-  async addToCartbk(userId: string, dto: AddToCartDto, sessionId?: string) {
-    this.logger.log(`Adding item to cart for user: ${userId || sessionId}`);
 
-    const cart = await this.getOrCreateCart(userId, sessionId);
-
-    // Get item details and calculate price
-    let itemDetails;
-    let unitPrice = 0;
-    let totalPrice = 0;
-    let selectedAddons = [];
-
-    switch (dto.itemType) {
-      case 'PRODUCT':
-        itemDetails = await this.getProductDetails(
-          dto.productId,
-          dto.variantId,
-        );
-        unitPrice = itemDetails.price;
-        totalPrice = unitPrice * dto.quantity;
-
-        // Add add-ons if selected
-        if (dto.addonIds?.length) {
-          selectedAddons = await this.getAddonDetails(dto.addonIds);
-          const addonsTotal = selectedAddons.reduce(
-            (sum, addon) => sum + addon.price,
-            0,
-          );
-          totalPrice += addonsTotal * dto.quantity;
-        }
-        break;
-
-      case 'PACKAGE':
-      case 'DOCUMENT':
-        itemDetails = await this.getPackageDetails(dto.packageId);
-        unitPrice = itemDetails.basePrice;
-        totalPrice = unitPrice * dto.quantity;
-        break;
-    }
-
-    if (dto.itemType === 'PACKAGE' || dto.itemType === 'DOCUMENT') {
-      const pkg = await this.prisma.package.findUnique({
-        where: { id: dto.packageId },
-      });
-
-      if (!pkg) {
-        throw new NotFoundException('Package not found');
-      }
-    }
-
-    // Create cart item
-    await this.prisma.cartItem.create({
-      data: {
-        cartId: cart.id,
-        itemType: dto.itemType,
-        productId: dto.itemType === 'PRODUCT' ? dto.productId : null,
-        variantId: dto.itemType === 'PRODUCT' ? dto.variantId : null,
-        packageId:
-          dto.itemType === 'PACKAGE' || dto.itemType === 'DOCUMENT'
-            ? dto.packageId
-            : null,
-        selectedAddons: selectedAddons,
-        quantity: dto.quantity,
-        unitPrice,
-        totalPrice,
-        specialInstructions: dto.specialInstructions,
-      },
-    });
-
-    // Update cart total
-    await this.updateCartTotal(cart.id);
-
-    return this.getCartSummary(cart.id, userId, sessionId);
-  }
   /**
    * Add item to cart – uses active cart (creates one if needed).
    */
@@ -576,8 +501,16 @@ export class CartService {
           dto.productId!,
           dto.variantId,
         );
-        unitPrice = productDetails.price;
+        ///added this new////
+        let addonsTotal = 0;
+        if (dto.addonIds?.length) {
+          selectedAddons = await this.getAddonDetails(dto.addonIds);
+          addonsTotal = selectedAddons.reduce((sum, addon) => sum + addon.price, 0);
+        }
+        unitPrice = productDetails.price + addonsTotal;   // includes add‑ons
         totalPrice = unitPrice * dto.quantity;
+        // unitPrice = productDetails.price;
+        // totalPrice = unitPrice * dto.quantity;
         if (dto.addonIds?.length) {
           selectedAddons = await this.getAddonDetails(dto.addonIds);
           const addonsTotal = selectedAddons.reduce(
@@ -628,75 +561,7 @@ export class CartService {
 
   }
 
-  // Existing logic continues unchanged...
-  async addToCartWkNoStoreCheck(
-    userId: string | null,
-    dto: AddToCartDto,
-    sessionId?: string,
-  ) {
-    const cart = await this.getOrCreateCart(userId || undefined, sessionId);
 
-    // Resolve item details and pricing
-    let unitPrice = 0;
-    let totalPrice = 0;
-    let selectedAddons: any[] = [];
-
-    switch (dto.itemType) {
-      case 'PRODUCT':
-        const productDetails = await this.getProductDetails(
-          dto.productId!,
-          dto.variantId,
-        );
-        unitPrice = productDetails.price;
-        totalPrice = unitPrice * dto.quantity;
-        if (dto.addonIds?.length) {
-          selectedAddons = await this.getAddonDetails(dto.addonIds);
-          const addonsTotal = selectedAddons.reduce(
-            (sum, addon) => sum + addon.price,
-            0,
-          );
-          totalPrice += addonsTotal * dto.quantity;
-        }
-        break;
-
-      case 'PACKAGE':
-      case 'DOCUMENT':
-        const packageDetails = await this.getPackageDetails(dto.packageId!);
-        unitPrice = packageDetails.basePrice;
-        totalPrice = unitPrice * dto.quantity;
-        break;
-    }
-
-    // Validate package exists (for safety)
-    if (dto.itemType === 'PACKAGE' || dto.itemType === 'DOCUMENT') {
-      const pkg = await this.prisma.package.findUnique({
-        where: { id: dto.packageId },
-      });
-      if (!pkg) throw new NotFoundException('Package not found');
-    }
-
-    // Create cart item
-    await this.prisma.cartItem.create({
-      data: {
-        cartId: cart.id,
-        itemType: dto.itemType,
-        productId: dto.itemType === 'PRODUCT' ? dto.productId : null,
-        variantId: dto.itemType === 'PRODUCT' ? dto.variantId : null,
-        packageId:
-          dto.itemType === 'PACKAGE' || dto.itemType === 'DOCUMENT'
-            ? dto.packageId
-            : null,
-        selectedAddons,
-        quantity: dto.quantity,
-        unitPrice,
-        totalPrice,
-        specialInstructions: dto.specialInstructions,
-      },
-    });
-
-    await this.updateCartTotal(cart.id);
-    return this.getCartSummary(cart.id, userId || undefined, sessionId);
-  }
 
   /**
    * Merge a guest's active cart into the user's active cart after login.
@@ -1366,6 +1231,7 @@ export class CartService {
                 },
               },
             },
+            variant: true, // <-- Add this
             package: {
               include: {
                 store: {
@@ -1392,6 +1258,7 @@ export class CartService {
           itemType: item.itemType,
           productId: item.productId,
           variantId: item.variantId,
+          variantType: item.variant?.variantName ?? null,
           packageId: null,
           name: product?.productName || 'Product (deleted)',
           imageUrl: product?.productImages?.[0]?.imageUrl || null,
@@ -1447,108 +1314,108 @@ export class CartService {
     };
   }
 
-  async getCartSummaryWithoutStoreIdandCategoryId(
-    cartId: string,
-    userId?: string,
-    sessionId?: string,
-    tx?: Prisma.TransactionClient,
-  ): Promise<CartSummaryDto> {
-    if (!userId && !sessionId) {
-      throw new UnauthorizedException(
-        'Either userId or sessionId must be provided',
-      );
-    }
+  // async getCartSummaryWithoutStoreIdandCategoryId(
+  //   cartId: string,
+  //   userId?: string,
+  //   sessionId?: string,
+  //   tx?: Prisma.TransactionClient,
+  // ): Promise<CartSummaryDto> {
+  //   if (!userId && !sessionId) {
+  //     throw new UnauthorizedException(
+  //       'Either userId or sessionId must be provided',
+  //     );
+  //   }
 
-    const prisma = tx ?? this.prisma;
+  //   const prisma = tx ?? this.prisma;
 
-    const cart = await prisma.cart.findFirst({
-      where: {
-        id: cartId,
-        status: CartStatus.ACTIVE,
-        ...(userId ? { userId } : { sessionId }),
-      },
-      include: {
-        items: {
-          include: {
-            product: {
-              include: {
-                store: true,
-                productImages: {
-                  orderBy: [{ isPrimary: 'desc' }, { displayOrder: 'asc' }],
-                  take: 1,
-                },
-              },
-            },
-            package: { include: { store: true } },
-          },
-        },
-      },
-    });
+  //   const cart = await prisma.cart.findFirst({
+  //     where: {
+  //       id: cartId,
+  //       status: CartStatus.ACTIVE,
+  //       ...(userId ? { userId } : { sessionId }),
+  //     },
+  //     include: {
+  //       items: {
+  //         include: {
+  //           product: {
+  //             include: {
+  //               store: true,
+  //               productImages: {
+  //                 orderBy: [{ isPrimary: 'desc' }, { displayOrder: 'asc' }],
+  //                 take: 1,
+  //               },
+  //             },
+  //           },
+  //           package: { include: { store: true } },
+  //         },
+  //       },
+  //     },
+  //   });
 
-    if (!cart) {
-      throw new NotFoundException('Active cart not found or access denied');
-    }
+  //   if (!cart) {
+  //     throw new NotFoundException('Active cart not found or access denied');
+  //   }
 
-    const items: CartItemDto[] = cart.items.map((item) => {
-      if (item.itemType === 'PRODUCT') {
-        const product = item.product;
-        return {
-          id: item.id,
-          itemType: item.itemType,
-          productId: item.productId,
-          variantId: item.variantId,
-          packageId: null,
-          name: product?.productName || 'Product (deleted)',
-          imageUrl: product?.productImages?.[0]?.imageUrl || null,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalPrice: item.totalPrice,
-          selectedAddons: Array.isArray(item.selectedAddons)
-            ? item.selectedAddons
-            : [],
-          storeId: product?.storeId || null,
-          storeName: product?.store?.storeName || null,
-          specialInstructions: item.specialInstructions,
-        };
-      }
-      const pkg = item.package;
-      return {
-        id: item.id,
-        itemType: item.itemType,
-        productId: null,
-        variantId: null,
-        packageId: item.packageId,
-        name: pkg?.name || 'Package (deleted)',
-        imageUrl: null,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        totalPrice: item.totalPrice,
-        selectedAddons: [],
-        storeId: pkg?.storeId || null,
-        storeName: pkg?.store?.storeName || null,
-        specialInstructions: item.specialInstructions,
-      };
-    });
+  //   const items: CartItemDto[] = cart.items.map((item) => {
+  //     if (item.itemType === 'PRODUCT') {
+  //       const product = item.product;
+  //       return {
+  //         id: item.id,
+  //         itemType: item.itemType,
+  //         productId: item.productId,
+  //         variantId: item.variantId,
+  //         packageId: null,
+  //         name: product?.productName || 'Product (deleted)',
+  //         imageUrl: product?.productImages?.[0]?.imageUrl || null,
+  //         quantity: item.quantity,
+  //         unitPrice: item.unitPrice,
+  //         totalPrice: item.totalPrice,
+  //         selectedAddons: Array.isArray(item.selectedAddons)
+  //           ? item.selectedAddons
+  //           : [],
+  //         storeId: product?.storeId || null,
+  //         storeName: product?.store?.storeName || null,
+  //         specialInstructions: item.specialInstructions,
+  //       };
+  //     }
+  //     const pkg = item.package;
+  //     return {
+  //       id: item.id,
+  //       itemType: item.itemType,
+  //       productId: null,
+  //       variantId: null,
+  //       packageId: item.packageId,
+  //       name: pkg?.name || 'Package (deleted)',
+  //       imageUrl: null,
+  //       quantity: item.quantity,
+  //       unitPrice: item.unitPrice,
+  //       totalPrice: item.totalPrice,
+  //       selectedAddons: [],
+  //       storeId: pkg?.storeId || null,
+  //       storeName: pkg?.store?.storeName || null,
+  //       specialInstructions: item.specialInstructions,
+  //     };
+  //   });
 
-    const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
-    const [deliveryFee, serviceFee, taxAmount] = await Promise.all([
-      this.calculateDeliveryFee(cartId, prisma),
-      this.calculateServiceFee(subtotal, prisma),
-      this.calculateTax(subtotal, prisma),
-    ]);
+  //   const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
+  //   const [deliveryFee, serviceFee, taxAmount] = await Promise.all([
+  //     this.calculateDeliveryFee(cartId, prisma),
+  //     this.calculateServiceFee(subtotal, prisma),
+  //     this.calculateTax(subtotal, prisma),
+  //   ]);
 
-    return {
-      cartId: cart.id,
-      storeId: cart.items[0]?.product?.storeId || cart.items[0]?.package?.storeId || null,
-      storeName: cart.items[0]?.product?.store?.storeName || cart.items[0]?.package?.store?.storeName || null,
-      items,
-      subtotal,
-      deliveryFee,
-      serviceFee,
-      taxAmount,
-      totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
-    };
-  }
+  //   return {
+  //     cartId: cart.id,
+  //     storeId: cart.items[0]?.product?.storeId || cart.items[0]?.package?.storeId || null,
+  //     storeName: cart.items[0]?.product?.store?.storeName || cart.items[0]?.package?.store?.storeName || null,
+  //     items,
+  //     subtotal,
+  //     deliveryFee,
+  //     serviceFee,
+  //     taxAmount,
+  //     totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
+  //   };
+  // }
 
 
 
@@ -1567,7 +1434,44 @@ export class CartService {
   }
 
   // Private helper methods
-  private async getProductDetails(productId: string, variantId?: string) {
+  /**
+ * Get effective product price.
+ * - Without variant: returns product.basePrice.
+ * - With variant: treats variant.price as a delta, returning product.basePrice + variant.price.
+ * 
+ * @param productId - The product ID
+ * @param variantId - Optional variant ID (if not provided, returns base price)
+ * @returns { price: number } – the final unit price (base + variant delta)
+ * @throws NotFoundException if product or variant not found
+ */
+  private async getProductDetails(productId: string, variantId?: string): Promise<{ price: number }> {
+    if (variantId) {
+      // Fetch variant with its product (to access basePrice)
+      const variant = await this.prisma.variant.findUnique({
+        where: { id: variantId },
+        include: { product: true },
+      });
+      if (!variant) {
+        throw new NotFoundException(`Variant ${variantId} not found`);
+      }
+
+      // Calculate final price: basePrice + variant.price (delta)
+      const finalPrice = variant.product.basePrice + variant.price;
+
+      return { price: finalPrice };
+    } else {
+      // No variant – use product's base price
+      const product = await this.prisma.product.findUnique({
+        where: { id: productId },
+      });
+      if (!product) {
+        throw new NotFoundException(`Product ${productId} not found`);
+      }
+      return { price: product.basePrice };
+    }
+  }
+
+  private async getProductDetailsbk(productId: string, variantId?: string) {
     if (variantId) {
       const variant = await this.prisma.variant.findUnique({
         where: { id: variantId },

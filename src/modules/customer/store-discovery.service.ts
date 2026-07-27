@@ -1161,7 +1161,7 @@ export class StoreDiscoveryService {
         id: store.id,
         storeName: store.storeName,
         storeCategory: store.category?.name,
-        categoryId: store.categoryId, // required by StoreResponseDto
+        categoryId: store.categoryId, 
         storeDescription: store.storeDescription,
         storeAddress: store.storeAddress,
         phoneNumber: store.phoneNumber,
@@ -1204,63 +1204,6 @@ export class StoreDiscoveryService {
       },
     };
   }
-
-  // private async calculateDistanceWithGoogle(
-  //   origin: { lat: number; lng: number },
-  //   destination: { lat: number; lng: number },
-  // ): Promise<number> {
-  //   try {
-  //     const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-
-  //     const url = `https://maps.googleapis.com/maps/api/distancematrix/json`;
-
-  //     const response = await axios.get(url, {
-  //       params: {
-  //         origins: `${origin.lat},${origin.lng}`,
-  //         destinations: `${destination.lat},${destination.lng}`,
-  //         key: apiKey,
-  //       },
-  //     });
-
-  //     const element = response.data.rows[0].elements[0];
-
-  //     if (element.status === 'OK') {
-  //       // distance in meters → convert to km
-  //       return element.distance.value / 1000;
-  //     }
-
-  //     return Infinity;
-  //   } catch (error) {
-  //     this.logger.error('Distance calculation failed', error);
-  //     return Infinity;
-  //   }
-  // }
-
-  // private calculateHaversineDistance(
-  //   origin: { lat: number; lng: number },
-  //   destination: { lat: number; lng: number },
-  // ): number {
-  //   const R = 6371; // km
-
-  //   console.log('destination', destination);
-
-  //   const dLat = this.toRad(destination.lat - origin.lat);
-  //   const dLng = this.toRad(destination.lng - origin.lng);
-
-  //   const a =
-  //     Math.sin(dLat / 2) ** 2 +
-  //     Math.cos(this.toRad(origin.lat)) *
-  //       Math.cos(this.toRad(destination.lat)) *
-  //       Math.sin(dLng / 2) ** 2;
-
-  //   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  //   return R * c;
-  // }
-
-  // private toRad(value: number): number {
-  //   return (value * Math.PI) / 180;
-  // }
 
   /**
    * Get subcategories by category
@@ -1347,7 +1290,6 @@ export class StoreDiscoveryService {
       throw new NotFoundException('Store not found');
     }
 
-    // ✅ Explicitly include storeLogo in a clean response
     return {
       id: store.id,
       storeName: store.storeName,
@@ -1356,7 +1298,6 @@ export class StoreDiscoveryService {
       phoneNumber: store.phoneNumber,
       email: store.email,
 
-      // 👇 IMAGE INCLUDED HERE
       storeLogo: store.storeLogo ?? null,
 
       dailyOrderLimit: store.dailyOrderLimit,
@@ -1366,7 +1307,7 @@ export class StoreDiscoveryService {
 
       category: store.category,
       operatingHours: store.operatingHours,
-
+      
       products: store.products,
 
       createdAt: store.createdAt,
@@ -1374,37 +1315,6 @@ export class StoreDiscoveryService {
     };
   }
 
-  async getStoreWithProductsold(storeId: string) {
-    const store = await this.prisma.store.findUnique({
-      where: { id: storeId },
-      include: {
-        category: true, // store category
-        operatingHours: true,
-        products: {
-          where: { productStatus: 'ACTIVE' },
-          include: {
-            subcategory: true, // product subcategory
-            productImages: {
-              orderBy: { displayOrder: 'asc' },
-            },
-            variants: {
-              where: { stockStatus: { not: 'OUT_OF_STOCK' } },
-            },
-            addons: {
-              where: { isAvailable: true },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    });
-
-    if (!store) {
-      throw new NotFoundException('Store not found');
-    }
-
-    return store;
-  }
 
   /**
    * Get product details
@@ -1440,33 +1350,5 @@ export class StoreDiscoveryService {
     return product;
   }
 
-  /**
-   * Check if store is open
-   */
-  // private isStoreOpen(operatingHours: any[]): boolean {
-  //   const now = new Date();
-  //   const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-  //   const currentTime = now.toTimeString().slice(0, 5); // "HH:MM"
 
-  //   const todayHours = operatingHours.find((h) => h.dayOfWeek === dayOfWeek);
-
-  //   if (!todayHours || !todayHours.isOpen) {
-  //     return false;
-  //   }
-
-  //   return (
-  //     currentTime >= todayHours.openingTime &&
-  //     currentTime <= todayHours.closingTime
-  //   );
-  // }
-
-  /**
-   * Calculate distance between store and customer (simplified)
-   * In production, use a proper geolocation library
-   */
-  // private calculateDistance(store: any, customerLocation: any): number {
-  //   // Simplified - in production, use proper distance calculation
-  //   // based on latitude/longitude
-  //   return Math.random() * 10; // Mock distance in km
-  // }
 }
