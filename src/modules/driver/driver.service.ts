@@ -862,6 +862,7 @@ export class DriverService {
         order_number: string;
         order_status: string;
         total_amount: number;
+        delivery_fee: number;
         pickup_location: any;
         dropoff_location: any;
         created_at: Date;
@@ -879,6 +880,7 @@ export class DriverService {
         o."orderNumber" AS order_number,
         o."orderStatus" AS order_status,
         o."totalAmount" AS total_amount,
+        o."deliveryFee" AS delivery_fee,
         o."pickupLocation" AS pickup_location,
         o."dropoffLocation" AS dropoff_location,
         o."createdAt" AS created_at,
@@ -1177,6 +1179,7 @@ export class DriverService {
         total_amount: order.totalAmount,
         pickup_location: order.pickupLocation,
         dropoff_location: order.dropoffLocation,
+        deliveryFee: order.deliveryFee,
         created_at: order.createdAt,
         store_id: closestStore.id,
         store_name: closestStore.storeName,
