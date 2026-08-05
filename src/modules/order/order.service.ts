@@ -2841,23 +2841,43 @@ export class OrderService {
     throw new BadRequestException('User ID is required');
   }
 
+  // const driverAssignment = await this.prisma.driverAssignment.findFirst({
+  //   where: {
+  //     driverId: userId,
+  //   },
+  //   include: {
+  //     order: {
+  //       include: {
+  //         items: {
+  //           include: {
+  //             store: true,
+  //           },
+  //         },
+  //         driverAssignment: true,
+  //       },
+  //     },
+  //   },
+  // });
   const driverAssignment = await this.prisma.driverAssignment.findFirst({
-    where: {
-      driverId: userId,
+  where: {
+    driverId: userId,
+    order: {
+      orderStatus: OrderStatus.ORDER_ASSIGNED,
     },
-    include: {
-      order: {
-        include: {
-          items: {
-            include: {
-              store: true,
-            },
+  },
+  include: {
+    order: {
+      include: {
+        items: {
+          include: {
+            store: true,
           },
-          driverAssignment: true,
         },
+        driverAssignment: true,
       },
     },
-  });
+  },
+});
 
   if (!driverAssignment?.order) {
     throw new NotFoundException('No active delivery assigned');
