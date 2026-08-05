@@ -835,23 +835,63 @@ export class DriverService {
    * @param radiusKm - Search radius in kilometers (default 10)
    * @returns List of orders with store details and distance, optionally enriched with items.
    */
+  // async findAvailableOrders(
+  //   driverId: string,
+  //   driverLat: number,
+  //   driverLng: number,
+  //   radiusKm: number,
+  // ) {
+
+  //   console.log(`Finding orders for driver ${driverId} at (${driverLat}, ${driverLng}) within ${radiusKm} km`);
+  //   if (
+  //     !this.isValidLatitude(driverLat) ||
+  //     !this.isValidLongitude(driverLng)
+  //   ) {
+  //     throw new Error(
+  //       'Invalid driver coordinates. Latitude must be between -90 and 90 and longitude between -180 and 180.',
+  //     );
+  //   }
+
   async findAvailableOrders(
-    driverId: string,
-    driverLat: number,
-    driverLng: number,
-    radiusKm: number,
+  driverId: string,
+  driverLat: number,
+  driverLng: number,
+  radiusKm: number,
+) {
+  console.log(
+    `Finding orders for driver ${driverId} at (${driverLat}, ${driverLng}) within ${radiusKm} km`,
+  );
+
+  // Don't return orders if the driver is OFFLINE or BUSY
+  const driverProfile = await this.prisma.driverProfile.findUnique({
+    where: {
+      userId: driverId,
+    },
+    select: {
+      status: true,
+    },
+  });
+
+  if (!driverProfile) {
+    throw new NotFoundException('Driver profile not found');
+  }
+
+  if (
+    driverProfile.status === DriverStatus.OFFLINE ||
+    driverProfile.status === DriverStatus.BUSY
   ) {
+    return [];
+  }
 
-    console.log(`Finding orders for driver ${driverId} at (${driverLat}, ${driverLng}) within ${radiusKm} km`);
-    if (
-      !this.isValidLatitude(driverLat) ||
-      !this.isValidLongitude(driverLng)
-    ) {
-      throw new Error(
-        'Invalid driver coordinates. Latitude must be between -90 and 90 and longitude between -180 and 180.',
-      );
-    }
-
+  // Existing validation
+  if (
+    !this.isValidLatitude(driverLat) ||
+    !this.isValidLongitude(driverLng)
+  ) {
+    throw new Error(
+      'Invalid driver coordinates. Latitude must be between -90 and 90 and longitude between -180 and 180.',
+    );
+  }
     const radiusMeters = radiusKm * 1000;
     const TTL_SECONDS = 300; // 5 minutes - match your broadcast TTL
 
