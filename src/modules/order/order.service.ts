@@ -16,6 +16,7 @@ import {
   PickupLocationDto,
 } from '../customer/dto/order.dto';
 import {
+  AssignmentStatus,
   CartItemType,
   CartStatus,
   OrderStatus,
@@ -2835,8 +2836,175 @@ export class OrderService {
   }
 
 
-
   async getTrackingData(userId: string): Promise<TrackingDataResponseDto> {
+  if (!userId) {
+    throw new BadRequestException('User ID is required');
+  }
+
+  const driverAssignment = await this.prisma.driverAssignment.findFirst({
+    where: {
+      driverId: userId,
+    },
+    include: {
+      order: {
+        include: {
+          items: {
+            include: {
+              store: true,
+            },
+          },
+          driverAssignment: true,
+        },
+      },
+    },
+  });
+
+  if (!driverAssignment?.order) {
+    throw new NotFoundException('No active delivery assigned');
+  }
+
+  const { order } = driverAssignment;
+  const { driverAssignment: assignment } = order;
+  const orderId = order.id;
+
+  // Store
+  const store = order.items[0]?.store;
+
+  // Order
+  const orderData = {
+    id: order.id,
+    number: order.orderNumber,
+    code: order.orderCode,
+    status: order.orderStatus,
+    statusHistory: Array.isArray(order.statusHistory)
+      ? order.statusHistory
+      : [],
+    totalAmount: order.totalAmount,
+    orderType: order.orderType,
+    createdAt: order.createdAt,
+    pickupLocation: order.pickupLocation,
+    dropoffLocation: order.dropoffLocation,
+  };
+
+  // Store
+  const storeData = {
+    id: store?.id ?? '',
+    name: store?.storeName ?? '',
+    logo: store?.storeLogo ?? '',
+    address: store?.storeAddress ?? '',
+    lat: store?.latitude ?? null,
+    lng: store?.longitude ?? null,
+  };
+
+  // Driver
+  let driverData: TrackingDataResponseDto['driver'];
+  let assignmentData: TrackingDataResponseDto['assignment'] = null;
+  let driverId: string | null = assignment?.driverId ?? null;
+
+  if (driverId) {
+    const [driverUser, driverProfile] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: driverId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profilePicture: true,
+          phoneNumber: true,
+        },
+      }),
+      this.prisma.driverProfile.findUnique({
+        where: { userId: driverId },
+        select: {
+          status: true,
+        },
+      }),
+    ]);
+
+    if (driverUser) {
+      driverData = {
+        id: driverUser.id,
+        fullName: `${driverUser.firstName} ${driverUser.lastName}`,
+        photo: driverUser.profilePicture,
+        phone: driverUser.phoneNumber,
+        rating: 0,
+        totalTrips: 0,
+        vehicleMake: '',
+        vehicleModel: '',
+        vehiclePlate: '',
+        status: driverProfile?.status ?? 'OFFLINE',
+      };
+    }
+
+    assignmentData = {
+      status: assignment.assignmentStatus as AssignmentStatus,
+      assignedAt: assignment.assignedAt,
+      etaSeconds: assignment.etaSeconds ?? null,
+
+    };
+  }
+
+  // Tracking
+  let leg: 'to-vendor' | 'to-customer' | null = null;
+  let etaSeconds: number | null = null;
+  let polyline: string | null = null;
+  let driverLocation: TrackingDataResponseDto['tracking']['driverLocation'] =
+    null;
+  let destination: TrackingDataResponseDto['tracking']['destination'] = null;
+
+  try {
+    const [etaRaw, polylineRaw, destinationRaw, locationRaw] =
+      await Promise.all([
+        this.redis.get(`order:${orderId}:eta`),
+        this.redis.get(`order:${orderId}:polyline`),
+        this.redis.get(`order:${orderId}:destination`),
+        driverId ? this.redis.get(`driver:${driverId}:loc`) : Promise.resolve(null),
+      ]);
+
+    if (etaRaw) {
+      const eta = JSON.parse(etaRaw);
+      leg = eta.leg ?? null;
+      etaSeconds = eta.etaSeconds ?? null;
+    }
+
+    polyline = polylineRaw;
+
+    if (destinationRaw) {
+      destination = JSON.parse(destinationRaw);
+    }
+
+    if (locationRaw) {
+      const location = JSON.parse(locationRaw);
+
+      driverLocation = {
+        lat: location.lat,
+        lng: location.lng,
+        heading: location.heading ?? 0,
+        timestamp: location.timestamp ?? Date.now(),
+      };
+    }
+  } catch (error) {
+    this.logger.warn(
+      `Failed to fetch tracking data for order ${orderId}: ${error}`,
+    );
+  }
+
+  return {
+    order: orderData,
+    store: storeData,
+    driver: driverData,
+    assignment: assignmentData,
+    tracking: {
+      leg,
+      etaSeconds: etaSeconds ?? assignment?.etaSeconds ?? null,
+      polyline,
+      driverLocation,
+      destination,
+    },
+  };
+}
+
+  async getTrackingDatabk(userId: string): Promise<TrackingDataResponseDto> {
     if (!userId) {
       throw new BadRequestException('User ID is required');
     }
@@ -3026,7 +3194,7 @@ export class OrderService {
   
 
   // order.service.ts (or a dedicated TrackingService)
-  async getTrackingDataOld(orderId: string): Promise<TrackingDataResponseDto> {
+  async getTrackingDataWithOrderId(orderId: string): Promise<TrackingDataResponseDto> {
     // 1. Fetch order with store, items, driver assignment and driver profile
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
