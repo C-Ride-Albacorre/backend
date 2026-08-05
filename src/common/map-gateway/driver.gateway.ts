@@ -194,6 +194,8 @@ async emitNewOrderRequest(
     created_at: orderData.createdAt,
     store_id: orderData.storeId,
     store_name: orderData.storeName,
+    delivery_fee: orderData.deliveryFee,
+    order_type: orderData.orderType,
     store_logo: orderData.storeLogo,
     store_lat: orderData.storeLat,
     store_lng: orderData.storeLng,
