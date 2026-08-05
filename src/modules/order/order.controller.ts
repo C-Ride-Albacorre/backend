@@ -190,6 +190,6 @@ export class OrderController {
     description: 'Internal server error',
   })
   async getTracking(@Param('orderId') orderId: string) {
-    return this.orderService.getTrackingData(orderId);
+    return this.orderService.getTrackingDataWithOrderId(orderId);
   }
 }
