@@ -2837,6 +2837,9 @@ export class OrderService {
 
 
   async getTrackingData(userId: string): Promise<TrackingDataResponseDto> {
+    if (!userId) {
+      throw new BadRequestException('User ID is required');
+    }
   const order = await this.prisma.order.findFirst({
     where: {
       userId,
