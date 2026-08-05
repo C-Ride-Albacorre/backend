@@ -526,8 +526,7 @@ STEP 3 – Final Step: Review (Optional save before uploads)
     };
   }
 
-  //@Get('tracking')
-  @Get(':orderId/tracking')
+  @Get('tracking')
   @ApiOperation({
     summary: 'Get tracking data for the current user',
     description: 'Retrieve tracking information for the authenticated user active order.',
