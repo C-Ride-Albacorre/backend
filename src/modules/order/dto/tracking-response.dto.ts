@@ -48,5 +48,6 @@ export class TrackingDataResponseDto {
   assignment: {
     status: AssignmentStatus;
     assignedAt: Date | null;
+    etaSeconds: number | null;
   } | null;
 }
