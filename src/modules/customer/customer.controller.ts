@@ -19,6 +19,7 @@ import {
   ApiNotFoundResponse,
   ApiParam,
   ApiOkResponse,
+  ApiResponse,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { CustomerService } from './customer.service';
@@ -233,6 +234,36 @@ export class CustomerController {
   @ApiOperation({ summary: 'Cancel order' })
   async cancelOrder(@Request() req, @Param('orderId') orderId: string) {
     return this.orderService.cancelOrder(orderId, req.user.id);
+  }
+
+  @Get('orders/:orderId/tracking')
+  @ApiOperation({
+    summary: 'Get tracking data for an order',
+    description: 'Retrieve tracking information for a specific order.',
+  })
+  @ApiParam({
+    name: 'orderId',
+    type: String,
+    description: 'Order ID',
+    example: 'clx123abc456',
+  })
+  @ApiOkResponse({
+    description: 'Tracking data retrieved successfully',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Order not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - User is not a vendor',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error',
+  })
+  async getTrackingDataWithOrderId(@Param('orderId') orderId: string) {
+    return this.orderService.getTrackingDataWithOrderId(orderId);
   }
 
   // ==================== PAYMENT ====================
