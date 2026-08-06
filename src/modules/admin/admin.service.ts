@@ -975,6 +975,37 @@ export class AdminService {
   }
 
   async getDispatcherDetails(dispatcherId: string) {
+  const dispatcher = await this.prisma.user.findFirst({
+    where: {
+      id: dispatcherId,
+      role: Role.DISPATCHER,
+    },
+    include: {
+      driverProfile: {
+        include: {
+          documents: true,
+        },
+      },
+      orders: {
+        take: 10,
+        orderBy: {
+          createdAt: 'desc',
+        },
+      },
+    },
+  });
+
+  if (!dispatcher) {
+    throw new NotFoundException('Dispatcher not found');
+  }
+
+  return {
+    success: true,
+    data: dispatcher,
+  };
+}
+
+  async getDispatcherDetailsbk(dispatcherId: string) {
     const dispatcher = await this.prisma.user.findFirst({
       where: {
         id: dispatcherId,
