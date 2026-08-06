@@ -45,7 +45,6 @@ import { UpdateDriverLocationDto } from './dto/update-driver-location.dto';
 import { DriverStatusResponseDto } from './dto/driver-status-response.dto';
 import { UpdateDriverStatusDto } from './dto/update-driver-status.dto';
 import { OrderService } from '../order/order.service';
-import { DriverHistoryDto } from './dto/driver-history.dto';
 
 @ApiTags('Dispatcher')
 @Controller('driver')
@@ -576,28 +575,48 @@ STEP 3 – Final Step: Review (Optional save before uploads)
   //   return this.orderService.getTrackingDataWithOrderId(orderId);
   // }
 
-
 @Get('history')
 @Roles(UserRole.DISPATCHER)
+@ApiQuery({
+  name: 'status',
+  required: false,
+  enum: OrderStatus,
+})
+@ApiQuery({
+  name: 'page',
+  required: false,
+  type: Number,
+})
+@ApiQuery({
+  name: 'limit',
+  required: false,
+  type: Number,
+})
 async getDriverOrderHistory(
   @GetUser() user: any,
-  @Query() filters: DriverHistoryDto,
+  @Query('status') status?: OrderStatus,
+  @Query('page') page = 1,
+  @Query('limit') limit = 20,
 ) {
-  return this.orderService.getDriverOrderHistory(user.id, filters);
+  const driverId = user.id;
+
+  return this.orderService.getDriverOrderHistory(driverId, {
+    status,
+    page: Number(page),
+    limit: Number(limit),
+  });
 }
 
+  @Get('history/:orderId')
+  @Roles(UserRole.DISPATCHER)
+  async getDriverHistoryDetails(
+    @GetUser() user: any,
+    @Param('orderId') orderId: string,
 
-
-@Get('history/:orderId')
-@Roles(UserRole.DISPATCHER)
-async getDriverHistoryDetails(
-  @GetUser() user: any,
-  @Param('orderId') orderId: string,
-
-) {
-  const driverId = user.id; 
-  return this.orderService.getDriverHistoryDetails(driverId, orderId);
-}
+  ) {
+    const driverId = user.id;
+    return this.orderService.getDriverHistoryDetails(driverId, orderId);
+  }
 
 
 }
