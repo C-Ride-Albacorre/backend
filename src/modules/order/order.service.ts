@@ -36,7 +36,7 @@ import { MapGateway } from 'src/common/map-gateway/map.gateway';
 import { TrackingDataResponseDto } from './dto/tracking-response.dto';
 import { REDIS_CLIENT } from '../redis/redis.provider';
 import Redis from 'ioredis';
-import { DriverHistoryDto } from '../driver/dto/driver-histry.dto';
+import { DriverHistoryDto } from '../driver/dto/driver-history.dto';
 
 type TransitionContext = {
   actorId?: string;
@@ -3444,136 +3444,130 @@ export class OrderService {
   }
 
 
-  async getDriverOrderHistory(
-    driverId: string,
-    filters: DriverHistoryDto,
-  ) {
-    const page = Math.max(Number(filters.page) || 1, 1);
-    const limit = Math.min(Number(filters.limit) || 20, 100);
+async getDriverOrderHistory(
+  driverId: string,
+  filters: DriverHistoryDto,
+) {
+  const page = Math.max(filters.page ?? 1, 1);
+  const limit = Math.min(filters.limit ?? 20, 100);
 
-    const where = {
-      driverId,
-      order: {
-        paymentStatus: PaymentStatus.PAID,
-        ...(filters.status && {
-          orderStatus: filters.status,
-        }),
-      },
-    };
+  const where = {
+    driverId,
+    order: {
+      paymentStatus: PaymentStatus.PAID,
+      ...(filters.status
+        ? { orderStatus: filters.status }
+        : {}),
+    },
+  };
 
-    const [assignments, total] = await Promise.all([
-      this.prisma.driverAssignment.findMany({
-        where,
-        include: {
-          order: {
-            include: {
-              user: true,
-
-              items: {
-                include: {
-                  store: true,
-                  variant: true,
-                  product: {
-                    include: {
-                      productImages: true,
-                    },
+  const [assignments, total] = await Promise.all([
+    this.prisma.driverAssignment.findMany({
+      where,
+      include: {
+        order: {
+          include: {
+            user: true,
+            items: {
+              include: {
+                store: true,
+                variant: true,
+                product: {
+                  include: {
+                    productImages: true,
                   },
                 },
               },
             },
           },
         },
-        orderBy: {
-          order: {
-            createdAt: 'desc',
-          },
+      },
+      orderBy: {
+        order: {
+          createdAt: 'desc',
         },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
+      },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
 
-      this.prisma.driverAssignment.count({
-        where,
-      }),
-    ]);
+    this.prisma.driverAssignment.count({
+      where,
+    }),
+  ]);
 
-    const data = assignments.map((assignment) => {
-      const order = assignment.order;
+  const data = assignments.map(({ id: assignmentId, order }) => ({
+    assignmentId,
 
-      return {
-        assignmentId: assignment.id,
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    orderCode: order.orderCode,
 
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        orderCode: order.orderCode,
+    orderStatus: order.orderStatus,
+    paymentStatus: order.paymentStatus,
 
-        orderStatus: order.orderStatus,
-        paymentStatus: order.paymentStatus,
+    totalAmount: order.totalAmount,
+    deliveryFee: order.deliveryFee,
 
-        totalAmount: order.totalAmount,
-        deliveryFee: order.deliveryFee,
+    deliveredAt: order.deliveredAt,
+    createdAt: order.createdAt,
 
-        deliveredAt: order.deliveredAt,
-        createdAt: order.createdAt,
+    customer: {
+      id: order.user.id,
+      firstName: order.user.firstName,
+      lastName: order.user.lastName,
+      phoneNumber: order.user.phoneNumber,
+      profilePicture: order.user.profilePicture,
+    },
 
-        customer: {
-          id: order.user.id,
-          firstName: order.user.firstName,
-          lastName: order.user.lastName,
-          phoneNumber: order.user.phoneNumber,
-          profilePicture: order.user.profilePicture,
-        },
+    stores: [
+      ...new Map(
+        order.items
+          .filter((item) => item.store)
+          .map((item) => [
+            item.store!.id,
+            {
+              id: item.store!.id,
+              storeName: item.store!.storeName,
+              storeLogo: item.store!.storeLogo,
+              phoneNumber: item.store!.phoneNumber,
+              address: item.store!.storeAddress,
+            },
+          ]),
+      ).values(),
+    ],
 
-        stores: [
-          ...new Map(
-            order.items
-              .filter((i) => i.store)
-              .map((i) => [
-                i.store!.id,
-                {
-                  id: i.store!.id,
-                  storeName: i.store!.storeName,
-                  storeLogo: i.store!.storeLogo,
-                  phoneNumber: i.store!.phoneNumber,
-                  address: i.store!.storeAddress,
-                },
-              ]),
-          ).values(),
-        ],
+    items: order.items.map((item) => ({
+      id: item.id,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
 
-        items: order.items.map((item) => ({
-          id: item.id,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalPrice: item.totalPrice,
+      product: item.product
+        ? {
+            id: item.product.id,
+            productName: item.product.productName,
+            image: item.product.productImages[0]?.imageUrl ?? null,
+          }
+        : null,
 
-          product: item.product
-            ? {
-              id: item.product.id,
-              productName: item.product.productName,
-              image:
-                item.product.productImages[0]?.imageUrl ?? null,
-            }
-            : null,
+      variant: item.variant
+        ? {
+            id: item.variant.id,
+            name: item.variant.variantName,
+          }
+        : null,
+    })),
+  }));
 
-          variant: item.variant
-            ? {
-              id: item.variant.id,
-              name: item.variant.variantName,
-            }
-            : null,
-        })),
-      };
-    });
-
-    return {
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
-  }
+  return {
+    data,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
 
 
   async getDriverHistoryDetails(
