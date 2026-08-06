@@ -36,6 +36,7 @@ import { MapGateway } from 'src/common/map-gateway/map.gateway';
 import { TrackingDataResponseDto } from './dto/tracking-response.dto';
 import { REDIS_CLIENT } from '../redis/redis.provider';
 import Redis from 'ioredis';
+import { DriverHistoryDto } from '../driver/dto/driver-histry.dto';
 
 type TransitionContext = {
   actorId?: string;
@@ -56,12 +57,12 @@ export class OrderService {
     @Inject(REDIS_CLIENT) public redis: Redis,
     //private driverAssignment: DriverAssignmentService,
 
-     @Inject(forwardRef(() => DriverAssignmentService))
-  private readonly driverAssignment: DriverAssignmentService,
+    @Inject(forwardRef(() => DriverAssignmentService))
+    private readonly driverAssignment: DriverAssignmentService,
     private notification: NotificationService,
     @InjectQueue('order-events') private orderQueue: Queue,
     private mapGateway: MapGateway // 👈 inject the gateway
-    
+
   ) { }
 
   transitions: Record<
@@ -281,7 +282,7 @@ export class OrderService {
     if (dto.dropoffLocation) {
       const address = this.buildFullAddress(dto.dropoffLocation);
 
-              this.logger.log(`checking customer's address ${address}`)
+      this.logger.log(`checking customer's address ${address}`)
 
 
       const coordinates = await Helper.geocodeAddress(address);
@@ -2837,36 +2838,252 @@ export class OrderService {
 
 
   async getTrackingData(userId: string): Promise<TrackingDataResponseDto> {
-  if (!userId) {
-    throw new BadRequestException('User ID is required');
+    if (!userId) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    // const driverAssignment = await this.prisma.driverAssignment.findFirst({
+    //   where: {
+    //     driverId: userId,
+    //   },
+    //   include: {
+    //     order: {
+    //       include: {
+    //         items: {
+    //           include: {
+    //             store: true,
+    //           },
+    //         },
+    //         driverAssignment: true,
+    //       },
+    //     },
+    //   },
+    // });
+    const driverAssignment = await this.prisma.driverAssignment.findFirst({
+      where: {
+        driverId: userId,
+        order: {
+          orderStatus: OrderStatus.ORDER_ASSIGNED,
+        },
+      },
+      include: {
+        order: {
+          include: {
+            items: {
+              include: {
+                store: true,
+              },
+            },
+            driverAssignment: true,
+          },
+        },
+      },
+    });
+
+    if (!driverAssignment?.order) {
+      throw new NotFoundException('No active delivery assigned');
+    }
+
+    const { order } = driverAssignment;
+    const { driverAssignment: assignment } = order;
+    const orderId = order.id;
+
+    // Store
+    const store = order.items[0]?.store;
+
+    // Order
+    const orderData = {
+      id: order.id,
+      number: order.orderNumber,
+      code: order.orderCode,
+      status: order.orderStatus,
+      statusHistory: Array.isArray(order.statusHistory)
+        ? order.statusHistory
+        : [],
+      totalAmount: order.totalAmount,
+      orderType: order.orderType,
+      createdAt: order.createdAt,
+      pickupLocation: order.pickupLocation,
+      dropoffLocation: order.dropoffLocation,
+    };
+
+    // Store
+    const storeData = {
+      id: store?.id ?? '',
+      name: store?.storeName ?? '',
+      logo: store?.storeLogo ?? '',
+      address: store?.storeAddress ?? '',
+      lat: store?.latitude ?? null,
+      lng: store?.longitude ?? null,
+    };
+
+    // Driver
+    let driverData: TrackingDataResponseDto['driver'];
+    let assignmentData: TrackingDataResponseDto['assignment'] = null;
+    let driverId: string | null = assignment?.driverId ?? null;
+
+    if (driverId) {
+      // const [driverUser, driverProfile] = await Promise.all([
+      //   this.prisma.user.findUnique({
+      //     where: { id: driverId },
+      //     select: {
+      //       id: true,
+      //       firstName: true,
+      //       lastName: true,
+      //       profilePicture: true,
+      //       phoneNumber: true,
+      //     },
+      //   }),
+      //   this.prisma.driverProfile.findUnique({
+      //     where: { userId: driverId },
+      //     select: {
+      //       status: true,
+      //     },
+      //   }),
+      // ]);
+      const [driverUser, driverProfile] = await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: driverId },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            profilePicture: true,
+            phoneNumber: true,
+          },
+        }),
+        this.prisma.driverProfile.findUnique({
+          where: { userId: driverId },
+          select: {
+            status: true,
+            rating: true,
+            totalDeliveries: true,
+            vehicleMake: true,
+            vehicleModel: true,
+            licensePlate: true,
+          },
+        }),
+      ]);
+
+      if (driverUser) {
+        // driverData = {
+        //   id: driverUser.id,
+        //   fullName: `${driverUser.firstName} ${driverUser.lastName}`,
+        //   photo: driverUser.profilePicture,
+        //   phone: driverUser.phoneNumber,
+        //   rating: 0,
+        //   totalTrips: 0,
+        //   vehicleMake: '',
+        //   vehicleModel: '',
+        //   vehiclePlate: '',
+        //   status: driverProfile?.status ?? 'OFFLINE',
+        // };
+        driverData = {
+          id: driverUser.id,
+          fullName: `${driverUser.firstName} ${driverUser.lastName}`,
+          photo: driverUser.profilePicture,
+          phone: driverUser.phoneNumber,
+
+          rating: driverProfile?.rating ?? 0,
+          totalTrips: driverProfile?.totalDeliveries ?? 0,
+
+          vehicleMake: driverProfile?.vehicleMake ?? '',
+          vehicleModel: driverProfile?.vehicleModel ?? '',
+          vehiclePlate: driverProfile?.licensePlate ?? '',
+
+          status: driverProfile?.status ?? 'OFFLINE',
+        };
+      }
+
+      assignmentData = {
+        status: assignment.assignmentStatus as AssignmentStatus,
+        assignedAt: assignment.assignedAt,
+        etaSeconds: assignment.etaSeconds ?? null,
+
+      };
+    }
+
+    // Tracking
+    let leg: 'to-vendor' | 'to-customer' | null = null;
+    let etaSeconds: number | null = null;
+    let polyline: string | null = null;
+    let driverLocation: TrackingDataResponseDto['tracking']['driverLocation'] =
+      null;
+    let destination: TrackingDataResponseDto['tracking']['destination'] = null;
+
+    try {
+      const [etaRaw, polylineRaw, destinationRaw, locationRaw] =
+        await Promise.all([
+          this.redis.get(`order:${orderId}:eta`),
+          this.redis.get(`order:${orderId}:polyline`),
+          this.redis.get(`order:${orderId}:destination`),
+          driverId ? this.redis.get(`driver:${driverId}:loc`) : Promise.resolve(null),
+        ]);
+
+      if (etaRaw) {
+        const eta = JSON.parse(etaRaw);
+        leg = eta.leg ?? null;
+        etaSeconds = eta.etaSeconds ?? null;
+      }
+
+      polyline = polylineRaw;
+
+      if (destinationRaw) {
+        destination = JSON.parse(destinationRaw);
+      }
+
+      if (locationRaw) {
+        const location = JSON.parse(locationRaw);
+
+        driverLocation = {
+          lat: location.lat,
+          lng: location.lng,
+          heading: location.heading ?? 0,
+          timestamp: location.timestamp ?? Date.now(),
+        };
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to fetch tracking data for order ${orderId}: ${error}`,
+      );
+    }
+
+    return {
+      order: orderData,
+      store: storeData,
+      driver: driverData,
+      assignment: assignmentData,
+      tracking: {
+        leg,
+        etaSeconds: etaSeconds ?? assignment?.etaSeconds ?? null,
+        polyline,
+        driverLocation,
+        destination,
+      },
+    };
   }
 
-  // const driverAssignment = await this.prisma.driverAssignment.findFirst({
-  //   where: {
-  //     driverId: userId,
-  //   },
-  //   include: {
-  //     order: {
-  //       include: {
-  //         items: {
-  //           include: {
-  //             store: true,
-  //           },
-  //         },
-  //         driverAssignment: true,
-  //       },
-  //     },
-  //   },
-  // });
-  const driverAssignment = await this.prisma.driverAssignment.findFirst({
-  where: {
-    driverId: userId,
-    order: {
-      orderStatus: OrderStatus.ORDER_ASSIGNED,
-    },
-  },
-  include: {
-    order: {
+  async getTrackingDatabk(userId: string): Promise<TrackingDataResponseDto> {
+    if (!userId) {
+      throw new BadRequestException('User ID is required');
+    }
+    const order = await this.prisma.order.findFirst({
+      where: {
+        userId,
+        // orderStatus: {
+        //   in: [
+        //     OrderStatus.PENDING,
+        //     // OrderStatus.ACCEPTED,
+        //     // OrderStatus.PREPARING,
+        //     // OrderStatus.READY_FOR_PICKUP,
+        //     OrderStatus.PICKED_UP,
+        //     OrderStatus.IN_TRANSIT,
+        //   ],
+        // },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
       include: {
         items: {
           include: {
@@ -2875,206 +3092,28 @@ export class OrderService {
         },
         driverAssignment: true,
       },
-    },
-  },
-});
+    });
 
-  if (!driverAssignment?.order) {
-    throw new NotFoundException('No active delivery assigned');
-  }
-
-  const { order } = driverAssignment;
-  const { driverAssignment: assignment } = order;
-  const orderId = order.id;
-
-  // Store
-  const store = order.items[0]?.store;
-
-  // Order
-  const orderData = {
-    id: order.id,
-    number: order.orderNumber,
-    code: order.orderCode,
-    status: order.orderStatus,
-    statusHistory: Array.isArray(order.statusHistory)
-      ? order.statusHistory
-      : [],
-    totalAmount: order.totalAmount,
-    orderType: order.orderType,
-    createdAt: order.createdAt,
-    pickupLocation: order.pickupLocation,
-    dropoffLocation: order.dropoffLocation,
-  };
-
-  // Store
-  const storeData = {
-    id: store?.id ?? '',
-    name: store?.storeName ?? '',
-    logo: store?.storeLogo ?? '',
-    address: store?.storeAddress ?? '',
-    lat: store?.latitude ?? null,
-    lng: store?.longitude ?? null,
-  };
-
-  // Driver
-  let driverData: TrackingDataResponseDto['driver'];
-  let assignmentData: TrackingDataResponseDto['assignment'] = null;
-  let driverId: string | null = assignment?.driverId ?? null;
-
-  if (driverId) {
-    const [driverUser, driverProfile] = await Promise.all([
-      this.prisma.user.findUnique({
-        where: { id: driverId },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          profilePicture: true,
-          phoneNumber: true,
-        },
-      }),
-      this.prisma.driverProfile.findUnique({
-        where: { userId: driverId },
-        select: {
-          status: true,
-        },
-      }),
-    ]);
-
-    if (driverUser) {
-      driverData = {
-        id: driverUser.id,
-        fullName: `${driverUser.firstName} ${driverUser.lastName}`,
-        photo: driverUser.profilePicture,
-        phone: driverUser.phoneNumber,
-        rating: 0,
-        totalTrips: 0,
-        vehicleMake: '',
-        vehicleModel: '',
-        vehiclePlate: '',
-        status: driverProfile?.status ?? 'OFFLINE',
-      };
+    if (!order) {
+      throw new NotFoundException('No active order found');
     }
 
-    assignmentData = {
-      status: assignment.assignmentStatus as AssignmentStatus,
-      assignedAt: assignment.assignedAt,
-      etaSeconds: assignment.etaSeconds ?? null,
+    const orderId = order.id;
 
-    };
-  }
+    // existing logic...
+    // const order = await this.prisma.order.findUnique({
+    //     where: { id: orderId },
+    //     include: {
+    //       items: {
+    //         include: { store: true }, // include store from first item (assuming one store per order)
+    //       },
+    //       driverAssignment: true,
+    //     },
+    //   });
 
-  // Tracking
-  let leg: 'to-vendor' | 'to-customer' | null = null;
-  let etaSeconds: number | null = null;
-  let polyline: string | null = null;
-  let driverLocation: TrackingDataResponseDto['tracking']['driverLocation'] =
-    null;
-  let destination: TrackingDataResponseDto['tracking']['destination'] = null;
-
-  try {
-    const [etaRaw, polylineRaw, destinationRaw, locationRaw] =
-      await Promise.all([
-        this.redis.get(`order:${orderId}:eta`),
-        this.redis.get(`order:${orderId}:polyline`),
-        this.redis.get(`order:${orderId}:destination`),
-        driverId ? this.redis.get(`driver:${driverId}:loc`) : Promise.resolve(null),
-      ]);
-
-    if (etaRaw) {
-      const eta = JSON.parse(etaRaw);
-      leg = eta.leg ?? null;
-      etaSeconds = eta.etaSeconds ?? null;
-    }
-
-    polyline = polylineRaw;
-
-    if (destinationRaw) {
-      destination = JSON.parse(destinationRaw);
-    }
-
-    if (locationRaw) {
-      const location = JSON.parse(locationRaw);
-
-      driverLocation = {
-        lat: location.lat,
-        lng: location.lng,
-        heading: location.heading ?? 0,
-        timestamp: location.timestamp ?? Date.now(),
-      };
-    }
-  } catch (error) {
-    this.logger.warn(
-      `Failed to fetch tracking data for order ${orderId}: ${error}`,
-    );
-  }
-
-  return {
-    order: orderData,
-    store: storeData,
-    driver: driverData,
-    assignment: assignmentData,
-    tracking: {
-      leg,
-      etaSeconds: etaSeconds ?? assignment?.etaSeconds ?? null,
-      polyline,
-      driverLocation,
-      destination,
-    },
-  };
-}
-
-  async getTrackingDatabk(userId: string): Promise<TrackingDataResponseDto> {
-    if (!userId) {
-      throw new BadRequestException('User ID is required');
-    }
-  const order = await this.prisma.order.findFirst({
-    where: {
-      userId,
-      // orderStatus: {
-      //   in: [
-      //     OrderStatus.PENDING,
-      //     // OrderStatus.ACCEPTED,
-      //     // OrderStatus.PREPARING,
-      //     // OrderStatus.READY_FOR_PICKUP,
-      //     OrderStatus.PICKED_UP,
-      //     OrderStatus.IN_TRANSIT,
-      //   ],
-      // },
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-    include: {
-      items: {
-        include: {
-          store: true,
-        },
-      },
-      driverAssignment: true,
-    },
-  });
-
-  if (!order) {
-    throw new NotFoundException('No active order found');
-  }
-
-  const orderId = order.id;
-
-  // existing logic...
-  // const order = await this.prisma.order.findUnique({
-  //     where: { id: orderId },
-  //     include: {
-  //       items: {
-  //         include: { store: true }, // include store from first item (assuming one store per order)
-  //       },
-  //       driverAssignment: true,
-  //     },
-  //   });
-
-  //   if (!order) {
-  //     throw new NotFoundException(`Order ${orderId} not found`);
-  //   }
+    //   if (!order) {
+    //     throw new NotFoundException(`Order ${orderId} not found`);
+    //   }
 
     // 2. Extract store info (from first order item's store)
     const firstItem = order.items[0];
@@ -3210,8 +3249,8 @@ export class OrderService {
         destination,
       },
     };
-}
-  
+  }
+
 
   // order.service.ts (or a dedicated TrackingService)
   async getTrackingDataWithOrderId(orderId: string): Promise<TrackingDataResponseDto> {
@@ -3269,31 +3308,69 @@ export class OrderService {
       driverId = assignment.driverId;
 
       // Fetch driver's user info and driver profile
-      const driverUser = await this.prisma.user.findUnique({
-        where: { id: driverId },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          profilePicture: true,
-          phoneNumber: true,
-          // if you have rating/trips, add them here
-        },
-      });
-      const driverProfile = await this.prisma.driverProfile.findUnique({
-        where: { userId: driverId },
-        select: { status: true },
-      });
+      // const driverUser = await this.prisma.user.findUnique({
+      //   where: { id: driverId },
+      //   select: {
+      //     id: true,
+      //     firstName: true,
+      //     lastName: true,
+      //     profilePicture: true,
+      //     phoneNumber: true,
+      //     // if you have rating/trips, add them here
+      //   },
+      // });
+      // const driverProfile = await this.prisma.driverProfile.findUnique({
+      //   where: { userId: driverId },
+      //   select: { status: true },
+      // });
+      const [driverUser, driverProfile] = await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: driverId },
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            profilePicture: true,
+            phoneNumber: true,
+          },
+        }),
+        this.prisma.driverProfile.findUnique({
+          where: { userId: driverId },
+          select: {
+            status: true,
+            rating: true,
+            totalDeliveries: true,
+            vehicleMake: true,
+            vehicleModel: true,
+            licensePlate: true,
+          },
+        }),
+      ]);
 
       if (driverUser) {
+        // driverData = {
+        //   id: driverUser.id,
+        //   fullName: `${driverUser.firstName} ${driverUser.lastName}` || 'Driver',
+        //   photo: driverUser.profilePicture || null,
+        //   phone: driverUser.phoneNumber || '',
+        //   rating: 0, // if you have a rating field, fetch it
+        //   totalTrips: 0, // similarly
+        //   status: driverProfile?.status || 'OFFLINE',
+        // };
         driverData = {
           id: driverUser.id,
-          fullName: `${driverUser.firstName} ${driverUser.lastName}` || 'Driver',
-          photo: driverUser.profilePicture || null,
-          phone: driverUser.phoneNumber || '',
-          rating: 0, // if you have a rating field, fetch it
-          totalTrips: 0, // similarly
-          status: driverProfile?.status || 'OFFLINE',
+          fullName: `${driverUser.firstName} ${driverUser.lastName}`,
+          photo: driverUser.profilePicture,
+          phone: driverUser.phoneNumber,
+
+          rating: driverProfile?.rating ?? 0,
+          totalTrips: driverProfile?.totalDeliveries ?? 0,
+
+          vehicleMake: driverProfile?.vehicleMake ?? '',
+          vehicleModel: driverProfile?.vehicleModel ?? '',
+          vehiclePlate: driverProfile?.licensePlate ?? '',
+
+          status: driverProfile?.status ?? 'OFFLINE',
         };
       }
 
@@ -3366,5 +3443,261 @@ export class OrderService {
     };
   }
 
+
+  async getDriverOrderHistory(
+    driverId: string,
+    filters: DriverHistoryDto,
+  ) {
+    const page = Math.max(Number(filters.page) || 1, 1);
+    const limit = Math.min(Number(filters.limit) || 20, 100);
+
+    const where = {
+      driverId,
+      order: {
+        paymentStatus: PaymentStatus.PAID,
+        ...(filters.status && {
+          orderStatus: filters.status,
+        }),
+      },
+    };
+
+    const [assignments, total] = await Promise.all([
+      this.prisma.driverAssignment.findMany({
+        where,
+        include: {
+          order: {
+            include: {
+              user: true,
+
+              items: {
+                include: {
+                  store: true,
+                  variant: true,
+                  product: {
+                    include: {
+                      productImages: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          order: {
+            createdAt: 'desc',
+          },
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+
+      this.prisma.driverAssignment.count({
+        where,
+      }),
+    ]);
+
+    const data = assignments.map((assignment) => {
+      const order = assignment.order;
+
+      return {
+        assignmentId: assignment.id,
+
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        orderCode: order.orderCode,
+
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+
+        totalAmount: order.totalAmount,
+        deliveryFee: order.deliveryFee,
+
+        deliveredAt: order.deliveredAt,
+        createdAt: order.createdAt,
+
+        customer: {
+          id: order.user.id,
+          firstName: order.user.firstName,
+          lastName: order.user.lastName,
+          phoneNumber: order.user.phoneNumber,
+          profilePicture: order.user.profilePicture,
+        },
+
+        stores: [
+          ...new Map(
+            order.items
+              .filter((i) => i.store)
+              .map((i) => [
+                i.store!.id,
+                {
+                  id: i.store!.id,
+                  storeName: i.store!.storeName,
+                  storeLogo: i.store!.storeLogo,
+                  phoneNumber: i.store!.phoneNumber,
+                  address: i.store!.storeAddress,
+                },
+              ]),
+          ).values(),
+        ],
+
+        items: order.items.map((item) => ({
+          id: item.id,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+
+          product: item.product
+            ? {
+              id: item.product.id,
+              productName: item.product.productName,
+              image:
+                item.product.productImages[0]?.imageUrl ?? null,
+            }
+            : null,
+
+          variant: item.variant
+            ? {
+              id: item.variant.id,
+              name: item.variant.variantName,
+            }
+            : null,
+        })),
+      };
+    });
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+
+  async getDriverHistoryDetails(
+    driverId: string,
+    orderId: string,
+  ) {
+    const assignment =
+      await this.prisma.driverAssignment.findFirst({
+        where: {
+          driverId,
+          orderId,
+        },
+        include: {
+          order: {
+            include: {
+              user: true,
+
+              items: {
+                include: {
+                  store: true,
+                  variant: true,
+                  product: {
+                    include: {
+                      addons: true,
+                      productImages: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+    if (!assignment) {
+      throw new NotFoundException('Order history not found');
+    }
+
+    const order = assignment.order;
+
+    return {
+      assignment: {
+        id: assignment.id,
+        status: assignment.assignmentStatus,
+        assignedAt: assignment.assignedAt,
+        pickedUpAt: assignment.pickupConfirmedAt,
+        deliveredAt: assignment.deliveryConfirmedAt,
+      },
+
+      order: {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        orderCode: order.orderCode,
+
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+
+        subtotal: order.subtotal,
+        deliveryFee: order.deliveryFee,
+        serviceFee: order.serviceFee,
+        taxAmount: order.taxAmount,
+        totalAmount: order.totalAmount,
+
+        pickupLocation: order.pickupLocation,
+        dropoffLocation: order.dropoffLocation,
+
+        recipientName: order.recipientName,
+        recipientPhone: order.recipientPhone,
+        deliveryInstructions: order.deliveryInstructions,
+
+        createdAt: order.createdAt,
+        deliveredAt: order.deliveredAt,
+      },
+
+      customer: {
+        id: order.user.id,
+        firstName: order.user.firstName,
+        lastName: order.user.lastName,
+        email: order.user.email,
+        phoneNumber: order.user.phoneNumber,
+        profilePicture: order.user.profilePicture,
+        countryCode: order.user.countryCode,
+      },
+
+      stores: [
+        ...new Map(
+          order.items
+            .filter((i) => i.store)
+            .map((i) => [
+              i.store!.id,
+              {
+                id: i.store!.id,
+                storeName: i.store!.storeName,
+                storeLogo: i.store!.storeLogo,
+                address: i.store!.storeAddress,
+                phoneNumber: i.store!.phoneNumber,
+              },
+            ]),
+        ).values(),
+      ],
+
+      items: order.items.map((item) => ({
+        id: item.id,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        specialInstructions: item.specialInstructions,
+        selectedAddons: item.selectedAddons,
+
+        product: item.product
+          ? {
+            id: item.product.id,
+            productName: item.product.productName,
+            description: item.product.description,
+            image:
+              item.product.productImages[0]?.imageUrl ?? null,
+          }
+          : null,
+
+        variant: item.variant,
+
+        addons: item.product?.addons ?? [],
+      })),
+    };
+  }
 
 }

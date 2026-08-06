@@ -38,7 +38,7 @@ import { DriverService } from './driver.service';
 import { DriverOnboardingDto } from './dto/driver-onboarding.dto';
 import { DriverDocumentMetadataDto } from './dto/driver-document-metadata.dto';
 import { GetUser } from 'src/common/decorators/get-user.decorator';
-import { User } from '@prisma/client';
+import { OrderStatus, User } from '@prisma/client';
 import { DriverOrderService } from './driver-order.service';
 import { DriverAssignmentService } from './driver-assignment.service';
 import { UpdateDriverLocationDto } from './dto/update-driver-location.dto';
@@ -545,36 +545,65 @@ STEP 3 – Final Step: Review (Optional save before uploads)
   }
 
 
-  @Get(':orderId/tracking')
-  @ApiOperation({
-    summary: 'Get tracking data for an order',
-    description: 'Retrieve tracking information for a specific order.',
-  })
-  @ApiParam({
-    name: 'orderId',
-    type: String,
-    description: 'Order ID',
-    example: 'clx123abc456',
-  })
-  @ApiOkResponse({
-    description: 'Tracking data retrieved successfully',
-  })
-  @ApiResponse({
-    status: 404,
-    description: 'Order not found',
-  })
-  @ApiResponse({
-    status: 403,
-    description: 'Forbidden - User is not a vendor',
-  })
-  @ApiResponse({
-    status: 500,
-    description: 'Internal server error',
-  })
-  async getTrackingDataWithOrderId(@Param('orderId') orderId: string) {
-    return this.orderService.getTrackingDataWithOrderId(orderId);
-  }
+  // @Get(':orderId/tracking')
+  // @ApiOperation({
+  //   summary: 'Get tracking data for an order',
+  //   description: 'Retrieve tracking information for a specific order.',
+  // })
+  // @ApiParam({
+  //   name: 'orderId',
+  //   type: String,
+  //   description: 'Order ID',
+  //   example: 'clx123abc456',
+  // })
+  // @ApiOkResponse({
+  //   description: 'Tracking data retrieved successfully',
+  // })
+  // @ApiResponse({
+  //   status: 404,
+  //   description: 'Order not found',
+  // })
+  // @ApiResponse({
+  //   status: 403,
+  //   description: 'Forbidden - User is not a vendor',
+  // })
+  // @ApiResponse({
+  //   status: 500,
+  //   description: 'Internal server error',
+  // })
+  // async getTrackingDataWithOrderId(@Param('orderId') orderId: string) {
+  //   return this.orderService.getTrackingDataWithOrderId(orderId);
+  // }
 
+
+@Get('history')
+@Roles(UserRole.DISPATCHER)
+async getDriverOrderHistory(
+  @GetUser() user: any,
+  @Query('status') status?: OrderStatus,
+  @Query('page') page = 1,
+  @Query('limit') limit = 20,
+) {
+  const driverId = user.id; 
+  return this.orderService.getDriverOrderHistory(driverId, {
+    status,
+    page: Number(page),
+    limit: Number(limit),
+  });
+}
+
+
+
+@Get('history/:orderId')
+@Roles(UserRole.DISPATCHER)
+async getDriverHistoryDetails(
+  @GetUser() user: any,
+  @Param('orderId') orderId: string,
+
+) {
+  const driverId = user.id; 
+  return this.orderService.getDriverHistoryDetails(driverId, orderId);
+}
 
 
 }
