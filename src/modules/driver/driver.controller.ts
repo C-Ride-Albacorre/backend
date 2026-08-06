@@ -45,6 +45,7 @@ import { UpdateDriverLocationDto } from './dto/update-driver-location.dto';
 import { DriverStatusResponseDto } from './dto/driver-status-response.dto';
 import { UpdateDriverStatusDto } from './dto/update-driver-status.dto';
 import { OrderService } from '../order/order.service';
+import { DriverHistoryDto } from './dto/driver-history.dto';
 
 @ApiTags('Dispatcher')
 @Controller('driver')
@@ -580,16 +581,9 @@ STEP 3 – Final Step: Review (Optional save before uploads)
 @Roles(UserRole.DISPATCHER)
 async getDriverOrderHistory(
   @GetUser() user: any,
-  @Query('status') status?: OrderStatus,
-  @Query('page') page = 1,
-  @Query('limit') limit = 20,
+  @Query() filters: DriverHistoryDto,
 ) {
-  const driverId = user.id; 
-  return this.orderService.getDriverOrderHistory(driverId, {
-    status,
-    page: Number(page),
-    limit: Number(limit),
-  });
+  return this.orderService.getDriverOrderHistory(user.id, filters);
 }
 
 
