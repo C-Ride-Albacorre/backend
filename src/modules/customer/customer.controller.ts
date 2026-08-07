@@ -230,12 +230,7 @@ export class CustomerController {
     return this.orderService.getOrderDetails(orderId, req.user.id);
   }
 
-  @Post('orders/:orderId/cancel')
-  @ApiOperation({ summary: 'Cancel order' })
-  async cancelOrder(@Request() req, @Param('orderId') orderId: string) {
-    return this.orderService.cancelOrder(orderId, req.user.id);
-  }
-
+  
   @Get('orders/:orderId/tracking')
   @ApiOperation({
     summary: 'Get tracking data for an order',
@@ -264,6 +259,13 @@ export class CustomerController {
   })
   async getTrackingDataWithOrderId(@Param('orderId') orderId: string) {
     return this.orderService.getTrackingDataWithOrderId(orderId);
+  }
+
+
+  @Post('orders/:orderId/cancel')
+  @ApiOperation({ summary: 'Cancel order' })
+  async cancelOrder(@Request() req, @Param('orderId') orderId: string) {
+    return this.orderService.cancelOrder(orderId, req.user.id);
   }
 
   // ==================== PAYMENT ====================
