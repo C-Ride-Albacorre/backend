@@ -6,7 +6,7 @@ import { DriverAssignmentService } from '../driver-assignment.service';
 
 @Processor('driver-assignment')
 export class DriverAssignmentProcessor extends WorkerHost {
- p
+ 
   constructor(
     private driverAssignmentService: DriverAssignmentService,
     public readonly prisma: PrismaService,    

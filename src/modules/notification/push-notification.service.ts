@@ -53,7 +53,7 @@ export class PushNotificationService {
       });
       this.logger.log('Firebase Admin SDK initialized');
     } catch (error) {
-      this.logger.error('Failed to initialize Firebase Admin SDK', error.stack);
+      this.logger.error('Failed to initialize Firebase Admin SDK', error);
       this.isEnabled = false; // fallback
     }
   }
@@ -250,20 +250,88 @@ async unregisterToken(userId: string) {
   this.logger.log(`Unregistered FCM token for user ${userId}`);
 }
 
-async sendToUser(userId: string, payload: PushNotificationPayload): Promise<boolean> {
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId },
-    select: { fcmToken: true },
+
+async sendPickupPush(
+  userId: string,
+  orderId: string,
+  driverName?: string,
+): Promise<boolean> {
+  return this.sendToUser(userId, {
+    title: 'Order Picked Up',
+    body: driverName
+      ? `${driverName} has picked up your order #${orderId}.`
+      : `Your order #${orderId} has been picked up.`,
+    data: {
+      orderId,
+      type: 'PICKUP',
+    },
+    priority: 'high',
   });
-  if (!user?.fcmToken) return false;
-  const message = {
-    notification: { title: payload.title, body: payload.body },
-    data: payload.data || {},
-    token: user.fcmToken,
-  };
-  await admin.messaging().send(message);
-  return true;
 }
+
+// async sendToUser(userId: string, payload: PushNotificationPayload): Promise<boolean> {
+//   const user = await this.prisma.user.findUnique({
+//     where: { id: userId },
+//     select: { fcmToken: true },
+//   });
+//   if (!user?.fcmToken) return false;
+//   const message = {
+//     notification: { title: payload.title, body: payload.body },
+//     data: payload.data || {},
+//     token: user.fcmToken,
+//   };
+//   await admin.messaging().send(message);
+//   return true;
+// }
+async sendToUser(
+  userId: string,
+  payload: PushNotificationPayload,
+): Promise<boolean> {
+  if (!this.isEnabled) return false;
+
+  try {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { fcmToken: true },
+    });
+
+    if (!user?.fcmToken) return false;
+
+    const message: admin.messaging.Message = {
+      notification: {
+        title: payload.title,
+        body: payload.body,
+        imageUrl: payload.imageUrl,
+      },
+      data: payload.data || {},
+      android: {
+        priority: payload.priority === 'high' ? 'high' : 'normal',
+        notification: {
+          sound: payload.sound || 'default',
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: payload.sound || 'default',
+            badge: 1,
+          },
+        },
+      },
+      token: user.fcmToken,
+    };
+
+    await admin.messaging().send(message);
+    return true;
+  } catch (error) {
+    this.logger.error(
+      `Failed to send push to user ${userId}: ${error.message}`,
+      error.stack,
+    );
+    return false;
+  }
+}
+
 
   /**
    * Store or update a driver's FCM token.
