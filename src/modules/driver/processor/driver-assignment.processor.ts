@@ -124,6 +124,7 @@ private async handleEtaUpdate(
 ) {
   let { orderId, driverId, leg } = job.data;
   const service = this.driverAssignmentService;
+  service.logger.log(`🔄 ETA job running for order ${orderId}, leg: ${leg}`);
 
   // 1. Read the current leg from Redis (or fallback to job.data.leg)
   const legKey = `order:${orderId}:leg`;
