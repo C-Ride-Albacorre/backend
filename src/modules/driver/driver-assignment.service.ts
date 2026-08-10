@@ -19,10 +19,10 @@ import { MapGateway } from '../../common/map-gateway/map.gateway';
 import { PushNotificationService } from '../notification/push-notification.service';
 import { MessageBody, SubscribeMessage } from '@nestjs/websockets';
 import { DriverGateway } from '../../common/map-gateway/driver.gateway';
-import { JsonObject, JsonArray } from '@prisma/client/runtime/library';
+// import { JsonObject, JsonArray } from '@prisma/client/runtime/library';
 import { ConfigService } from '@nestjs/config';
 import { OrderService } from '../order/order.service';
-
+import  Helper  from '../../shared/utils/helpers';
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',
@@ -47,7 +47,7 @@ export class DriverAssignmentService {
     public prisma: PrismaService,
     @Inject(REDIS_CLIENT) public redis: Redis,
     @InjectQueue('driver-notification') private notificationQueue: Queue,
-    @InjectQueue('driver-assignment') private assignmentQueue: Queue,
+    @InjectQueue('driver-assignment') public assignmentQueue: Queue,
     @InjectQueue('order-events') private orderQueue: Queue,
     private zohoEmailProvider: ZohoEmailProvider,
     private vendorNotificationGateway: VendorNotificationGateway,
@@ -149,7 +149,7 @@ export class DriverAssignmentService {
         dropoffLocation: order?.dropoffLocation || { lat: 0, lng: 0 },
         storeLat: store?.latitude ?? vendorLocation.lat,
         storeLng: store?.longitude ?? vendorLocation.lng,
-        distance: calculateDistance(vendorLocation, order?.pickupLocation || { lat: 0, lng: 0 }),
+        distance: Helper.calculateDistance(vendorLocation, order?.pickupLocation || { lat: 0, lng: 0 }),
         createdAt: order?.createdAt || new Date(),
       };
 
@@ -1343,7 +1343,7 @@ export class DriverAssignmentService {
       dropoffLocation: order?.dropoffLocation || { lat: 0, lng: 0 },
       storeLat: store?.latitude ?? vendorLocation.lat,
       storeLng: store?.longitude ?? vendorLocation.lng,
-      distance: calculateDistance(vendorLocation, order?.pickupLocation || { lat: 0, lng: 0 }),
+      distance: Helper.calculateDistance(vendorLocation, order?.pickupLocation || { lat: 0, lng: 0 }),
       createdAt: order?.createdAt || new Date(),
     };
 
@@ -1490,34 +1490,34 @@ export class DriverAssignmentService {
 
 }
 
-/**
- * Calculate distance between two geographic coordinates using Haversine formula.
- * Returns distance in meters.
- */
-function calculateDistance(
-  vendorLocation: { lat: number; lng: number },
-  pickupLocation: { lat: number; lng: number } | string | number | boolean | JsonObject | JsonArray,
-): number {
-  // Handle invalid input
-  if (!pickupLocation || typeof pickupLocation !== 'object' || !('lat' in pickupLocation) || !('lng' in pickupLocation)) {
-    return 0;
-  }
+// /**
+//  * Calculate distance between two geographic coordinates using Haversine formula.
+//  * Returns distance in meters.
+//  */
+// function calculateDistance(
+//   vendorLocation: { lat: number; lng: number },
+//   pickupLocation: { lat: number; lng: number } | string | number | boolean | JsonObject | JsonArray,
+// ): number {
+//   // Handle invalid input
+//   if (!pickupLocation || typeof pickupLocation !== 'object' || !('lat' in pickupLocation) || !('lng' in pickupLocation)) {
+//     return 0;
+//   }
 
-  const pickup = pickupLocation as { lat: number; lng: number };
+//   const pickup = pickupLocation as { lat: number; lng: number };
 
-  const R = 6371000; // Earth radius in meters
-  const φ1 = vendorLocation.lat * Math.PI / 180;
-  const φ2 = pickup.lat * Math.PI / 180;
-  const Δφ = (pickup.lat - vendorLocation.lat) * Math.PI / 180;
-  const Δλ = (pickup.lng - vendorLocation.lng) * Math.PI / 180;
+//   const R = 6371000; // Earth radius in meters
+//   const φ1 = vendorLocation.lat * Math.PI / 180;
+//   const φ2 = pickup.lat * Math.PI / 180;
+//   const Δφ = (pickup.lat - vendorLocation.lat) * Math.PI / 180;
+//   const Δλ = (pickup.lng - vendorLocation.lng) * Math.PI / 180;
 
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) *
-    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+//   const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+//     Math.cos(φ1) * Math.cos(φ2) *
+//     Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
 
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distanceMeters = R * c;
+//   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+//   const distanceMeters = R * c;
 
-  return Math.round(distanceMeters);
-}
+//   return Math.round(distanceMeters);
+// }
 
