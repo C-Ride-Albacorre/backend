@@ -10,7 +10,7 @@ import { ParsedQuery } from '../../common/interfaces/interface';
 import { DashboardFilterTypes, RegistrationMethod } from '../enums';
 import { DateTime } from 'luxon';
 import { randomInt } from 'crypto';
-// import { PrismaClient } from '@prisma/client';
+import { JsonObject, JsonArray } from '@prisma/client/runtime/library';
 
 const chance = new Chance();
 const logger = new Logger('Helper');
@@ -732,7 +732,7 @@ export default class Helper {
       console.error(`Geocoding failed with status: ${status}`);
       return null;
     } catch (error) {
-      console.error('Geocoding request failed:', error.message);
+      console.error('Geocoding request failed:', error);
       return null;
     }
   }
@@ -879,6 +879,39 @@ static isStoreOpen(operatingHours: any[]): boolean {
   static generate4DigitCode(): string {
     return randomInt(0, 10000).toString().padStart(4, '0');
   }
+
+
+  /**
+   * Calculate distance between two geographic coordinates using Haversine formula.
+   * Returns distance in meters.
+   */
+  static calculateDistance(
+    vendorLocation: { lat: number; lng: number },
+    pickupLocation: { lat: number; lng: number } | string | number | boolean | JsonObject | JsonArray,
+  ): number {
+    // Handle invalid input
+    if (!pickupLocation || typeof pickupLocation !== 'object' || !('lat' in pickupLocation) || !('lng' in pickupLocation)) {
+      return 0;
+    }
+  
+    const pickup = pickupLocation as { lat: number; lng: number };
+  
+    const R = 6371000; // Earth radius in meters
+    const φ1 = vendorLocation.lat * Math.PI / 180;
+    const φ2 = pickup.lat * Math.PI / 180;
+    const Δφ = (pickup.lat - vendorLocation.lat) * Math.PI / 180;
+    const Δλ = (pickup.lng - vendorLocation.lng) * Math.PI / 180;
+  
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) *
+      Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distanceMeters = R * c;
+  
+    return Math.round(distanceMeters);
+  }
+  
 
 //   static async verifyPostGISEarthDistance(): Promise<boolean> {
 //   try {
