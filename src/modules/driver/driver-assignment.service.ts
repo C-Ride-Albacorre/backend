@@ -22,7 +22,7 @@ import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 // import { JsonObject, JsonArray } from '@prisma/client/runtime/library';
 import { ConfigService } from '@nestjs/config';
 import { OrderService } from '../order/order.service';
-import  Helper  from '../../shared/utils/helpers';
+import Helper from '../../shared/utils/helpers';
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',
@@ -577,7 +577,7 @@ export class DriverAssignmentService {
       { orderId, driverId, leg }, // job data
       {
         repeat: {
-          every: 10000, // every 10 seconds
+          every: 5000,   ///10000, // every 10 seconds
           key: jobSchedulerId, // uniquely identifies the scheduler
         },
         jobId: jobSchedulerId, // same as key to avoid duplicate jobs
@@ -699,6 +699,10 @@ export class DriverAssignmentService {
 
     // ✅ Schedule recurring ETA job (unified method)
     await this.scheduleEtaJob(orderId, driverId, 'to-customer');
+
+    // After emitting initial ETA and polyline, and scheduling the job:
+    const driverLoc = { lat: driver.latitude, lng: driver.longitude };
+    this.lastPolylineUpdate.set(orderId, driverLoc); // reset tracker
 
     this.logger.log(`Switched order ${orderId} to customer leg, ETA ${durationSec}s`);
   }
@@ -1273,29 +1277,113 @@ export class DriverAssignmentService {
 
   }
 
-  async updateDriverLocation(driverId: string, orderId: string, lat: number, lng: number, heading: number) {
-    // Store latest location in Redis (GeoSet or simple key)
-    // this.logger.log(`Updating Drive location... ${driverId}, ${orderId}`)
-    this.logger.log(`Updating Driver location... driverId: ${driverId}, orderId: ${orderId}, lat: ${lat}, lng: ${lng}, heading: ${heading}`)
+  // async updateDriverLocation(driverId: string, orderId: string, lat: number, lng: number, heading: number) {
+  //   // Store latest location in Redis (GeoSet or simple key)
+  //   // this.logger.log(`Updating Drive location... ${driverId}, ${orderId}`)
+  //   this.logger.log(`Updating Driver location... driverId: ${driverId}, orderId: ${orderId}, lat: ${lat}, lng: ${lng}, heading: ${heading}`)
 
+  //   await this.redis.geoadd('driver:locations', lng, lat, driverId);
+  //   await this.redis.setex(`driver:${driverId}:loc`, 30, JSON.stringify({ lat, lng, heading }));
+  //   // Also store the current orderId for the driver
+  //   if (orderId) await this.redis.setex(`driver:${driverId}:order`, 3600, orderId);
+
+  //   // Optional: update driver profile
+  //   await this.prisma.driverProfile.update({
+  //     where: { userId: driverId },
+  //     data: {
+  //       latitude: lat,
+  //       longitude: lng,
+  //     },
+  //   });
+  //   this.logger.log(`Forward to customer's WebSocket`)
+  //   // Forward to customer's WebSocket
+  //   await this.mapGateway.emitDriverLocation(orderId, { lat, lng, heading });
+  // }
+
+  private lastPolylineUpdate: Map<string, { lat: number; lng: number }> = new Map();
+
+  async updateDriverLocation(driverId: string, orderId: string, lat: number, lng: number, heading: number) {
+    this.logger.log(`Updating Driver location... driverId: ${driverId}, orderId: ${orderId}, lat: ${lat}, lng: ${lng}, heading: ${heading}`);
+
+    // Store in Redis
     await this.redis.geoadd('driver:locations', lng, lat, driverId);
     await this.redis.setex(`driver:${driverId}:loc`, 30, JSON.stringify({ lat, lng, heading }));
-    // Also store the current orderId for the driver
     if (orderId) await this.redis.setex(`driver:${driverId}:order`, 3600, orderId);
 
-    // Optional: update driver profile
-    await this.prisma.driverProfile.update({
-      where: { userId: driverId },
-      data: {
-        latitude: lat,
-        longitude: lng,
-      },
-    });
-    this.logger.log(`Forward to customer's WebSocket`)
-    // Forward to customer's WebSocket
+    // Update DB (optional)
+    try {
+      await this.prisma.driverProfile.update({
+        where: { userId: driverId },
+        data: { latitude: lat, longitude: lng },
+      });
+    } catch (dbError) {
+      this.logger.warn(`Failed to update driver location in DB: ${dbError}`);
+    }
+
+    // Forward to customer via WebSocket
     await this.mapGateway.emitDriverLocation(orderId, { lat, lng, heading });
+
+    // 🔥 POLYLINE UPDATE ON MOVEMENT THRESHOLD
+    if (orderId) {
+      const last = this.lastPolylineUpdate.get(orderId);
+      const current = { lat, lng };
+      const threshold = 30; // meters
+
+      if (last) {
+        const distance = Helper.calculateDistance(current, last);
+        if (distance > threshold) {
+          await this.emitUpdatedPolyline(orderId, driverId, current);
+          this.lastPolylineUpdate.set(orderId, current);
+        }
+      } else {
+        // First update after leg switch – emit immediately
+        await this.emitUpdatedPolyline(orderId, driverId, current);
+        this.lastPolylineUpdate.set(orderId, current);
+      }
+    }
   }
 
+  private async emitUpdatedPolyline(orderId: string, driverId: string, currentLoc: { lat: number; lng: number }) {
+    // Determine current leg
+    const legKey = `order:${orderId}:leg`;
+    const leg = (await this.redis.get(legKey)) as 'to-vendor' | 'to-customer' || 'to-vendor';
+
+    // Get destination based on leg
+    let destination: { lat: number; lng: number };
+    if (leg === 'to-vendor') {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: { items: { include: { store: true } } },
+      });
+      const store = order?.items[0]?.store;
+      const pickup = order?.pickupLocation as any;
+      destination = {
+        lat: store?.latitude ?? pickup?.latitude ?? pickup?.lat,
+        lng: store?.longitude ?? pickup?.longitude ?? pickup?.lng,
+      };
+    } else {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { dropoffLocation: true },
+      });
+      const dropoff = order?.dropoffLocation as any;
+      destination = {
+        lat: dropoff?.latitude ?? dropoff?.lat,
+        lng: dropoff?.longitude ?? dropoff?.lng,
+      };
+    }
+
+    // Recalculate route
+    const { durationSec, polyline } = await this.getRouteDetails(currentLoc, destination);
+    await this.mapGateway.emitEta(orderId, durationSec, leg);
+    if (polyline) {
+      await this.mapGateway.emitPolyline(orderId, polyline, leg);
+      await this.redis.setex(`order:${orderId}:polyline`, 3600, polyline);
+    }
+  }
+
+
+  ////////////////////////////////
 
   async stopEtaUpdates(orderId: string): Promise<void> {
     const schedulerId = `eta-${orderId}`;
@@ -1482,10 +1570,10 @@ export class DriverAssignmentService {
   }
 
   async removeEtaScheduler(orderId: string) {
-  const jobSchedulerId = `eta-${orderId}`;
-  await this.assignmentQueue.removeJobScheduler(jobSchedulerId).catch(() => null);
-  this.logger.log(`Removed ETA scheduler for order ${orderId}`);
-}
+    const jobSchedulerId = `eta-${orderId}`;
+    await this.assignmentQueue.removeJobScheduler(jobSchedulerId).catch(() => null);
+    this.logger.log(`Removed ETA scheduler for order ${orderId}`);
+  }
 
 
 }
