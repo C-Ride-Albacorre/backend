@@ -136,6 +136,10 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`order:${orderId}`).emit('order-status', { status, history });
   }
 
+  // map.gateway.ts
+  emitDriverArrived(orderId: string, leg: 'to-vendor' | 'to-customer') {
+    this.server.to(`order:${orderId}`).emit('driver-arrived', { orderId, leg });
+  }
   // order.gateway.ts
   // emitOrderStatus(orderId: string, status: OrderStatus, history: any[]) {
   //   this.server.to(`order:${orderId}`).emit('order-status', {
