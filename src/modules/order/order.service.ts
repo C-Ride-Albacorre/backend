@@ -186,6 +186,15 @@ export class OrderService {
         { attempts: 3 },
       );
 
+      
+         // Inside transition, after the transaction and before returning:
+      if (targetStatus === OrderStatus.DELIVERED || targetStatus === OrderStatus.CANCELLED || targetStatus === OrderStatus.PENDING || targetStatus === OrderStatus.CONFIRMED ) {
+        await this.driverAssignment.removeEtaScheduler(orderId).catch(err => {
+          this.logger.warn(`Failed to remove ETA scheduler for ${orderId}: ${err.message}`);
+        });
+      }
+
+
       // Return the updated order from the transaction
       return updated;
     });
@@ -2863,7 +2872,9 @@ export class OrderService {
       where: {
         driverId: userId,
         order: {
-          orderStatus: OrderStatus.ORDER_ASSIGNED,
+          orderStatus: {
+            in: [OrderStatus.ORDER_ACCEPTED, OrderStatus.PICKED_UP],
+          },
         },
       },
       include: {
@@ -2881,7 +2892,7 @@ export class OrderService {
     });
 
     if (!driverAssignment?.order) {
-      throw new NotFoundException('No active delivery assigned');
+      throw new NotFoundException(`No active delivery assigned for this driver ${userId}`);
     }
 
     const { order } = driverAssignment;
@@ -3444,130 +3455,130 @@ export class OrderService {
   }
 
 
-async getDriverOrderHistory(
-  driverId: string,
-  filters: DriverHistoryDto,
-) {
-  const page = Math.max(filters.page ?? 1, 1);
-  const limit = Math.min(filters.limit ?? 20, 100);
+  async getDriverOrderHistory(
+    driverId: string,
+    filters: DriverHistoryDto,
+  ) {
+    const page = Math.max(filters.page ?? 1, 1);
+    const limit = Math.min(filters.limit ?? 20, 100);
 
-  const where = {
-    driverId,
-    order: {
-      paymentStatus: PaymentStatus.PAID,
-      ...(filters.status
-        ? { orderStatus: filters.status }
-        : {}),
-    },
-  };
+    const where = {
+      driverId,
+      order: {
+        paymentStatus: PaymentStatus.PAID,
+        ...(filters.status
+          ? { orderStatus: filters.status }
+          : {}),
+      },
+    };
 
-  const [assignments, total] = await Promise.all([
-    this.prisma.driverAssignment.findMany({
-      where,
-      include: {
-        order: {
-          include: {
-            user: true,
-            items: {
-              include: {
-                store: true,
-                variant: true,
-                product: {
-                  include: {
-                    productImages: true,
+    const [assignments, total] = await Promise.all([
+      this.prisma.driverAssignment.findMany({
+        where,
+        include: {
+          order: {
+            include: {
+              user: true,
+              items: {
+                include: {
+                  store: true,
+                  variant: true,
+                  product: {
+                    include: {
+                      productImages: true,
+                    },
                   },
                 },
               },
             },
           },
         },
-      },
-      orderBy: {
-        order: {
-          createdAt: 'desc',
+        orderBy: {
+          order: {
+            createdAt: 'desc',
+          },
         },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+
+      this.prisma.driverAssignment.count({
+        where,
+      }),
+    ]);
+
+    const data = assignments.map(({ id: assignmentId, order }) => ({
+      assignmentId,
+
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      orderCode: order.orderCode,
+
+      orderStatus: order.orderStatus,
+      paymentStatus: order.paymentStatus,
+
+      totalAmount: order.totalAmount,
+      deliveryFee: order.deliveryFee,
+
+      deliveredAt: order.deliveredAt,
+      createdAt: order.createdAt,
+
+      customer: {
+        id: order.user.id,
+        firstName: order.user.firstName,
+        lastName: order.user.lastName,
+        phoneNumber: order.user.phoneNumber,
+        profilePicture: order.user.profilePicture,
       },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
 
-    this.prisma.driverAssignment.count({
-      where,
-    }),
-  ]);
+      stores: [
+        ...new Map(
+          order.items
+            .filter((item) => item.store)
+            .map((item) => [
+              item.store!.id,
+              {
+                id: item.store!.id,
+                storeName: item.store!.storeName,
+                storeLogo: item.store!.storeLogo,
+                phoneNumber: item.store!.phoneNumber,
+                address: item.store!.storeAddress,
+              },
+            ]),
+        ).values(),
+      ],
 
-  const data = assignments.map(({ id: assignmentId, order }) => ({
-    assignmentId,
+      items: order.items.map((item) => ({
+        id: item.id,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
 
-    orderId: order.id,
-    orderNumber: order.orderNumber,
-    orderCode: order.orderCode,
-
-    orderStatus: order.orderStatus,
-    paymentStatus: order.paymentStatus,
-
-    totalAmount: order.totalAmount,
-    deliveryFee: order.deliveryFee,
-
-    deliveredAt: order.deliveredAt,
-    createdAt: order.createdAt,
-
-    customer: {
-      id: order.user.id,
-      firstName: order.user.firstName,
-      lastName: order.user.lastName,
-      phoneNumber: order.user.phoneNumber,
-      profilePicture: order.user.profilePicture,
-    },
-
-    stores: [
-      ...new Map(
-        order.items
-          .filter((item) => item.store)
-          .map((item) => [
-            item.store!.id,
-            {
-              id: item.store!.id,
-              storeName: item.store!.storeName,
-              storeLogo: item.store!.storeLogo,
-              phoneNumber: item.store!.phoneNumber,
-              address: item.store!.storeAddress,
-            },
-          ]),
-      ).values(),
-    ],
-
-    items: order.items.map((item) => ({
-      id: item.id,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice,
-
-      product: item.product
-        ? {
+        product: item.product
+          ? {
             id: item.product.id,
             productName: item.product.productName,
             image: item.product.productImages[0]?.imageUrl ?? null,
           }
-        : null,
+          : null,
 
-      variant: item.variant
-        ? {
+        variant: item.variant
+          ? {
             id: item.variant.id,
             name: item.variant.variantName,
           }
-        : null,
-    })),
-  }));
+          : null,
+      })),
+    }));
 
-  return {
-    data,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  };
-}
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
 
 
   async getDriverHistoryDetails(

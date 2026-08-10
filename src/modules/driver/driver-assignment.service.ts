@@ -1481,6 +1481,13 @@ export class DriverAssignmentService {
     });
   }
 
+  async removeEtaScheduler(orderId: string) {
+  const jobSchedulerId = `eta-${orderId}`;
+  await this.assignmentQueue.removeJobScheduler(jobSchedulerId).catch(() => null);
+  this.logger.log(`Removed ETA scheduler for order ${orderId}`);
+}
+
+
 }
 
 /**
