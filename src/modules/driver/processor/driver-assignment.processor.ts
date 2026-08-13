@@ -212,6 +212,7 @@ private async handleEtaUpdate(
   if (distance <= ARRIVAL_THRESHOLD) {
     const arrivedKey = `order:${orderId}:arrived:${leg}`;
     const alreadyArrived = await service.redis.get(arrivedKey);
+    service.logger.log(`Driver ${driverId} is within ${distance.toFixed(2)}m of destination for order ${orderId}, leg: ${leg}`);
     if (!alreadyArrived) {
       // Mark as arrived (TTL 1 hour)
       await service.redis.setex(arrivedKey, 3600, 'true');
