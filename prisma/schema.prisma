@@ -463,6 +463,7 @@ model Order {
   ratings              Rating[]
   store                Store?             @relation(fields: [storeId], references: [id])
   storeId              String?
+  calls                Call[]
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -606,8 +607,8 @@ model ChatMessage {
   readAt     DateTime?
   createdAt  DateTime    @default(now())
   editedAt   DateTime?
-  deletedAt DateTime? // soft delete
-  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  deletedAt  DateTime? // soft delete
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
 model Notification {
@@ -876,4 +877,41 @@ enum MessageType {
   TEXT
   IMAGE
   LOCATION
+}
+
+model Call {
+  id          String     @id @default(cuid())
+  orderId     String
+  order       Order      @relation(fields: [orderId], references: [id])
+  initiatedBy String // userId who started the call
+  status      CallStatus @default(INITIATED)
+  startedAt   DateTime? // when the call was actually connected
+  endedAt     DateTime? // when the call ended
+  duration    Int? // seconds
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  participants CallParticipant[]
+}
+
+model CallParticipant {
+  id        String    @id @default(cuid())
+  callId    String
+  call      Call      @relation(fields: [callId], references: [id])
+  userId    String
+  role      Role // CUSTOMER or DISPATCHER (or DRIVER)
+  joinedAt  DateTime? // when they actually joined the call
+  leftAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([callId, userId])
+}
+
+enum CallStatus {
+  INITIATED
+  RINGING
+  CONNECTED
+  REJECTED
+  COMPLETED
+  FAILED
 }

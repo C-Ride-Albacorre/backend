@@ -21,6 +21,7 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { BullModule } from '@nestjs/bullmq';
 import { ChatModule } from './modules/chat/chat.module';
 import { RatingModule } from './modules/rating/rating.module';
+import { CallModule } from './modules/call/call.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { RatingModule } from './modules/rating/rating.module';
     NotificationModule,
     ChatModule,
     RatingModule,
+    CallModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],
