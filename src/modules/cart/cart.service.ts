@@ -507,18 +507,21 @@ export class CartService {
           selectedAddons = await this.getAddonDetails(dto.addonIds);
           addonsTotal = selectedAddons.reduce((sum, addon) => sum + addon.price, 0);
         }
-        unitPrice = productDetails.price + addonsTotal;   // includes add‑ons
-        totalPrice = unitPrice * dto.quantity;
-        // unitPrice = productDetails.price;
+        // unitPrice = productDetails.price + addonsTotal;   // includes add‑ons
         // totalPrice = unitPrice * dto.quantity;
-        if (dto.addonIds?.length) {
-          selectedAddons = await this.getAddonDetails(dto.addonIds);
-          const addonsTotal = selectedAddons.reduce(
-            (sum, addon) => sum + addon.price,
-            0,
-          );
-          totalPrice += addonsTotal * dto.quantity;
-        }
+        // // unitPrice = productDetails.price;
+        // // totalPrice = unitPrice * dto.quantity;
+        // if (dto.addonIds?.length) {
+        //   selectedAddons = await this.getAddonDetails(dto.addonIds);
+        //   const addonsTotal = selectedAddons.reduce(
+        //     (sum, addon) => sum + addon.price,
+        //     0,
+        //   );
+        //   totalPrice += addonsTotal * dto.quantity;
+        // }
+        unitPrice = productDetails.price + addonsTotal;   // 18,000
+        totalPrice = unitPrice * dto.quantity;            // 18,000
+
         break;
 
       case 'PACKAGE':
