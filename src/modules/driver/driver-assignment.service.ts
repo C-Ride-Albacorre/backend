@@ -1323,6 +1323,19 @@ export class DriverAssignmentService {
     // Forward to customer via WebSocket
     await this.mapGateway.emitDriverLocation(orderId, { lat, lng, heading });
 
+    // If orderId is missing, try to get it from Redis
+    if (!orderId) {
+      const storedOrder = await this.redis.get(`driver:${driverId}:order`);
+      if (storedOrder) {
+        orderId = storedOrder;
+        this.logger.debug(`Using stored order ${orderId} for driver ${driverId}`);
+      } else {
+        this.logger.debug(`No active order for driver ${driverId}, skipping polyline update`);
+        // Still forward driver location to any customer that might be tracking (but orderId is needed for room)
+        return; // skip polyline update
+      }
+    }
+
     // 🔥 POLYLINE UPDATE ON MOVEMENT THRESHOLD
     if (orderId) {
       const last = this.lastPolylineUpdate.get(orderId);
