@@ -7,7 +7,7 @@ import { JwtOptionalGuard } from 'src/common/guards/jwt-optional.guard';
 import { FundWalletDto } from './dto/wallet.dto.';
 import { ConfigService } from '@nestjs/config';
 
-@ApiTags('wallet')
+@ApiTags('Wallet')
 @Controller('wallet')
 @UseGuards(JwtOptionalGuard)
 @ApiBearerAuth()
