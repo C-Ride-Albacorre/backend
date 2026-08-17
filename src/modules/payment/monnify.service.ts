@@ -539,4 +539,31 @@ export class MonnifyService {
     // (Monnify sometimes uses the same value if you set it that way)
     return this.verifyPaymentAndUpdate(paymentReference);
   }
+
+
+  // In monnify.service.ts
+
+async initializeTransaction(payload: any): Promise<any> {
+  const accessToken = await this.getAccessToken();
+  try {
+    const response = await axios.post(
+      `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
+      payload,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        timeout: 15000,
+      },
+    );
+    if (!response.data?.requestSuccessful) {
+      throw new Error(response.data?.responseMessage || 'Initialization failed');
+    }
+    return response.data;
+  } catch (error) {
+    this.logger.error(`Monnify initialization failed: ${error.message}`);
+    throw new HttpException(
+      this.extractMonnifyErrorMessage(error),
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}
 }

@@ -51,6 +51,7 @@ model User {
   notifications         Notification[]
   subjectRatings        Rating[]           @relation("subjectRatings")
   reviewerRatings       Rating[]           @relation("reviewerRatings")
+  wallet                Wallet?
 
   @@index([email])
   @@index([phoneNumber])
@@ -641,7 +642,7 @@ model VendorOrderAction {
 model Rating {
   id            String       @id @default(uuid())
   orderId       String
-  order         Order        @relation(fields: [orderId], references: [id])
+  order         Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
   subjectId     String // ID of the user being rated (driver)
   subject       User         @relation("subjectRatings", fields: [subjectId], references: [id])
   reviewerId    String // ID of the user giving the rating
@@ -912,6 +913,42 @@ enum CallStatus {
   RINGING
   CONNECTED
   REJECTED
+  COMPLETED
+  FAILED
+}
+
+model Wallet {
+  id          String           @id @default(cuid())
+  userId      String           @unique
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance     Float            @default(0)
+  currency    String           @default("NGN")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id          String      @id @default(cuid())
+  walletId    String
+  wallet      Wallet      @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount      Float       // positive for credit, negative for debit
+  type        WalletTxType
+  reference   String      @unique
+  description String
+  status      TxStatus    @default(PENDING)
+  metadata    Json?       // store monnify reference, order id, etc.
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+enum WalletTxType {
+  CREDIT   // deposit, refund
+  DEBIT    // payment, withdrawal
+}
+
+enum TxStatus {
+  PENDING
   COMPLETED
   FAILED
 }

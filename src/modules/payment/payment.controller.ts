@@ -111,7 +111,7 @@ export class PaymentController {
 
       return res.redirect(redirectUrl);
     } catch (error) {
-      this.logger.error(`Callback error: ${error.message}`);
+      this.logger.error(`Callback error: ${error}`);
       const ref = transactionReference || paymentReference;
       console.log('Redirect URL - ERROR:', `${frontendUrl}/payment/error?reason=verification_failed&ref=${ref}`);
       return res.redirect(
