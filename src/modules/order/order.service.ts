@@ -2873,7 +2873,7 @@ export class OrderService {
         driverId: userId,
         order: {
           orderStatus: {
-            in: [OrderStatus.ORDER_ACCEPTED, OrderStatus.PICKED_UP],
+            in: [OrderStatus.ORDER_ACCEPTED, OrderStatus.PICKED_UP, OrderStatus.ORDER_ASSIGNED],
           },
         },
       },
