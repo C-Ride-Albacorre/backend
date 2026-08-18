@@ -453,7 +453,7 @@ async handleSubscribeAssignedOrders(
 // Remove emitAssignedOrdersList, add:
 async emitAssignedOrder(driverId: string) {
   this.logger.log(`emitAssignedOrder called for driver ${driverId}`);
-  this.logger.log('Stack trace:', new Error().stack); // 👈 log the call stack
+  //this.logger.log('Stack trace:', new Error().stack); // 👈 log the call stack
 
   const room = `driver:${driverId}:assigned`;
   const orders = await this.driverAssignmentService.getAssignedOrders(driverId);
