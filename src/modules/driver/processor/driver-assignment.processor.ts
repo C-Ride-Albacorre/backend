@@ -1,13 +1,16 @@
 
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
+import { Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { PrismaService } from 'src/shared/services/prisma.service';
 import { DriverAssignmentService } from '../driver-assignment.service';
 import Helper from '../../../shared/utils/helpers';
 import { PushNotificationService } from '../../../modules/notification/push-notification.service';
+import { OrderStatus } from '@prisma/client';
 
 @Processor('driver-assignment')
 export class DriverAssignmentProcessor extends WorkerHost {
+  private readonly logger = new Logger(DriverAssignmentProcessor.name);
 
   constructor(
     private driverAssignmentService: DriverAssignmentService,
@@ -25,32 +28,60 @@ export class DriverAssignmentProcessor extends WorkerHost {
           job.data.orderId,
           job.data.vendorLocation,
         );
-      case 'assignment-timeout':
-        const pending = await this.driverAssignmentService.redis.get(
-          job.data.pendingKey,
-        );
-        if (pending) {
-          await this.driverAssignmentService.handleNoDrivers(job.data.orderId);
-        }
-        break;
-      case 'retry-driver-search':
-        const { orderId, radius } = job.data;
-        const order = await this.driverAssignmentService.prisma.order.findUnique({
-          where: { id: orderId },
-        });
-        const location = order.pickupLocation as any;
-        const drivers = await this.driverAssignmentService.getNearbyDrivers(
-          location.lat,
-          location.lng,
-          radius,
-        );
-        if (drivers.length === 0) {
-          await this.driverAssignmentService.handleNoDrivers(orderId);
-        } else {
+      case 'assignment-timeout': {
+        const { orderId } = job.data;
+        const service = this.driverAssignmentService;
 
-          await this.driverAssignmentService.findAndNotifyDrivers(orderId, location);
+        // DB is authoritative – check current order status
+        const order = await service.prisma.order.findUnique({
+          where: { id: orderId },
+          select: { orderStatus: true },
+        });
+
+        // If order no longer exists or is not ACCEPTED, the assignment is already resolved
+        if (!order || order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+          this.logger.debug(
+            `Global timeout for order ${orderId} ignored – order status is ${order?.orderStatus ?? 'unknown'}`
+          );
+          return;
         }
+
+        // Order is still ACCEPTED – no driver has accepted within the global window
+        this.logger.warn(`No driver accepted order ${orderId} within global timeout – escalating`);
+        await service.handleNoDrivers(orderId);
         break;
+      }
+      // case 'assignment-timeout':
+      //   const pending = await this.driverAssignmentService.redis.get(
+      //     job.data.pendingKey,
+      //   );
+      //   if (pending) {
+      //     await this.driverAssignmentService.handleNoDrivers(job.data.orderId);
+      //   }
+      //   break;
+      case 'retry-driver-search': {
+        const { orderId, radius, attempt } = job.data;
+        await this.driverAssignmentService.tryNextDriver(orderId, radius, attempt);
+        break;
+      }
+      // case 'retry-driver-search':
+      //   const { orderId, radius } = job.data;
+      //   const order = await this.driverAssignmentService.prisma.order.findUnique({
+      //     where: { id: orderId },
+      //   });
+      //   const location = order.pickupLocation as any;
+      //   const drivers = await this.driverAssignmentService.getNearbyDrivers(
+      //     location.lat,
+      //     location.lng,
+      //     radius,
+      //   );
+      //   if (drivers.length === 0) {
+      //     await this.driverAssignmentService.handleNoDrivers(orderId);
+      //   } else {
+
+      //     await this.driverAssignmentService.findAndNotifyDrivers(orderId, location);
+      //   }
+      //   break;
       case 'driver-response-timeout':
         await this.handleDriverTimeout(job);
         break;
@@ -62,64 +93,6 @@ export class DriverAssignmentProcessor extends WorkerHost {
     }
   }
 
-  // private async handleEtaUpdate(
-  //   job: Job<{ orderId: string; driverId: string; leg: 'to-vendor' | 'to-customer' }>
-  // ) {
-
-  //   //////
-  //   let { orderId, driverId, leg } = job.data;
-  //   const service = this.driverAssignmentService;
-
-  //   ////////
-
-  // // 1. Read the current leg from Redis (or fallback to job.data.leg)
-  // const legKey = `order:${orderId}:leg`;
-  // const legFromRedis = await service.redis.get(legKey);
-  // leg = legFromRedis as 'to-vendor' | 'to-customer' || job.data.leg;
-
-  // if (!leg) {
-  //   service.logger.warn(`No leg found for order ${orderId}, skipping ETA update`);
-  //   return;
-  // }
-
-  //   // Get driver's current location from Redis
-  //   const driverLocStr = await service.redis.get(`driver:${driverId}:loc`);
-  //  // if (!driverLocStr) return; // no recent location
-  //   if (!driverLocStr) {
-  //     service.logger.debug(`No location for driver ${driverId}, skipping ETA update`);
-  //     return;
-  //   }
-
-  //   const driverLoc = JSON.parse(driverLocStr);
-  //   let destination: { lat: number; lng: number };
-
-  //   if (leg === 'to-vendor') {
-  //     const order = await service.prisma.order.findUnique({
-  //       where: { id: orderId },
-  //       include: { items: { include: { store: true } } },
-  //     });
-  //     const store = order?.items[0]?.store;
-  //     const pickupLocation = order?.pickupLocation as any;
-  //     destination = {
-  //       lat: store?.latitude ?? pickupLocation?.latitude ?? pickupLocation?.lat,
-  //       lng: store?.longitude ?? pickupLocation?.longitude ?? pickupLocation?.lng,
-  //     };
-  //   } else {
-  //     // to-customer
-  //     const order = await service.prisma.order.findUnique({ where: { id: orderId } });
-  //     const dropoff = order?.dropoffLocation as any;
-  //     if (!dropoff?.lat || !dropoff?.lng) return;
-  //     service.logger.log(`Order ${orderId} dropoff location: ${JSON.stringify(dropoff)}`);
-  //     destination = { lat: dropoff.lat, lng: dropoff.lng };
-  //   }
-
-  //   const { durationSec, polyline } = await service.getRouteDetails(driverLoc, destination);
-  //   await service.mapGateway.emitEta(orderId, durationSec, leg);
-  //   if (polyline) {
-  //     await service.mapGateway.emitPolyline(orderId, polyline, leg);
-  //     await service.redis.setex(`order:${orderId}:polyline`, 3600, polyline);
-  //   }
-  // }
 
   private async handleEtaUpdate(
     job: Job<{ orderId: string; driverId: string; leg: 'to-vendor' | 'to-customer' }>
@@ -289,8 +262,37 @@ export class DriverAssignmentProcessor extends WorkerHost {
     }
   }
 
+  private async handleDriverTimeout(job: Job<{ orderId: string; driverId: string }>) {
+    const { orderId, driverId } = job.data;
+    const service = this.driverAssignmentService;
 
-  private async handleDriverTimeout(
+    const pendingKey = `order:${orderId}:pending:${driverId}`;
+    const driverPendingSet = `driver:${driverId}:pending_claims`;
+
+    // Atomic claim
+    const claimed = await service.redis.del(pendingKey);
+    if (!claimed) {
+      this.logger.debug(`Timeout for driver ${driverId}, order ${orderId} ignored – key already claimed`);
+      return;
+    }
+
+    await service.redis.srem(driverPendingSet, orderId);
+
+    // DB check before proceeding
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { orderStatus: true },
+    });
+    if (!order || order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+      this.logger.debug(`Order ${orderId} is no longer ACCEPTED; not notifying next driver`);
+      return;
+    }
+
+    service.driverGateway?.emitRequestTimeout(driverId, orderId);
+    await service.tryNextDriver(orderId);
+  }
+
+  private async handleDriverTimeoutOld(
     job: Job<{ orderId: string; driverId: string }>
   ) {
     const { orderId, driverId } = job.data;

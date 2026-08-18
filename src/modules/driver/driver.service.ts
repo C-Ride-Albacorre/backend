@@ -853,45 +853,45 @@ export class DriverService {
   //   }
 
   async findAvailableOrders(
-  driverId: string,
-  driverLat: number,
-  driverLng: number,
-  radiusKm: number,
-) {
-  console.log(
-    `Finding orders for driver ${driverId} at (${driverLat}, ${driverLng}) within ${radiusKm} km`,
-  );
-
-  // Don't return orders if the driver is OFFLINE or BUSY
-  const driverProfile = await this.prisma.driverProfile.findUnique({
-    where: {
-      userId: driverId,
-    },
-    select: {
-      status: true,
-    },
-  });
-
-  if (!driverProfile) {
-    throw new NotFoundException('Driver profile not found');
-  }
-
-  if (
-    driverProfile.status === DriverStatus.OFFLINE ||
-    driverProfile.status === DriverStatus.BUSY
+    driverId: string,
+    driverLat: number,
+    driverLng: number,
+    radiusKm: number,
   ) {
-    return [];
-  }
-
-  // Existing validation
-  if (
-    !this.isValidLatitude(driverLat) ||
-    !this.isValidLongitude(driverLng)
-  ) {
-    throw new Error(
-      'Invalid driver coordinates. Latitude must be between -90 and 90 and longitude between -180 and 180.',
+    console.log(
+      `Finding orders for driver ${driverId} at (${driverLat}, ${driverLng}) within ${radiusKm} km`,
     );
-  }
+
+    // Don't return orders if the driver is OFFLINE or BUSY
+    const driverProfile = await this.prisma.driverProfile.findUnique({
+      where: {
+        userId: driverId,
+      },
+      select: {
+        status: true,
+      },
+    });
+
+    if (!driverProfile) {
+      throw new NotFoundException('Driver profile not found');
+    }
+
+    if (
+      driverProfile.status === DriverStatus.OFFLINE ||
+      driverProfile.status === DriverStatus.BUSY
+    ) {
+      return [];
+    }
+
+    // Existing validation
+    if (
+      !this.isValidLatitude(driverLat) ||
+      !this.isValidLongitude(driverLng)
+    ) {
+      throw new Error(
+        'Invalid driver coordinates. Latitude must be between -90 and 90 and longitude between -180 and 180.',
+      );
+    }
     const radiusMeters = radiusKm * 1000;
     const TTL_SECONDS = 300; // 5 minutes - match your broadcast TTL
 
@@ -1560,7 +1560,279 @@ export class DriverService {
    * Log a driver's decline for an order.
    * Also removes the driver from the candidate pool in Redis (if using pending keys).
    */
-  async declineOrder(orderId: string, driverId: string, reason?: string) {
+  // async declineOrder(orderId: string, driverId: string, reason?: string) {
+  // // 1. Define which statuses allow a decline
+  // const allowedStatuses = [OrderStatus.ORDER_ACCEPTED, OrderStatus.ORDER_ASSIGNED, OrderStatus.PICKED_UP];
+
+  // // 2. Use a transaction to ensure everything succeeds or rolls back together
+  // return this.prisma.$transaction(async (tx) => {
+  //   // 3. Fetch the order with a 'FOR UPDATE' lock (if your DB supports it) 
+  //   //    or just select what we need. We'll lock it via the transaction.
+  //   const order = await tx.order.findUnique({
+  //     where: { id: orderId },
+  //     select: { orderStatus: true, assignedDriverId: true }, // fetch assigned driver too
+  //   });
+
+  //   if (!order) {
+  //     throw new NotFoundException('Order not found');
+  //   }
+
+  //   // 4. Validate status (now includes ASSIGNED)
+  //   if (!allowedStatuses.includes(order.orderStatus)) {
+  //     throw new BadRequestException(
+  //       `Order is in status "${order.orderStatus}" and cannot be declined.`
+  //     );
+  //   }
+
+  //   // 5. Optional: Ensure this driver is the one assigned/accepted.
+  //   //    If it's ASSIGNED, the driverId must match assignedDriverId.
+  //   if (order.orderStatus === OrderStatus.ORDER_ASSIGNED && order.assignedDriverId !== driverId) {
+  //     throw new ForbiddenException('This driver is not assigned to this order');
+  //   }
+
+  //   // 6. Update the Order Status back to PENDING (or DISPATCHING)
+  //   //    and clear the assigned driver reference.
+  //   await tx.order.update({
+  //     where: { id: orderId },
+  //     data: {
+  //       orderStatus: OrderStatus.PENDING, // Put it back in the pool
+  //       assignedDriverId: null,           // Free the driver from this order
+  //       // Optionally increment a 'decline_count' or set 'last_declined_at' here
+  //     },
+  //   });
+
+  //   // 7. Log the activity (fix the role to DRIVER)
+  //   await tx.orderActivityLog.create({
+  //     data: {
+  //       orderId,
+  //       actorId: driverId,
+  //       actorRole: Role.DISPATCHER, // Changed from DISPATCHER
+  //       action: 'DRIVER_DECLINED',
+  //       reason: reason || 'No reason provided',
+  //       metadata: {
+  //         previousStatus: order.orderStatus,
+  //         timestamp: new Date().toISOString(),
+  //       },
+  //     },
+  //   });
+
+  //   // 8. Redis Cleanup (run these in parallel, but inside the transaction doesn't matter for Redis)
+  //   //    We'll run them after the transaction or before. Since Redis doesn't support Prisma transactions,
+  //   //    we do them after the DB commit, or we can do them before. 
+  //   //    I recommend doing them AFTER the DB update so if DB fails, Redis isn't unnecessarily mutated.
+  //   //    We'll store the cleanup promises to run after.
+
+  //   // ... we'll do Redis cleanup outside the transaction to keep it fast
+  //   // but we MUST NOT return the transaction result yet.
+
+  //   // Return the data needed for post-transaction Redis cleanup
+  //   return { orderId, driverId };
+  // });
+
+  // // 9. Redis Cleanup (Executed AFTER the DB transaction succeeds)
+  // //    This way, if Redis fails, the DB is already consistent.
+  // try {
+  //   const redis = this.redis;
+  //   if (redis) {
+  //     // Remove from pending candidates
+  //     await redis.srem(`order:${orderId}:candidates`, driverId);
+
+  //     // CRITICAL: Remove the explicit assignment key if it exists
+  //     // (Assuming you store driver assignment in Redis like `order:${orderId}:driver`)
+  //     const assignedDriverKey = `order:${orderId}:driver`;
+  //     const currentDriver = await redis.get(assignedDriverKey);
+  //     if (currentDriver === driverId) {
+  //       await redis.del(assignedDriverKey);
+  //     }
+
+  //     // Optionally, invalidate driver's active order cache
+  //     await redis.del(`driver:${driverId}:active_order`);
+  //   }
+
+  //   // 10. Stop the ETA scheduler (non-critical, catch errors)
+  //   await this.assignmentQueue
+  //     .removeJobScheduler(`eta-${orderId}`)
+  //     .catch((err) => this.logger.warn(`Failed to remove ETA scheduler for ${orderId}`, err));
+
+  //   this.logger.log(
+  //     `Driver ${driverId} declined order ${orderId} from status ${previousStatus}, reason: ${reason || 'none'}`,
+  //   );
+
+  // } catch (redisErr) {
+  //   // Log Redis errors but don't fail the request, as the DB is already updated.
+  //   this.logger.error(`Post-decline Redis cleanup failed for order ${orderId}`, redisErr);
+  // }
+
+  // return { success: true };
+  // }
+
+  async declineOrder(
+    orderId: string,
+    driverId: string,
+    reason?: string,
+  ) {
+    const allowedStatuses: OrderStatus[] = [
+      OrderStatus.ORDER_ACCEPTED,
+      OrderStatus.ORDER_ASSIGNED,
+      OrderStatus.PICKED_UP,
+    ];
+
+    // Execute DB transaction first
+    const result = await this.prisma.$transaction(async (tx) => {
+      // const order = await tx.order.findUnique({
+      //   where: { id: orderId },
+      //   select: {
+      //     orderStatus: true,
+      //     assignedDriverId: true,
+      //   },
+      // });
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        select: {
+          orderStatus: true,
+          driverAssignment: {
+            select: {
+              driverId: true,
+            },
+          },
+        },
+      });
+
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+
+      // Validate status
+      if (!allowedStatuses.includes(order.orderStatus)) {
+        throw new BadRequestException(
+          `Order is in status "${order.orderStatus}" and cannot be declined.`,
+        );
+      }
+
+      // Validate driver assignment
+      if (
+        order.orderStatus === OrderStatus.ORDER_ASSIGNED &&
+        order.driverAssignment?.driverId !== driverId
+      ) {
+        throw new ForbiddenException(
+          'This driver is not assigned to this order',
+        );
+      }
+
+      const previousStatus = order.orderStatus;
+
+      // Put order back into pending pool
+      // await tx.order.update({
+      //   where: { id: orderId },
+      //   data: {
+      //     orderStatus: OrderStatus.PENDING,
+      //     assignedDriverId: null,
+      //   },
+      // });
+      // Put order back into pending pool
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          orderStatus: OrderStatus.PENDING,
+        },
+      });
+
+      // Clear the driver's assignment
+      await tx.driverAssignment.updateMany({
+        where: {
+          orderId,
+          driverId,
+        },
+        data: {
+          driverId: null,
+          assignmentStatus: 'PENDING',
+        },
+      });
+
+      // Log decline
+      await tx.orderActivityLog.create({
+        data: {
+          orderId,
+          actorId: driverId,
+          actorRole: Role.DISPATCHER, // Use this if Role.DRIVER exists
+          action: 'DRIVER_DECLINED',
+          reason: reason || 'No reason provided',
+          metadata: {
+            previousStatus,
+            timestamp: new Date().toISOString(),
+          },
+        },
+      });
+
+      return {
+        orderId,
+        driverId,
+        previousStatus,
+      };
+    });
+
+    // --------------------------------------------------
+    // DB transaction has successfully committed here
+    // --------------------------------------------------
+
+    try {
+      const redis = this.redis;
+
+      if (redis) {
+        // Remove driver from candidate list
+        await redis.srem(
+          `order:${orderId}:candidates`,
+          driverId,
+        );
+
+        // Remove explicit assignment if it belongs to this driver
+        const assignedDriverKey = `order:${orderId}:driver`;
+
+        const currentDriver = await redis.get(
+          assignedDriverKey,
+        );
+
+        if (currentDriver === driverId) {
+          await redis.del(assignedDriverKey);
+        }
+
+        // Clear driver's active order cache
+        await redis.del(
+          `driver:${driverId}:active_order`,
+        );
+      }
+
+      // Stop ETA scheduler
+      await this.assignmentQueue
+        .removeJobScheduler(`eta-${orderId}`)
+        .catch((err) => {
+          this.logger.warn(
+            `Failed to remove ETA scheduler for ${orderId}`,
+            err,
+          );
+        });
+
+      this.logger.log(
+        `Driver ${driverId} declined order ${orderId} ` +
+        `from status ${result.previousStatus}, ` +
+        `reason: ${reason || 'none'}`,
+      );
+    } catch (redisErr) {
+      // DB is already committed, so don't fail the request
+      this.logger.error(
+        `Post-decline Redis cleanup failed for order ${orderId}`,
+        redisErr,
+      );
+    }
+
+    return {
+      success: true,
+      orderId: result.orderId,
+    };
+  }
+
+
+  async declineOrderbk(orderId: string, driverId: string, reason?: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: { orderStatus: true },
@@ -1621,7 +1893,7 @@ export class DriverService {
       throw new BadRequestException('Order not in assigned state');
     }
 
-    
+
     // Fetch order details including its items to know which stores are involved
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -1638,10 +1910,10 @@ export class DriverService {
 
     if (!order) throw new BadRequestException('Order not found');
 
-     // // Validate the order code
+    // // Validate the order code
     if (order.orderCode !== orderCode) {
       throw new BadRequestException('Invalid order confirmation code');
-    }  
+    }
 
 
     // Use the state machine to transition
@@ -1674,7 +1946,6 @@ export class DriverService {
     await this.assignmentQueue
       .removeJobScheduler(`eta-${orderId}`)
       .catch(() => null);
-
 
 
 
@@ -1711,120 +1982,120 @@ export class DriverService {
 
 
   async getOrderDetailsByCode(code: string, driverId: string) {
-  // 1. Find order by orderCode
-  const order = await this.prisma.order.findFirst({
-    where: { orderCode: code },
-    include: {
-      user: true,                    // customer
-      items: {
-        include: {
-          store: true,
-          variant: true,
-          product: {
-            include: {
-              productImages: true,
+    // 1. Find order by orderCode
+    const order = await this.prisma.order.findFirst({
+      where: { orderCode: code },
+      include: {
+        user: true,                    // customer
+        items: {
+          include: {
+            store: true,
+            variant: true,
+            product: {
+              include: {
+                productImages: true,
+              },
             },
           },
         },
+        driverAssignment: true,
       },
-      driverAssignment: true,
-    },
-  });
+    });
 
-  if (!order) {
-    throw new NotFoundException('Order not found with this code');
-  }
+    if (!order) {
+      throw new NotFoundException('Order not found with this code');
+    }
 
-  // 2. Verify that the driver is assigned to this order
-  const assignment = order.driverAssignment;
-  if (!assignment || assignment.driverId !== driverId || assignment.assignmentStatus !== AssignmentStatus.ASSIGNED) {
-    throw new ForbiddenException('You are not assigned to this order');
-  }
+    // 2. Verify that the driver is assigned to this order
+    const assignment = order.driverAssignment;
+    if (!assignment || assignment.driverId !== driverId || assignment.assignmentStatus !== AssignmentStatus.ASSIGNED) {
+      throw new ForbiddenException('You are not assigned to this order');
+    }
 
-  // 3. Compute totals across all items
-  const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
-  const subtotal = order.items.reduce((sum, item) => sum + item.totalPrice, 0);
+    // 3. Compute totals across all items
+    const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
+    const subtotal = order.items.reduce((sum, item) => sum + item.totalPrice, 0);
 
-  // 4. Build the exact same response shape as getVendorOrderById
-  return {
-    id: order.id,
-    orderNumber: order.orderNumber,
-    orderCode: order.orderCode,
-    createdAt: order.createdAt,
-    orderStatus: order.orderStatus,
-    paymentStatus: order.paymentStatus,
-    recipientName: order.recipientName,
-    recipientPhone: order.recipientPhone,
-    deliveryInstructions: order.deliveryInstructions,
-    pickupLocation: order.pickupLocation,
-    dropoffLocation: order.dropoffLocation,
+    // 4. Build the exact same response shape as getVendorOrderById
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      orderCode: order.orderCode,
+      createdAt: order.createdAt,
+      orderStatus: order.orderStatus,
+      paymentStatus: order.paymentStatus,
+      recipientName: order.recipientName,
+      recipientPhone: order.recipientPhone,
+      deliveryInstructions: order.deliveryInstructions,
+      pickupLocation: order.pickupLocation,
+      dropoffLocation: order.dropoffLocation,
 
-    user: order.user,
+      user: order.user,
 
-    items: order.items.map((item) => ({
-      id: item.id,
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      totalPrice: item.totalPrice,
+      items: order.items.map((item) => ({
+        id: item.id,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
 
-      product: item.product
-        ? {
+        product: item.product
+          ? {
             id: item.product.id,
             productName: item.product.productName,
             image: item.product.productImages?.[0]?.imageUrl ?? null,
           }
-        : null,
+          : null,
 
-      variant: item.variant,
-      store: item.store,
-    })),
+        variant: item.variant,
+        store: item.store,
+      })),
 
-    // Keep the key name "vendorSummary" for strict compatibility
-    vendorSummary: {
-      itemCount: order.items.length,
-      totalQuantity: totalQuantity,
-      subtotal: subtotal,
-    },
-  };
-}
+      // Keep the key name "vendorSummary" for strict compatibility
+      vendorSummary: {
+        itemCount: order.items.length,
+        totalQuantity: totalQuantity,
+        subtotal: subtotal,
+      },
+    };
+  }
 
 
-//   async getOrderDetailsByCodebk(code: string, driverId: string) {
-//   // Find the order by orderNumber (or deliveryConfirmationCode)
-//   const order = await this.prisma.order.findUnique({
-//     where: { orderNumber: code },
-//     include: {
-//       items: { include: { product: true } },
-//       customer: true,
-//       store: true,
-//       driverAssignments: true,
-//     },
-//   });
-//   if (!order) throw new NotFoundException('Order not found');
+  //   async getOrderDetailsByCodebk(code: string, driverId: string) {
+  //   // Find the order by orderNumber (or deliveryConfirmationCode)
+  //   const order = await this.prisma.order.findUnique({
+  //     where: { orderNumber: code },
+  //     include: {
+  //       items: { include: { product: true } },
+  //       customer: true,
+  //       store: true,
+  //       driverAssignments: true,
+  //     },
+  //   });
+  //   if (!order) throw new NotFoundException('Order not found');
 
-//   // Verify that this driver is assigned to the order
-//   const assignment = await this.prisma.driverAssignment.findFirst({
-//     where: {
-//       orderId: order.id,
-//       driverId: driverId,
-//       assignmentStatus: { in: [AssignmentStatus.ASSIGNED] },
-//     },
-//   });
-//   if (!assignment) {
-//     throw new ForbiddenException('You are not assigned to this order');
-//   }
+  //   // Verify that this driver is assigned to the order
+  //   const assignment = await this.prisma.driverAssignment.findFirst({
+  //     where: {
+  //       orderId: order.id,
+  //       driverId: driverId,
+  //       assignmentStatus: { in: [AssignmentStatus.ASSIGNED] },
+  //     },
+  //   });
+  //   if (!assignment) {
+  //     throw new ForbiddenException('You are not assigned to this order');
+  //   }
 
-//   // Remove sensitive data if needed, or return full order details
-//   return {
-//     id: order.id,
-//     orderNumber: order.orderNumber,
-//     status: order.orderStatus,
-//     customer: order.customer,
-//     items: order.items,
-//     //deliveryAddress: order.deliveryAddress,
-//     // ... other fields you want to expose
-//   };
-// }
+  //   // Remove sensitive data if needed, or return full order details
+  //   return {
+  //     id: order.id,
+  //     orderNumber: order.orderNumber,
+  //     status: order.orderStatus,
+  //     customer: order.customer,
+  //     items: order.items,
+  //     //deliveryAddress: order.deliveryAddress,
+  //     // ... other fields you want to expose
+  //   };
+  // }
 
 
 
