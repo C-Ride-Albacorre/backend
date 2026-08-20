@@ -2934,24 +2934,7 @@ export class OrderService {
     let driverId: string | null = assignment?.driverId ?? null;
 
     if (driverId) {
-      // const [driverUser, driverProfile] = await Promise.all([
-      //   this.prisma.user.findUnique({
-      //     where: { id: driverId },
-      //     select: {
-      //       id: true,
-      //       firstName: true,
-      //       lastName: true,
-      //       profilePicture: true,
-      //       phoneNumber: true,
-      //     },
-      //   }),
-      //   this.prisma.driverProfile.findUnique({
-      //     where: { userId: driverId },
-      //     select: {
-      //       status: true,
-      //     },
-      //   }),
-      // ]);
+
       const [driverUser, driverProfile] = await Promise.all([
         this.prisma.user.findUnique({
           where: { id: driverId },
@@ -2977,18 +2960,7 @@ export class OrderService {
       ]);
 
       if (driverUser) {
-        // driverData = {
-        //   id: driverUser.id,
-        //   fullName: `${driverUser.firstName} ${driverUser.lastName}`,
-        //   photo: driverUser.profilePicture,
-        //   phone: driverUser.phoneNumber,
-        //   rating: 0,
-        //   totalTrips: 0,
-        //   vehicleMake: '',
-        //   vehicleModel: '',
-        //   vehiclePlate: '',
-        //   status: driverProfile?.status ?? 'OFFLINE',
-        // };
+
         driverData = {
           id: driverUser.id,
           fullName: `${driverUser.firstName} ${driverUser.lastName}`,
