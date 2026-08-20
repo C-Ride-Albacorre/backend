@@ -53,6 +53,10 @@ export class DriverService {
   private readonly logger = new Logger(DriverService.name);
   private readonly googleMapsApiKey: string;
 
+  private readonly DEFAULT_RADIUS_KM = 10;
+  private readonly MAX_RADIUS_KM = 10;
+  private readonly TTL_SECONDS = 300;
+
   constructor(
     public readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
@@ -828,6 +832,382 @@ export class DriverService {
   //////////////DRIVER TRACKING////////////
 
   /**
+   * Find orders available to a driver based on the driver's
+   * CURRENT latitude/longitude.
+   *
+   * IMPORTANT:
+   * - Location comes from the current request.
+   * - Redis is NOT used to determine geographic eligibility.
+   * - An order must be within radiusKm of its pickup store.
+   */
+  async findAvailableOrders(
+    driverId: string,
+    driverLat: number,
+    driverLng: number,
+    radiusKm: number = this.DEFAULT_RADIUS_KM,
+  ) {
+    console.log(
+      `[AVAILABLE ORDERS] driver=${driverId} ` +
+      `lat=${driverLat} lng=${driverLng} radius=${radiusKm}km`,
+    );
+
+    // ---------------------------------------------------------
+    // 1. Validate driver ID
+    // ---------------------------------------------------------
+
+    if (!driverId) {
+      throw new BadRequestException('Driver ID is required');
+    }
+
+    // ---------------------------------------------------------
+    // 2. Validate coordinates
+    // ---------------------------------------------------------
+
+    if (!this.isValidLatitude(driverLat)) {
+      throw new BadRequestException(
+        'Invalid driver latitude. Latitude must be between -90 and 90.',
+      );
+    }
+
+    if (!this.isValidLongitude(driverLng)) {
+      throw new BadRequestException(
+        'Invalid driver longitude. Longitude must be between -180 and 180.',
+      );
+    }
+
+    // ---------------------------------------------------------
+    // 3. Validate radius
+    // ---------------------------------------------------------
+
+    if (
+      typeof radiusKm !== 'number' ||
+      !Number.isFinite(radiusKm) ||
+      radiusKm <= 0
+    ) {
+      throw new BadRequestException(
+        'Invalid radius. Radius must be greater than 0.',
+      );
+    }
+
+    // Never allow the client/service caller to request
+    // a radius greater than the configured maximum.
+    const effectiveRadiusKm = Math.min(
+      radiusKm,
+      this.MAX_RADIUS_KM,
+    );
+
+    const radiusMeters = effectiveRadiusKm * 1000;
+
+    // ---------------------------------------------------------
+    // 4. Get driver profile
+    // ---------------------------------------------------------
+
+    const driverProfile =
+      await this.prisma.driverProfile.findUnique({
+        where: {
+          userId: driverId,
+        },
+        select: {
+          status: true,
+        },
+      });
+
+    if (!driverProfile) {
+      throw new NotFoundException(
+        'Driver profile not found',
+      );
+    }
+
+    // ---------------------------------------------------------
+    // 5. Driver must be available
+    // ---------------------------------------------------------
+
+    if (
+      driverProfile.status === DriverStatus.OFFLINE ||
+      driverProfile.status === DriverStatus.BUSY
+    ) {
+      console.log(
+        `[AVAILABLE ORDERS] driver=${driverId} ` +
+        `is ${driverProfile.status}; returning []`,
+      );
+
+      return [];
+    }
+
+    // ---------------------------------------------------------
+    // 6. Find geographically eligible orders
+    // ---------------------------------------------------------
+    //
+    // The distance calculation is performed in PostgreSQL.
+    //
+    // The order is eligible ONLY when:
+    //
+    // distance(driver -> store) <= effectiveRadiusKm
+    //
+    // Redis is deliberately NOT involved in this decision.
+    //
+
+    const latitudeDelta = effectiveRadiusKm / 111.0;
+
+    const longitudeCos = Math.cos(
+      (driverLat * Math.PI) / 180,
+    );
+
+    const longitudeDelta =
+      longitudeCos > 0.000001
+        ? effectiveRadiusKm / (111.0 * longitudeCos)
+        : 180;
+
+    const availableOrders =
+      await this.prisma.$queryRaw<
+        Array<{
+          order_id: string;
+          order_number: string;
+          order_status: string;
+          total_amount: number;
+          delivery_fee: number;
+          pickup_location: any;
+          dropoff_location: any;
+          created_at: Date;
+          store_id: string;
+          store_name: string;
+          store_logo: string | null;
+          store_lat: number;
+          store_lng: number;
+          distance_meters: number;
+        }>
+      >`
+    WITH order_store_distances AS (
+      SELECT
+        o.id AS order_id,
+        o."orderNumber" AS order_number,
+        o."orderStatus" AS order_status,
+        o."totalAmount" AS total_amount,
+        o."deliveryFee" AS delivery_fee,
+        o."pickupLocation" AS pickup_location,
+        o."dropoffLocation" AS dropoff_location,
+        o."createdAt" AS created_at,
+
+        s.id AS store_id,
+        s."storeName" AS store_name,
+        s."storeLogo" AS store_logo,
+        s.latitude AS store_lat,
+        s.longitude AS store_lng,
+
+        (
+          6371000 * ACOS(
+            LEAST(
+              1.0,
+              GREATEST(
+                -1.0,
+                COS(RADIANS(${driverLat}))
+                * COS(RADIANS(s.latitude))
+                * COS(
+                  RADIANS(s.longitude)
+                  - RADIANS(${driverLng})
+                )
+                + SIN(RADIANS(${driverLat}))
+                * SIN(RADIANS(s.latitude))
+              )
+            )
+          )
+        ) AS distance_meters
+
+      FROM "Order" o
+
+      INNER JOIN "OrderItem" oi
+        ON oi."orderId" = o.id
+
+      INNER JOIN "Store" s
+        ON s.id = oi."storeId"
+
+      WHERE
+        o."orderStatus" = 'ORDER_ACCEPTED'
+
+        AND s.latitude IS NOT NULL
+        AND s.longitude IS NOT NULL
+
+        AND s.latitude BETWEEN
+          ${driverLat - latitudeDelta}
+          AND
+          ${driverLat + latitudeDelta}
+
+        AND s.longitude BETWEEN
+          ${driverLng - longitudeDelta}
+          AND
+          ${driverLng + longitudeDelta}
+    )
+
+    SELECT
+      order_id,
+      order_number,
+      order_status,
+      total_amount,
+      delivery_fee,
+      pickup_location,
+      dropoff_location,
+      created_at,
+      store_id,
+      store_name,
+      store_logo,
+      store_lat,
+      store_lng,
+      distance_meters
+
+    FROM order_store_distances
+
+    WHERE distance_meters <= ${radiusMeters}
+
+    ORDER BY distance_meters ASC
+
+    LIMIT 20;
+  `;
+
+ 
+
+    // ---------------------------------------------------------
+    // 7. Defensive server-side verification
+    // ---------------------------------------------------------
+    //
+    // PostgreSQL already filtered the orders.
+    //
+    // This additional check protects against unexpected
+    // floating-point/database issues and makes the geographic
+    // rule explicit in application code.
+    //
+
+    const geographicallyValidOrders =
+      availableOrders.filter((order) => {
+        const distance =
+          Number(order.distance_meters);
+
+        return (
+          Number.isFinite(distance) &&
+          distance >= 0 &&
+          distance <= radiusMeters
+        );
+      });
+
+    console.log(
+      `[AVAILABLE ORDERS] driver=${driverId} ` +
+      `found=${geographicallyValidOrders.length}`,
+    );
+
+    // Useful while debugging location problems.
+    for (const order of geographicallyValidOrders) {
+      console.log(
+        `[AVAILABLE ORDER] ` +
+        `driver=${driverId} ` +
+        `order=${order.order_id} ` +
+        `store=${order.store_id} ` +
+        `storeLocation=(${order.store_lat}, ${order.store_lng}) ` +
+        `distance=${order.distance_meters}m`,
+      );
+    }
+
+    if (!geographicallyValidOrders.length) {
+      return [];
+    }
+
+    // ---------------------------------------------------------
+    // 8. Renew ONLY existing pending keys
+    // ---------------------------------------------------------
+    //
+    // IMPORTANT:
+    //
+    // Redis is NOT used to decide whether an order is within
+    // range.
+    //
+    // It is only used to maintain an existing pending/claim
+    // relationship.
+    //
+    // EXPIRE on a non-existent key does nothing.
+    //
+    // Therefore we first check the keys before renewing them.
+    //
+
+    const pipeline =
+      this.redis.pipeline();
+
+    for (const order of geographicallyValidOrders) {
+      const pendingKey =
+        `order:${order.order_id}:pending:${driverId}`;
+
+      const driverPendingSet =
+        `driver:${driverId}:pending_claims`;
+
+      pipeline.exists(pendingKey);
+    }
+
+    const existsResults =
+      await pipeline.exec();
+
+    const renewPipeline =
+      this.redis.pipeline();
+
+    geographicallyValidOrders.forEach(
+      (order, index) => {
+        const existsResult =
+          existsResults?.[index];
+
+        const exists =
+          Array.isArray(existsResult)
+            ? Number(existsResult[1]) === 1
+            : false;
+
+        if (!exists) {
+          return;
+        }
+
+        const pendingKey =
+          `order:${order.order_id}:pending:${driverId}`;
+
+        renewPipeline.expire(
+          pendingKey,
+          this.TTL_SECONDS,
+        );
+      },
+    );
+
+    await renewPipeline.exec();
+
+    // ---------------------------------------------------------
+    // 9. Get item summaries
+    // ---------------------------------------------------------
+
+    const orderIds =
+      geographicallyValidOrders.map(
+        (order) => order.order_id,
+      );
+
+    const itemsSummary =
+      await this.getOrderItemsSummary(orderIds);
+
+    // ---------------------------------------------------------
+    // 10. Return orders
+    // ---------------------------------------------------------
+
+    return geographicallyValidOrders.map(
+      (order) => ({
+        ...order,
+
+        // Make sure distance is always a number.
+        distance_meters: Number(
+          order.distance_meters,
+        ),
+
+        distance_km:
+          Number(order.distance_meters) / 1000,
+
+        items:
+          itemsSummary[order.order_id] || [],
+      }),
+    );
+  }
+
+
+
+  /**
    * Find available orders within a given radius of a driver's location.
    * Uses PostgreSQL earthdistance module with GiST index for efficient geo‑queries.
    * @param driverLat - Latitude of the driver (WGS84)
@@ -835,24 +1215,10 @@ export class DriverService {
    * @param radiusKm - Search radius in kilometers (default 10)
    * @returns List of orders with store details and distance, optionally enriched with items.
    */
-  // async findAvailableOrders(
-  //   driverId: string,
-  //   driverLat: number,
-  //   driverLng: number,
-  //   radiusKm: number,
-  // ) {
 
-  //   console.log(`Finding orders for driver ${driverId} at (${driverLat}, ${driverLng}) within ${radiusKm} km`);
-  //   if (
-  //     !this.isValidLatitude(driverLat) ||
-  //     !this.isValidLongitude(driverLng)
-  //   ) {
-  //     throw new Error(
-  //       'Invalid driver coordinates. Latitude must be between -90 and 90 and longitude between -180 and 180.',
-  //     );
-  //   }
 
-  async findAvailableOrders(
+
+  async findAvailableOrdersbk82026(
     driverId: string,
     driverLat: number,
     driverLng: number,
