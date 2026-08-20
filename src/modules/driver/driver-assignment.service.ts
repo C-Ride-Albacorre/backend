@@ -114,7 +114,7 @@ export class DriverAssignmentService {
       const drivers = await this.getNearbyDrivers(
         vendorLocation.lat,
         vendorLocation.lng,
-        5000,
+        10000,
       );
 
       if (!drivers.length) {
@@ -1746,7 +1746,7 @@ export class DriverAssignmentService {
   // driver-assignment.service.ts
 async tryNextDriver(
   orderId: string,
-  radius: number = 5000,
+  radius: number = 10000,
   attempt: number = 1,
 ): Promise<void> {
   // 1. Quick DB check – order must still be ACCEPTED

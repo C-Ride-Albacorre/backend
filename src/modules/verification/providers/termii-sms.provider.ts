@@ -33,7 +33,7 @@ export class TermiiSmsProvider implements ISmsProvider {
         api_key: this.apiKey,
       });
 
-      this.logger.log(`SMS sent to ${to}: ${response.data.message}`);
+      this.logger.log(`SMS sent to ${to}: ${response.data.message}: `);
       return response.data;
     } catch (error) {
       this.logger.error(`Failed to send SMS to ${to}: ${error.message}`);
