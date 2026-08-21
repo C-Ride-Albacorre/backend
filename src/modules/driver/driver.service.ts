@@ -2033,6 +2033,145 @@ export class DriverService {
   // }
 
   async declineOrder(
+  orderId: string,
+  driverId: string,
+  reason?: string,
+) {
+  const allowedStatuses: OrderStatus[] = [
+    OrderStatus.ORDER_ACCEPTED,
+    OrderStatus.ORDER_ASSIGNED,
+    OrderStatus.PICKED_UP,
+  ];
+
+  // Execute DB transaction first
+  const result = await this.prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        orderStatus: true,
+        driverAssignment: {
+          select: { driverId: true },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (!allowedStatuses.includes(order.orderStatus)) {
+      throw new BadRequestException(
+        `Order is in status "${order.orderStatus}" and cannot be declined.`,
+      );
+    }
+
+    if (
+      order.orderStatus === OrderStatus.ORDER_ASSIGNED &&
+      order.driverAssignment?.driverId !== driverId
+    ) {
+      throw new ForbiddenException(
+        'This driver is not assigned to this order',
+      );
+    }
+
+    const previousStatus = order.orderStatus;
+
+    // 1. Change order status to ORDER_ACCEPTED (instead of PENDING)
+    await tx.order.update({
+      where: { id: orderId },
+      data: {
+        orderStatus: OrderStatus.ORDER_ACCEPTED,
+      },
+    });
+
+    // 2. Clear the driver's assignment for this order
+    await tx.driverAssignment.updateMany({
+      where: {
+        orderId,
+        driverId,
+      },
+      data: {
+        driverId: null,
+        assignmentStatus: AssignmentStatus.REJECTED, // or 'DECLINED' if you prefer
+      },
+    });
+
+    // 3. Put the driver back online
+    await tx.order.update({
+      where: { id: driverId },
+      data: {
+        orderStatus:  OrderStatus.ORDER_ACCEPTED, // adjust field name to your model
+      },
+    });
+
+    // Log decline
+    await tx.orderActivityLog.create({
+      data: {
+        orderId,
+        actorId: driverId,
+        actorRole: Role.DISPATCHER, // consider changing to Role.DRIVER
+        action: 'DRIVER_DECLINED',
+        reason: reason || 'No reason provided',
+        metadata: {
+          previousStatus,
+          timestamp: new Date().toISOString(),
+        },
+      },
+    });
+
+    return {
+      orderId,
+      driverId,
+      previousStatus,
+    };
+  });
+
+  // --------------------------------------------------
+  // DB transaction committed – Redis cleanup below
+  // --------------------------------------------------
+
+  try {
+    const redis = this.redis;
+
+    if (redis) {
+      await redis.srem(`order:${orderId}:candidates`, driverId);
+      const assignedDriverKey = `order:${orderId}:driver`;
+      const currentDriver = await redis.get(assignedDriverKey);
+      if (currentDriver === driverId) {
+        await redis.del(assignedDriverKey);
+      }
+      await redis.del(`driver:${driverId}:active_order`);
+    }
+
+    await this.assignmentQueue
+      .removeJobScheduler(`eta-${orderId}`)
+      .catch((err) => {
+        this.logger.warn(
+          `Failed to remove ETA scheduler for ${orderId}`,
+          err,
+        );
+      });
+
+    this.logger.log(
+      `Driver ${driverId} declined order ${orderId} ` +
+      `from status ${result.previousStatus}, ` +
+      `reason: ${reason || 'none'}`,
+    );
+  } catch (redisErr) {
+    // DB is already committed, so don't fail the request
+    this.logger.error(
+      `Post-decline Redis cleanup failed for order ${orderId}`,
+      redisErr,
+    );
+  }
+
+  return {
+    success: true,
+    orderId: result.orderId,
+  };
+}
+
+  async declineOrderNew(
     orderId: string,
     driverId: string,
     reason?: string,
