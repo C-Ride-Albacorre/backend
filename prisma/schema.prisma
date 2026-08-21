@@ -561,8 +561,7 @@ model DriverDocument {
   rejectionReason String?
   verifiedAt      DateTime?
   verifiedBy      String?
-  driver          DriverProfile      @relation(fields: [driverId], references: [id])
-
+  driver          DriverProfile      @relation(fields: [driverId], references: [id], onDelete: Cascade)
   @@unique([driverId, documentType])
 }
 
