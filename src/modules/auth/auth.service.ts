@@ -250,9 +250,10 @@ export class AuthService {
 
   async login(dto: { email: string; password: string }) {
     // Find admin
+    const email = Helper.normalizeEmail(dto.email);
     const admin = await this.prisma.user.findFirst({
       where: {
-        email: dto.email,
+        email: email,
         role: {
           in: [UserRole.SUPER_ADMIN, UserRole.ADMIN],
         },
@@ -605,8 +606,8 @@ export class AuthService {
   }
 
   async loginCustomer(loginDto: LoginCustomerDto, sessionId?: string) {
-    const { email, phoneNumber } = loginDto;
-
+    const { phoneNumber } = loginDto;
+    const email = Helper.normalizeEmail(loginDto.email);
     const identifier = email || phoneNumber;
     const verificationMethod = email ? 'email' : 'phone';
 
@@ -2821,7 +2822,8 @@ async verifyResetOtp(dto: VerifyOtpDto): Promise<{
    * Vendor Login
    */
   async loginVendor(loginDto: LoginDto) {
-    const { email, password } = loginDto;
+    const { password } = loginDto;
+    const email = Helper.normalizeEmail(loginDto.email);
     this.logger.log(`Vendor login attempt: ${email}`);
 
     const vendor = await this.userRepository.findByEmail(email);
@@ -2893,7 +2895,10 @@ async verifyResetOtp(dto: VerifyOtpDto): Promise<{
   }
 
   async loginUser(loginDto: LoginDto, role: UserRole) {
-    const { email, password } = loginDto;
+    // const { email, password } = loginDto;
+
+  const email = Helper.normalizeEmail(loginDto.email);
+  const { password } = loginDto;
     this.logger.log(`user login attempt: ${email}`);
 
     const user = await this.userRepository.findByEmail(email);
