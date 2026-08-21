@@ -562,6 +562,7 @@ model DriverDocument {
   verifiedAt      DateTime?
   verifiedBy      String?
   driver          DriverProfile      @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
   @@unique([driverId, documentType])
 }
 
@@ -583,15 +584,15 @@ model OrderActivityLog {
 }
 
 model DriverAssignment {
-  id                  String    @id @default(uuid())
-  orderId             String    @unique
+  id                  String           @id @default(uuid())
+  orderId             String           @unique
   driverId            String?
-  order               Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  assignmentStatus    String?   @default("PENDING")
-  assignedAt          DateTime? @db.Timestamp(6)
+  order               Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignmentStatus    AssignmentStatus @default(PENDING)
+  assignedAt          DateTime?        @db.Timestamp(6)
   etaSeconds          Int?
-  pickupConfirmedAt   DateTime? @db.Timestamp(6)
-  deliveryConfirmedAt DateTime? @db.Timestamp(6)
+  pickupConfirmedAt   DateTime?        @db.Timestamp(6)
+  deliveryConfirmedAt DateTime?        @db.Timestamp(6)
 
   @@index([driverId])
 }
@@ -871,6 +872,7 @@ enum AssignmentStatus {
   REJECTED
   EXPIRED
   FAILED
+  DECLINED
 }
 
 enum MessageType {
@@ -917,33 +919,33 @@ enum CallStatus {
 }
 
 model Wallet {
-  id          String           @id @default(cuid())
-  userId      String           @unique
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  balance     Float            @default(0)
-  currency    String           @default("NGN")
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance      Float               @default(0)
+  currency     String              @default("NGN")
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
   transactions WalletTransaction[]
 }
 
 model WalletTransaction {
-  id          String      @id @default(cuid())
+  id          String       @id @default(cuid())
   walletId    String
-  wallet      Wallet      @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  amount      Float       // positive for credit, negative for debit
+  wallet      Wallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount      Float // positive for credit, negative for debit
   type        WalletTxType
-  reference   String      @unique
+  reference   String       @unique
   description String
-  status      TxStatus    @default(PENDING)
-  metadata    Json?       // store monnify reference, order id, etc.
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  status      TxStatus     @default(PENDING)
+  metadata    Json? // store monnify reference, order id, etc.
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 enum WalletTxType {
-  CREDIT   // deposit, refund
-  DEBIT    // payment, withdrawal
+  CREDIT // deposit, refund
+  DEBIT // payment, withdrawal
 }
 
 enum TxStatus {

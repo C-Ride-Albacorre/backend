@@ -666,6 +666,10 @@ export default class Helper {
     return typeof s === 'string' ? s.trim() : s;
   }
 
+  static normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
   static getEnvironment() {
     const env = process.env.NODE_ENV;
     if (!env || !['development', 'stage', 'production'].includes(env)) {
