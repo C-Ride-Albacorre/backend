@@ -15,7 +15,7 @@ import { StoreFilterDto } from './dto/store-filter.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { StoreStatus, UserRole } from '../../shared/enums';
 import Helper from '../../shared/utils/helpers';
-import { OnBoardingStatus, Prisma, Role, UserStatus } from '@prisma/client';
+import { OnBoardingStatus, PaymentStatus, Prisma, Role, UserStatus } from '@prisma/client';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { User } from '../user/entities/user.entity';
 import {
@@ -37,7 +37,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly userRepository: AbstractUserRepository,
     private readonly cloudinaryService: CloudinaryService,
-  ) {}
+  ) { }
 
   // /**
   //  * Create a new admin (only super_admin can do this)
@@ -977,35 +977,35 @@ export class AdminService {
   }
 
   async getDispatcherDetails(dispatcherId: string) {
-  const dispatcher = await this.prisma.user.findFirst({
-    where: {
-      id: dispatcherId,
-      role: Role.DISPATCHER,
-    },
-    include: {
-      driverProfile: {
-        include: {
-          documents: true,
+    const dispatcher = await this.prisma.user.findFirst({
+      where: {
+        id: dispatcherId,
+        role: Role.DISPATCHER,
+      },
+      include: {
+        driverProfile: {
+          include: {
+            documents: true,
+          },
+        },
+        orders: {
+          take: 10,
+          orderBy: {
+            createdAt: 'desc',
+          },
         },
       },
-      orders: {
-        take: 10,
-        orderBy: {
-          createdAt: 'desc',
-        },
-      },
-    },
-  });
+    });
 
-  if (!dispatcher) {
-    throw new NotFoundException('Dispatcher not found');
+    if (!dispatcher) {
+      throw new NotFoundException('Dispatcher not found');
+    }
+
+    return {
+      success: true,
+      data: dispatcher,
+    };
   }
-
-  return {
-    success: true,
-    data: dispatcher,
-  };
-}
 
   async approveDispatcher(
     adminId: string,
@@ -1084,92 +1084,213 @@ export class AdminService {
     throw new BadRequestException('Invalid action');
   }
 
-  
+
 
   async getAllCustomersbk(filterDto: CustomerFilterDto) {
-  const {
-    search,
-    status,
-    page = 1,
-    limit = 10,
-  } = filterDto;
+    const {
+      search,
+      status,
+      page = 1,
+      limit = 10,
+    } = filterDto;
 
-  const skip = (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
-  const where: Prisma.UserWhereInput = {
-    role: Role.CUSTOMER,
-  };
+    const where: Prisma.UserWhereInput = {
+      role: Role.CUSTOMER,
+    };
 
-  if (status) {
-    where.status = status;
+    if (status) {
+      where.status = status;
+    }
+
+    if (search) {
+      where.OR = [
+        {
+          firstName: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          lastName: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          email: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          phoneNumber: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
+
+    const [customers, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          customerLocations: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      }),
+
+      this.prisma.user.count({
+        where,
+      }),
+    ]);
+
+    const formatted = customers.map((customer) => ({
+      id: customer.id,
+      name: `${customer.firstName} ${customer.lastName}`,
+      email: customer.email,
+      phoneNumber: customer.phoneNumber,
+      status: customer.status,
+      createdAt: customer.createdAt,
+    }));
+
+    return {
+      success: true,
+      data: formatted,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
-  if (search) {
-    where.OR = [
-      {
-        firstName: {
-          contains: search,
-          mode: 'insensitive',
-        },
-      },
-      {
-        lastName: {
-          contains: search,
-          mode: 'insensitive',
-        },
-      },
-      {
-        email: {
-          contains: search,
-          mode: 'insensitive',
-        },
-      },
-      {
-        phoneNumber: {
-          contains: search,
-          mode: 'insensitive',
-        },
-      },
-    ];
-  }
+  async getAllCustomersbkk(filterDto: CustomerFilterDto) {
+    const {
+      search,
+      status,
+      page = 1,
+      limit = 10,
+    } = filterDto;
 
-  const [customers, total] = await Promise.all([
-    this.prisma.user.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: {
-        createdAt: 'desc',
-      },
-    }),
+    const skip = (page - 1) * limit;
 
-    this.prisma.user.count({
-      where,
-    }),
-  ]);
+    const baseWhere: Prisma.UserWhereInput = {
+      role: Role.CUSTOMER,
+    };
 
-  const formatted = customers.map((customer) => ({
-    id: customer.id,
-    name: `${customer.firstName} ${customer.lastName}`,
-    email: customer.email,
-    phoneNumber: customer.phoneNumber,
-    status: customer.status,
-    createdAt: customer.createdAt,
-  }));
+    const where: Prisma.UserWhereInput = {
+      ...baseWhere,
+    };
 
-  return {
-    success: true,
-    data: formatted,
-    meta: {
+    if (status) {
+      where.status = status;
+    }
+
+    if (search) {
+      where.OR = [
+        {
+          firstName: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          lastName: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          email: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          phoneNumber: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
+
+    const [
+      customers,
       total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    },
-  };
-}
+      active,
+      suspended,
+    ] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          customerLocations: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      }),
 
-async getAllCustomers(filterDto: CustomerFilterDto) {
+      this.prisma.user.count({
+        where,
+      }),
+
+      this.prisma.user.count({
+        where: {
+          ...baseWhere,
+          status: UserStatus.ACTIVE,
+        },
+      }),
+
+      this.prisma.user.count({
+        where: {
+          ...baseWhere,
+          status: UserStatus.SUSPENDED,
+        },
+      }),
+    ]);
+
+    const formatted = customers.map((customer) => ({
+      id: customer.id,
+      name: `${customer.firstName} ${customer.lastName}`,
+      email: customer.email,
+      phoneNumber: customer.phoneNumber,
+      location: customer.customerLocations?.[0]?.address || null,
+      status: customer.status,
+      createdAt: customer.createdAt,
+    }));
+
+    return {
+      success: true,
+
+      data: formatted,
+
+      summary: {
+        total,
+        active,
+        suspended,
+      },
+
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getAllCustomers(filterDto: CustomerFilterDto) {
   const {
     search,
     status,
@@ -1230,6 +1351,23 @@ async getAllCustomers(filterDto: CustomerFilterDto) {
       where,
       skip,
       take: limit,
+
+      include: {
+        customerLocations: true,
+
+        _count: {
+          select: {
+            orders: true,
+          },
+        },
+
+        orders: {
+          select: {
+            totalAmount: true,
+          },
+        },
+      },
+
       orderBy: {
         createdAt: 'desc',
       },
@@ -1259,8 +1397,18 @@ async getAllCustomers(filterDto: CustomerFilterDto) {
     name: `${customer.firstName} ${customer.lastName}`,
     email: customer.email,
     phoneNumber: customer.phoneNumber,
+
+    location: customer.customerLocations?.[0]?.address || null,
+
     status: customer.status,
     createdAt: customer.createdAt,
+
+    orders: customer._count.orders,
+
+    spending: customer.orders.reduce(
+      (total, order) => total + order.totalAmount,
+      0,
+    ),
   }));
 
   return {
@@ -1284,194 +1432,322 @@ async getAllCustomers(filterDto: CustomerFilterDto) {
 }
 
 
-async getCustomerDetails(customerId: string) {
+  async getCustomerDetailsbk(customerId: string) {
+    const customer = await this.prisma.user.findFirst({
+      where: {
+        id: customerId,
+        role: Role.CUSTOMER,
+      },
+      include: {
+        customerLocations: true,
+
+        orders: {
+          take: 10,
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+
+        wallet: true,
+      },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+
+    return {
+      success: true,
+      data: customer,
+    };
+  }
+
+  async getCustomerDetails(customerId: string) {
   const customer = await this.prisma.user.findFirst({
     where: {
       id: customerId,
       role: Role.CUSTOMER,
     },
-    include: {
-      customerLocations: true,
 
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      phoneNumber: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+
+      customerLocations: {
+        select: {
+          id: true,
+          address: true,
+          city: true,
+          state: true,
+          country: true,
+          latitude: true,
+          longitude: true,
+        },
+      },
+
+      // Latest 10 orders for display
       orders: {
+        where: {
+          paymentStatus: PaymentStatus.PAID,
+        },
         take: 10,
         orderBy: {
           createdAt: 'desc',
         },
+        select: {
+          id: true,
+          orderNumber: true,
+          orderCode: true,
+          orderType: true,
+          subtotal: true,
+          deliveryFee: true,
+          serviceFee: true,
+          taxAmount: true,
+          totalAmount: true,
+          paymentStatus: true,
+          paymentMethod: true,
+          orderStatus: true,
+          recipientName: true,
+          recipientPhone: true,
+          createdAt: true,
+          deliveredAt: true,
+          canceledAt: true,
+        },
       },
 
-      wallet: true,
+      wallet: {
+        select: {
+          id: true,
+          balance: true,
+          currency: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+
+      // Aggregate order statistics
+      _count: {
+        select: {
+          orders: true,
+        },
+      },
     },
   });
 
   if (!customer) {
     throw new NotFoundException('Customer not found');
   }
+
+  // Get total spending separately so we don't load every order
+  const spending = await this.prisma.order.aggregate({
+    where: {
+      userId: customerId,
+      paymentStatus: PaymentStatus.PAID,
+    },
+    _sum: {
+      totalAmount: true,
+    },
+  });
 
   return {
     success: true,
-    data: customer,
-  };
-}
 
-
-async deleteCustomer(customerId: string) {
-  const customer = await this.prisma.user.findFirst({
-    where: {
-      id: customerId,
-      role: Role.CUSTOMER,
-    },
-  });
-
-  if (!customer) {
-    throw new NotFoundException('Customer not found');
-  }
-
-  await this.prisma.user.delete({
-    where: {
-      id: customerId,
-    },
-  });
-
-  return {
-    success: true,
-    message: 'Customer deleted successfully',
-  };
-}
-
-async deleteCustomer2(customerId: string) {
-  const customer = await this.prisma.user.findFirst({
-    where: {
-      id: customerId,
-      role: Role.CUSTOMER,
-    },
-  });
-
-  if (!customer) {
-    throw new NotFoundException('Customer not found');
-  }
-
-  await this.prisma.user.update({
-    where: {
-      id: customerId,
-    },
     data: {
-      status: UserStatus.REJECTED,
-      isActive: false,
-    },
-  });
+      id: customer.id,
 
-  return {
-    success: true,
-    message: 'Customer deleted successfully',
+      name: `${customer.firstName} ${customer.lastName}`,
+
+      email: customer.email,
+
+      phoneNumber: customer.phoneNumber,
+
+      status: customer.status,
+
+      createdAt: customer.createdAt,
+
+      updatedAt: customer.updatedAt,
+
+      locations: customer.customerLocations,
+
+      orders: customer.orders,
+
+      orderCount: customer._count.orders,
+
+      spending: spending._sum.totalAmount ?? 0,
+
+      wallet: customer.wallet
+        ? {
+            balance: customer.wallet.balance,
+            currency: customer.wallet.currency,
+          }
+        : null,
+    },
   };
 }
 
-async updateCustomerStatus(
-  customerId: string,
-  statusDto: UpdateCustomerStatusDto,
-) {
-  const customer = await this.prisma.user.findFirst({
-    where: {
-      id: customerId,
-      role: Role.CUSTOMER,
-    },
-  });
 
-  if (!customer) {
-    throw new NotFoundException('Customer not found');
+  async deleteCustomer(customerId: string) {
+    const customer = await this.prisma.user.findFirst({
+      where: {
+        id: customerId,
+        role: Role.CUSTOMER,
+      },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+
+    await this.prisma.user.delete({
+      where: {
+        id: customerId,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Customer deleted successfully',
+    };
   }
 
-  const updatedCustomer = await this.prisma.user.update({
-    where: {
-      id: customerId,
-    },
-    data: {
-      status: statusDto.status,
-      isActive: statusDto.status === UserStatus.ACTIVE,
-    },
-  });
+  async deleteCustomer2(customerId: string) {
+    const customer = await this.prisma.user.findFirst({
+      where: {
+        id: customerId,
+        role: Role.CUSTOMER,
+      },
+    });
 
-  return {
-    success: true,
-    message: `Customer ${
-      statusDto.status === UserStatus.ACTIVE
-        ? 'activated'
-        : 'suspended'
-    } successfully`,
-    data: {
-      id: updatedCustomer.id,
-      name: `${updatedCustomer.firstName} ${updatedCustomer.lastName}`,
-      email: updatedCustomer.email,
-      phoneNumber: updatedCustomer.phoneNumber,
-      status: updatedCustomer.status,
-      isActive: updatedCustomer.isActive,
-    },
-  };
-}
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+
+    await this.prisma.user.update({
+      where: {
+        id: customerId,
+      },
+      data: {
+        status: UserStatus.REJECTED,
+        isActive: false,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Customer deleted successfully',
+    };
+  }
+
+  async updateCustomerStatus(
+    customerId: string,
+    statusDto: UpdateCustomerStatusDto,
+  ) {
+    const customer = await this.prisma.user.findFirst({
+      where: {
+        id: customerId,
+        role: Role.CUSTOMER,
+      },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+
+    const updatedCustomer = await this.prisma.user.update({
+      where: {
+        id: customerId,
+      },
+      data: {
+        status: statusDto.status,
+        isActive: statusDto.status === UserStatus.ACTIVE,
+      },
+    });
+
+    return {
+      success: true,
+      message: `Customer ${statusDto.status === UserStatus.ACTIVE
+          ? 'activated'
+          : 'suspended'
+        } successfully`,
+      data: {
+        id: updatedCustomer.id,
+        name: `${updatedCustomer.firstName} ${updatedCustomer.lastName}`,
+        email: updatedCustomer.email,
+        phoneNumber: updatedCustomer.phoneNumber,
+        status: updatedCustomer.status,
+        isActive: updatedCustomer.isActive,
+      },
+    };
+  }
 
   /**
    * Get dashboard statistics
    */
   async getDashboardStats() {
-  const [
-    totalUsers,
-    totalStores,
-    totalProducts,
-    vendorStats,
-    storeStats,
-  ] = await Promise.all([
-    this.prisma.user.count(),
-    this.prisma.store.count(),
-    this.prisma.product.count(),
-
-    this.prisma.user.groupBy({
-      by: ['status'],
-      where: {
-        role: UserRole.VENDOR,
-      },
-      _count: {
-        _all: true,
-      },
-    }),
-
-    this.prisma.store.groupBy({
-      by: ['status'],
-      _count: {
-        _all: true,
-      },
-    }),
-  ]);
-
-  const getVendorCount = (status: UserStatus) =>
-    vendorStats.find((item) => item.status === status)?._count._all ?? 0;
-
-  const getStoreCount = (status: StoreStatus) =>
-    storeStats.find((item) => item.status === status)?._count._all ?? 0;
-
-  return {
-    success: true,
-    data: {
+    const [
       totalUsers,
-      totalVendors: vendorStats.reduce(
-        (sum, item) => sum + item._count._all,
-        0,
-      ),
       totalStores,
       totalProducts,
+      vendorStats,
+      storeStats,
+    ] = await Promise.all([
+      this.prisma.user.count(),
+      this.prisma.store.count(),
+      this.prisma.product.count(),
 
-      pendingApprovals: {
-        vendors: getVendorCount(UserStatus.UNDER_REVIEW),
-        stores: getStoreCount(StoreStatus.INACTIVE),
-      },
+      this.prisma.user.groupBy({
+        by: ['status'],
+        where: {
+          role: UserRole.VENDOR,
+        },
+        _count: {
+          _all: true,
+        },
+      }),
 
-      approved: {
-        vendors: getVendorCount(UserStatus.APPROVED),
-        stores: getStoreCount(StoreStatus.ACTIVE), // Change if your approved status differs
+      this.prisma.store.groupBy({
+        by: ['status'],
+        _count: {
+          _all: true,
+        },
+      }),
+    ]);
+
+    const getVendorCount = (status: UserStatus) =>
+      vendorStats.find((item) => item.status === status)?._count._all ?? 0;
+
+    const getStoreCount = (status: StoreStatus) =>
+      storeStats.find((item) => item.status === status)?._count._all ?? 0;
+
+    return {
+      success: true,
+      data: {
+        totalUsers,
+        totalVendors: vendorStats.reduce(
+          (sum, item) => sum + item._count._all,
+          0,
+        ),
+        totalStores,
+        totalProducts,
+
+        pendingApprovals: {
+          vendors: getVendorCount(UserStatus.UNDER_REVIEW),
+          stores: getStoreCount(StoreStatus.INACTIVE),
+        },
+
+        approved: {
+          vendors: getVendorCount(UserStatus.APPROVED),
+          stores: getStoreCount(StoreStatus.ACTIVE), // Change if your approved status differs
+        },
       },
-    },
-  };
-}
+    };
+  }
 
   async getDashboardStatsbk() {
     const [
