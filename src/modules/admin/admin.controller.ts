@@ -52,6 +52,8 @@ import {
 } from '@nestjs/platform-express';
 import { DispatcherFilterDto } from './dto/dispatcher-filter.dto';
 import { ApproveDispatcherDto } from './dto/approve-dispatcher.dto';
+import { CustomerFilterDto } from './dto/customer.dto';
+import { UpdateCustomerStatusDto } from './dto/update-customer-status.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -163,6 +165,46 @@ export class AdminController {
   ) {
     return this.adminService.approveDispatcher(user.id, dispatcherId, dto);
   }
+
+  // =============CUSTOMER============= //
+@Get('customers')
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@HttpCode(HttpStatus.OK)
+@ApiOperation({ summary: 'Get all customers with filters' })
+async getAllCustomers(@Query() filterDto: CustomerFilterDto) {
+  return this.adminService.getAllCustomers(filterDto);
+}
+
+@Get('customers/:customerId')
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@HttpCode(HttpStatus.OK)
+@ApiOperation({ summary: 'Get customer details by ID' })
+async getCustomerDetails(@Param('customerId') customerId: string) {
+  return this.adminService.getCustomerDetails(customerId);
+}
+
+@Delete('customers/:customerId')
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@HttpCode(HttpStatus.OK)
+@ApiOperation({ summary: 'Delete customer by ID' })
+async deleteCustomer(@Param('customerId') customerId: string) {
+  return this.adminService.deleteCustomer(customerId);
+}
+
+@Patch('customers/:customerId/status')
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@HttpCode(HttpStatus.OK)
+@ApiOperation({ summary: 'Update customer status' })
+async updateCustomerStatus(
+  @Param('customerId') customerId: string,
+  @Body() statusDto: UpdateCustomerStatusDto,
+) {
+  return this.adminService.updateCustomerStatus(
+    customerId,
+    statusDto,
+  );
+}
+
 
   // ========== CATEGORY ENDPOINTS ==========
 
