@@ -15,7 +15,7 @@ import { StoreFilterDto } from './dto/store-filter.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { StoreStatus, UserRole } from '../../shared/enums';
 import Helper from '../../shared/utils/helpers';
-import { OnBoardingStatus, Role, UserStatus } from '@prisma/client';
+import { OnBoardingStatus, Prisma, Role, UserStatus } from '@prisma/client';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { User } from '../user/entities/user.entity';
 import {
@@ -26,6 +26,8 @@ import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { ApproveDispatcherDto } from './dto/approve-dispatcher.dto';
 import { DispatcherFilterDto } from './dto/dispatcher-filter.dto';
+import { CustomerFilterDto } from './dto/customer.dto';
+import { UpdateCustomerStatusDto } from './dto/update-customer-status.dto';
 
 @Injectable()
 export class AdminService {
@@ -1005,31 +1007,6 @@ export class AdminService {
   };
 }
 
-  async getDispatcherDetailsbk(dispatcherId: string) {
-    const dispatcher = await this.prisma.user.findFirst({
-      where: {
-        id: dispatcherId,
-        role: Role.DISPATCHER,
-      },
-      include: {
-        driverProfile: true,
-        orders: {
-          take: 10,
-          orderBy: { createdAt: 'desc' },
-        },
-      },
-    });
-
-    if (!dispatcher) {
-      throw new NotFoundException('Dispatcher not found');
-    }
-
-    return {
-      success: true,
-      data: dispatcher,
-    };
-  }
-
   async approveDispatcher(
     adminId: string,
     dispatcherId: string,
@@ -1106,6 +1083,332 @@ export class AdminService {
 
     throw new BadRequestException('Invalid action');
   }
+
+  
+
+  async getAllCustomersbk(filterDto: CustomerFilterDto) {
+  const {
+    search,
+    status,
+    page = 1,
+    limit = 10,
+  } = filterDto;
+
+  const skip = (page - 1) * limit;
+
+  const where: Prisma.UserWhereInput = {
+    role: Role.CUSTOMER,
+  };
+
+  if (status) {
+    where.status = status;
+  }
+
+  if (search) {
+    where.OR = [
+      {
+        firstName: {
+          contains: search,
+          mode: 'insensitive',
+        },
+      },
+      {
+        lastName: {
+          contains: search,
+          mode: 'insensitive',
+        },
+      },
+      {
+        email: {
+          contains: search,
+          mode: 'insensitive',
+        },
+      },
+      {
+        phoneNumber: {
+          contains: search,
+          mode: 'insensitive',
+        },
+      },
+    ];
+  }
+
+  const [customers, total] = await Promise.all([
+    this.prisma.user.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: {
+        createdAt: 'desc',
+      },
+    }),
+
+    this.prisma.user.count({
+      where,
+    }),
+  ]);
+
+  const formatted = customers.map((customer) => ({
+    id: customer.id,
+    name: `${customer.firstName} ${customer.lastName}`,
+    email: customer.email,
+    phoneNumber: customer.phoneNumber,
+    status: customer.status,
+    createdAt: customer.createdAt,
+  }));
+
+  return {
+    success: true,
+    data: formatted,
+    meta: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
+
+async getAllCustomers(filterDto: CustomerFilterDto) {
+  const {
+    search,
+    status,
+    page = 1,
+    limit = 10,
+  } = filterDto;
+
+  const skip = (page - 1) * limit;
+
+  const baseWhere: Prisma.UserWhereInput = {
+    role: Role.CUSTOMER,
+  };
+
+  const where: Prisma.UserWhereInput = {
+    ...baseWhere,
+  };
+
+  if (status) {
+    where.status = status;
+  }
+
+  if (search) {
+    where.OR = [
+      {
+        firstName: {
+          contains: search,
+          mode: 'insensitive',
+        },
+      },
+      {
+        lastName: {
+          contains: search,
+          mode: 'insensitive',
+        },
+      },
+      {
+        email: {
+          contains: search,
+          mode: 'insensitive',
+        },
+      },
+      {
+        phoneNumber: {
+          contains: search,
+          mode: 'insensitive',
+        },
+      },
+    ];
+  }
+
+  const [
+    customers,
+    total,
+    active,
+    suspended,
+  ] = await Promise.all([
+    this.prisma.user.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: {
+        createdAt: 'desc',
+      },
+    }),
+
+    this.prisma.user.count({
+      where,
+    }),
+
+    this.prisma.user.count({
+      where: {
+        ...baseWhere,
+        status: UserStatus.ACTIVE,
+      },
+    }),
+
+    this.prisma.user.count({
+      where: {
+        ...baseWhere,
+        status: UserStatus.SUSPENDED,
+      },
+    }),
+  ]);
+
+  const formatted = customers.map((customer) => ({
+    id: customer.id,
+    name: `${customer.firstName} ${customer.lastName}`,
+    email: customer.email,
+    phoneNumber: customer.phoneNumber,
+    status: customer.status,
+    createdAt: customer.createdAt,
+  }));
+
+  return {
+    success: true,
+
+    data: formatted,
+
+    summary: {
+      total,
+      active,
+      suspended,
+    },
+
+    meta: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
+
+
+async getCustomerDetails(customerId: string) {
+  const customer = await this.prisma.user.findFirst({
+    where: {
+      id: customerId,
+      role: Role.CUSTOMER,
+    },
+    include: {
+      customerLocations: true,
+
+      orders: {
+        take: 10,
+        orderBy: {
+          createdAt: 'desc',
+        },
+      },
+
+      wallet: true,
+    },
+  });
+
+  if (!customer) {
+    throw new NotFoundException('Customer not found');
+  }
+
+  return {
+    success: true,
+    data: customer,
+  };
+}
+
+
+async deleteCustomer(customerId: string) {
+  const customer = await this.prisma.user.findFirst({
+    where: {
+      id: customerId,
+      role: Role.CUSTOMER,
+    },
+  });
+
+  if (!customer) {
+    throw new NotFoundException('Customer not found');
+  }
+
+  await this.prisma.user.delete({
+    where: {
+      id: customerId,
+    },
+  });
+
+  return {
+    success: true,
+    message: 'Customer deleted successfully',
+  };
+}
+
+async deleteCustomer2(customerId: string) {
+  const customer = await this.prisma.user.findFirst({
+    where: {
+      id: customerId,
+      role: Role.CUSTOMER,
+    },
+  });
+
+  if (!customer) {
+    throw new NotFoundException('Customer not found');
+  }
+
+  await this.prisma.user.update({
+    where: {
+      id: customerId,
+    },
+    data: {
+      status: UserStatus.REJECTED,
+      isActive: false,
+    },
+  });
+
+  return {
+    success: true,
+    message: 'Customer deleted successfully',
+  };
+}
+
+async updateCustomerStatus(
+  customerId: string,
+  statusDto: UpdateCustomerStatusDto,
+) {
+  const customer = await this.prisma.user.findFirst({
+    where: {
+      id: customerId,
+      role: Role.CUSTOMER,
+    },
+  });
+
+  if (!customer) {
+    throw new NotFoundException('Customer not found');
+  }
+
+  const updatedCustomer = await this.prisma.user.update({
+    where: {
+      id: customerId,
+    },
+    data: {
+      status: statusDto.status,
+      isActive: statusDto.status === UserStatus.ACTIVE,
+    },
+  });
+
+  return {
+    success: true,
+    message: `Customer ${
+      statusDto.status === UserStatus.ACTIVE
+        ? 'activated'
+        : 'suspended'
+    } successfully`,
+    data: {
+      id: updatedCustomer.id,
+      name: `${updatedCustomer.firstName} ${updatedCustomer.lastName}`,
+      email: updatedCustomer.email,
+      phoneNumber: updatedCustomer.phoneNumber,
+      status: updatedCustomer.status,
+      isActive: updatedCustomer.isActive,
+    },
+  };
+}
 
   /**
    * Get dashboard statistics
