@@ -3,7 +3,7 @@ import { PrismaService } from '../../shared/services/prisma.service';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../modules/redis/redis.provider';
 import { DriverStatus } from '@prisma/client';
-import { Cron, CronExpression } from '@nestjs/schedule'; // optional
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { CurrentSessionResponseDto } from './dto/current-session-response.dto';
 import { DriverHoursResponseDto } from './dto/driver-hours-response.dto';
 
