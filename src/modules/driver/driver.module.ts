@@ -12,6 +12,7 @@ import { AuthModule } from '../auth/auth.module';
 import { DriverAssignmentProcessor } from './processor/driver-assignment.processor';
 import { RatingModule } from '../rating/rating.module';
 import { DriverNotificationProcessor } from './processor/driver-notification.processor';
+import { DriverOnlineHoursService } from './driver-online-hours-service';
 
 @Module({
   imports: [
@@ -27,7 +28,7 @@ import { DriverNotificationProcessor } from './processor/driver-notification.pro
     forwardRef(() => RatingModule),
   ],
   controllers: [DriverController],
-  providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverAssignmentProcessor, DriverNotificationProcessor],
-  exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway],
+  providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService, DriverAssignmentProcessor, DriverNotificationProcessor],
+  exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService],
 })
 export class DriverModule {}
