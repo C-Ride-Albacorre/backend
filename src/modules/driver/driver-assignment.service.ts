@@ -23,6 +23,7 @@ import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import { ConfigService } from '@nestjs/config';
 import { OrderService } from '../order/order.service';
 import Helper from '../../shared/utils/helpers';
+import { DriverOnlineHoursService } from './driver-online-hours-service';
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',
@@ -58,6 +59,7 @@ export class DriverAssignmentService {
     private configService: ConfigService,
     @Inject(forwardRef(() => OrderService))
     private readonly orderService: OrderService,
+    private readonly driverOnlineHoursService: DriverOnlineHoursService
   ) {
     this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');
     if (!this.googleMapsApiKey) {
@@ -385,6 +387,8 @@ export class DriverAssignmentService {
         if (driverClaim.count !== 1) {
           throw new Error(`Driver ${driverId} is no longer ONLINE`);
         }
+
+     
 
         // E. Activity log
         await tx.orderActivityLog.create({
@@ -1080,92 +1084,92 @@ export class DriverAssignmentService {
   }
 
   async handleNoDrivers(orderId: string, attempt: number = 1): Promise<void> {
-  this.logger.warn(`No drivers found for order ${orderId}, attempt ${attempt}`);
+    this.logger.warn(`No drivers found for order ${orderId}, attempt ${attempt}`);
 
-  // Semantics:
-  //   Initial search uses 5,000m (done before this handler is called)
-  //   Retry 1 → 10,000m
-  //   Retry 2 → 20,000m
-  //   Then cancel the order
-  const retryRadii = [10_000, 20_000];
-  const maxRetries = retryRadii.length;
+    // Semantics:
+    //   Initial search uses 5,000m (done before this handler is called)
+    //   Retry 1 → 10,000m
+    //   Retry 2 → 20,000m
+    //   Then cancel the order
+    const retryRadii = [10_000, 20_000];
+    const maxRetries = retryRadii.length;
 
-  if (attempt <= maxRetries) {
-    const radius = retryRadii[attempt - 1];
-    this.logger.log(`Retrying driver search for order ${orderId} with radius ${radius}m`);
-    await this.assignmentQueue.add(
-      'retry-driver-search',
-      { orderId, radius, attempt: attempt + 1 },
-      {
-        delay: 30_000,
-        jobId: `retry-${orderId}-${attempt}`,
-        removeOnComplete: true,
-      }
-    );
-    return;
-  }
-
-  // ----- All retries exhausted – cancel the order, but only if still ACCEPTED -----
-  this.logger.error(`No drivers found after ${maxRetries} retries for order ${orderId}, cancelling order`);
-
-  const cancelled = await this.prisma.$transaction(async (tx) => {
-    // 1. Claim order: ACCEPTED → CANCELLED (primary gate)
-    const orderUpdated = await tx.order.updateMany({
-      where: {
-        id: orderId,
-        orderStatus: OrderStatus.ORDER_ACCEPTED,
-      },
-      data: {
-        orderStatus: OrderStatus.CANCELLED,
-        statusHistory: {
-          push: {
-            status: OrderStatus.CANCELLED,
-            timestamp: new Date().toISOString(),
-            note: 'NO_DRIVERS_AFTER_RETRIES',
-            actorId: 'system', // ⚠️ See note below
-          },
-        },
-      },
-    });
-    if (orderUpdated.count !== 1) {
-      // Order already assigned or cancelled – nothing to do
-      return false;
+    if (attempt <= maxRetries) {
+      const radius = retryRadii[attempt - 1];
+      this.logger.log(`Retrying driver search for order ${orderId} with radius ${radius}m`);
+      await this.assignmentQueue.add(
+        'retry-driver-search',
+        { orderId, radius, attempt: attempt + 1 },
+        {
+          delay: 30_000,
+          jobId: `retry-${orderId}-${attempt}`,
+          removeOnComplete: true,
+        }
+      );
+      return;
     }
 
-    // 2. Mark assignment as FAILED (only if still PENDING)
-    await tx.driverAssignment.updateMany({
-      where: {
-        orderId,
-        assignmentStatus: AssignmentStatus.PENDING,
-      },
-      data: { assignmentStatus: AssignmentStatus.FAILED },
+    // ----- All retries exhausted – cancel the order, but only if still ACCEPTED -----
+    this.logger.error(`No drivers found after ${maxRetries} retries for order ${orderId}, cancelling order`);
+
+    const cancelled = await this.prisma.$transaction(async (tx) => {
+      // 1. Claim order: ACCEPTED → CANCELLED (primary gate)
+      const orderUpdated = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          orderStatus: OrderStatus.ORDER_ACCEPTED,
+        },
+        data: {
+          orderStatus: OrderStatus.CANCELLED,
+          statusHistory: {
+            push: {
+              status: OrderStatus.CANCELLED,
+              timestamp: new Date().toISOString(),
+              note: 'NO_DRIVERS_AFTER_RETRIES',
+              actorId: 'system', // ⚠️ See note below
+            },
+          },
+        },
+      });
+      if (orderUpdated.count !== 1) {
+        // Order already assigned or cancelled – nothing to do
+        return false;
+      }
+
+      // 2. Mark assignment as FAILED (only if still PENDING)
+      await tx.driverAssignment.updateMany({
+        where: {
+          orderId,
+          assignmentStatus: AssignmentStatus.PENDING,
+        },
+        data: { assignmentStatus: AssignmentStatus.FAILED },
+      });
+
+      // 3. Log activity
+      await tx.orderActivityLog.create({
+        data: {
+          orderId,
+          actorId: 'system', // ⚠️ See note below
+          actorRole: Role.DISPATCHER, // if your enum has it; otherwise use null or a valid role
+          action: 'NO_DRIVERS_AFTER_RETRIES',
+          toStatus: OrderStatus.CANCELLED,
+          reason: 'No available drivers after multiple attempts',
+        },
+      });
+
+      return true;
     });
 
-    // 3. Log activity
-    await tx.orderActivityLog.create({
-      data: {
-        orderId,
-        actorId: 'system', // ⚠️ See note below
-        actorRole: Role.DISPATCHER, // if your enum has it; otherwise use null or a valid role
-        action: 'NO_DRIVERS_AFTER_RETRIES',
-        toStatus: OrderStatus.CANCELLED,
-        reason: 'No available drivers after multiple attempts',
-      },
-    });
+    // Only send notifications if we actually cancelled the order
+    if (!cancelled) {
+      this.logger.debug(`Order ${orderId} was already assigned or cancelled; skipping cancellation notifications.`);
+      return;
+    }
 
-    return true;
-  });
-
-  // Only send notifications if we actually cancelled the order
-  if (!cancelled) {
-    this.logger.debug(`Order ${orderId} was already assigned or cancelled; skipping cancellation notifications.`);
-    return;
+    // Notify dispatcher and customer
+    await this.notifyDispatcherNoDrivers(orderId);
+    await this.sendOrderCancelled(orderId, 'No drivers available in your area');
   }
-
-  // Notify dispatcher and customer
-  await this.notifyDispatcherNoDrivers(orderId);
-  await this.sendOrderCancelled(orderId, 'No drivers available in your area');
-}
 
 
   async handleNoDriversOld(orderId: string, attempt: number = 1) {
@@ -1744,82 +1748,82 @@ export class DriverAssignmentService {
   }
 
   // driver-assignment.service.ts
-async tryNextDriver(
-  orderId: string,
-  radius: number = 10000,
-  attempt: number = 1,
-): Promise<void> {
-  // 1. Quick DB check – order must still be ACCEPTED
-  const order = await this.prisma.order.findUnique({
-    where: { id: orderId },
-    select: { orderStatus: true },
-  });
-  if (!order || order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
-    this.logger.debug(`tryNextDriver: Order ${orderId} no longer ACCEPTED; aborting.`);
-    return;
-  }
+  async tryNextDriver(
+    orderId: string,
+    radius: number = 10000,
+    attempt: number = 1,
+  ): Promise<void> {
+    // 1. Quick DB check – order must still be ACCEPTED
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { orderStatus: true },
+    });
+    if (!order || order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+      this.logger.debug(`tryNextDriver: Order ${orderId} no longer ACCEPTED; aborting.`);
+      return;
+    }
 
-  // 2. Fetch full order for location
-  const fullOrder = await this.prisma.order.findUnique({
-    where: { id: orderId },
-    include: { items: { include: { store: true } } },
-  });
-  if (!fullOrder) {
-    this.logger.warn(`tryNextDriver: Order ${orderId} not found`);
-    return;
-  }
+    // 2. Fetch full order for location
+    const fullOrder = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { store: true } } },
+    });
+    if (!fullOrder) {
+      this.logger.warn(`tryNextDriver: Order ${orderId} not found`);
+      return;
+    }
 
-  const pickupLocation = fullOrder.pickupLocation as any;
-  const store = fullOrder.items[0]?.store;
+    const pickupLocation = fullOrder.pickupLocation as any;
+    const store = fullOrder.items[0]?.store;
 
-  const vendorLat = store?.latitude ?? pickupLocation?.latitude ?? pickupLocation?.lat;
-  const vendorLng = store?.longitude ?? pickupLocation?.longitude ?? pickupLocation?.lng;
+    const vendorLat = store?.latitude ?? pickupLocation?.latitude ?? pickupLocation?.lat;
+    const vendorLng = store?.longitude ?? pickupLocation?.longitude ?? pickupLocation?.lng;
 
-  // 3. Validate coordinates
-  if (typeof vendorLat !== 'number' || typeof vendorLng !== 'number' || isNaN(vendorLat) || isNaN(vendorLng)) {
-    this.logger.error(
-      `Cannot find valid pickup coordinates for order ${orderId}. ` +
-      `Lat: ${vendorLat}, Lng: ${vendorLng}`
+    // 3. Validate coordinates
+    if (typeof vendorLat !== 'number' || typeof vendorLng !== 'number' || isNaN(vendorLat) || isNaN(vendorLng)) {
+      this.logger.error(
+        `Cannot find valid pickup coordinates for order ${orderId}. ` +
+        `Lat: ${vendorLat}, Lng: ${vendorLng}`
+      );
+      return;
+    }
+
+    const notifiedKey = `order:${orderId}:notified_drivers`;
+    const notifiedDrivers = await this.redis.smembers(notifiedKey);
+
+    const allNearby = await this.getNearbyDrivers(vendorLat, vendorLng, radius);
+    const remainingDrivers = allNearby.filter(d => !notifiedDrivers.includes(d.userId));
+
+    if (remainingDrivers.length === 0) {
+      await this.handleNoDrivers(orderId);
+      return;
+    }
+
+    const nextDriver = remainingDrivers[0];
+
+    // 4. FINAL DB CHECK – immediately before notifying
+    const latest = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { orderStatus: true },
+    });
+    if (!latest || latest.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+      this.logger.debug(`tryNextDriver: Order ${orderId} changed before notifying; aborting.`);
+      return;
+    }
+
+    // 5. Notify and schedule timeout
+    await this.notifyDriverViaWebSocket(
+      nextDriver.userId,
+      orderId,
+      { lat: vendorLat, lng: vendorLng },
+      0
     );
-    return;
+    await this.assignmentQueue.add(
+      'driver-response-timeout',
+      { orderId, driverId: nextDriver.userId },
+      { delay: 60000, jobId: `timeout-${orderId}-${nextDriver.userId}` }
+    );
   }
-
-  const notifiedKey = `order:${orderId}:notified_drivers`;
-  const notifiedDrivers = await this.redis.smembers(notifiedKey);
-
-  const allNearby = await this.getNearbyDrivers(vendorLat, vendorLng, radius);
-  const remainingDrivers = allNearby.filter(d => !notifiedDrivers.includes(d.userId));
-
-  if (remainingDrivers.length === 0) {
-    await this.handleNoDrivers(orderId);
-    return;
-  }
-
-  const nextDriver = remainingDrivers[0];
-
-  // 4. FINAL DB CHECK – immediately before notifying
-  const latest = await this.prisma.order.findUnique({
-    where: { id: orderId },
-    select: { orderStatus: true },
-  });
-  if (!latest || latest.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
-    this.logger.debug(`tryNextDriver: Order ${orderId} changed before notifying; aborting.`);
-    return;
-  }
-
-  // 5. Notify and schedule timeout
-  await this.notifyDriverViaWebSocket(
-    nextDriver.userId,
-    orderId,
-    { lat: vendorLat, lng: vendorLng },
-    0
-  );
-  await this.assignmentQueue.add(
-    'driver-response-timeout',
-    { orderId, driverId: nextDriver.userId },
-    { delay: 60000, jobId: `timeout-${orderId}-${nextDriver.userId}` }
-  );
-}
 
   async tryNextDriverOld(orderId: string) {
     const order = await this.prisma.order.findUnique({
@@ -1859,8 +1863,56 @@ async tryNextDriver(
     );
   }
 
-  // driver-assignment.service.ts
   async updateDriverStatus(driverId: string, status: DriverStatus): Promise<void> {
+  try {
+    // 1. Fetch current status to validate transition
+    const currentDriver = await this.prisma.driverProfile.findUnique({
+      where: { userId: driverId },
+      select: { status: true },
+    });
+    if (!currentDriver) {
+      throw new Error(`Driver ${driverId} not found`);
+    }
+
+    const oldStatus = currentDriver.status;
+
+    // 2. Business rule: prevent going offline while BUSY
+    if (status === DriverStatus.OFFLINE && oldStatus === DriverStatus.BUSY) {
+      this.logger.warn(`Driver ${driverId} attempted to go offline while BUSY`);
+      throw new BadRequestException('Cannot go offline while handling an order');
+    }
+
+    // 3. Update status in database
+    await this.prisma.driverProfile.update({
+      where: { userId: driverId },
+      data: { status },
+    });
+
+    // 4. ✅ Record hours for this status transition (if it involves OFFLINE)
+    await this.driverOnlineHoursService.onDriverStatusChange(
+      driverId,
+      oldStatus,
+      status,
+    );
+
+    // 5. Redis side‑effects (online set, cleanup)
+    if (status === DriverStatus.OFFLINE) {
+      await this.cleanupDriverPendingClaims(driverId);
+      // Optionally remove from online set
+      // await this.redis.srem('online_drivers', driverId);
+    } else if (status === DriverStatus.ONLINE) {
+      await this.redis.sadd('online_drivers', driverId);
+    }
+
+    this.logger.log(`Driver ${driverId} status updated to ${status}`);
+  } catch (error) {
+    this.logger.error(`Failed to update driver ${driverId} status`, error);
+    throw error;
+  }
+}
+
+  // driver-assignment.service.ts
+  async updateDriverStatusbk(driverId: string, status: DriverStatus): Promise<void> {
     try {
       // Validate status transition (optional but recommended)
       const currentDriver = await this.prisma.driverProfile.findUnique({

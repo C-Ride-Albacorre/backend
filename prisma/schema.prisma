@@ -664,6 +664,36 @@ model Rating {
   @@index([expiresAt])
 }
 
+// enum DriverStatus {
+//   OFFLINE
+//   ONLINE
+//   BUSY
+//   // other states ...
+// }
+
+model DriverDailyStats {
+  id            String   @id @default(cuid())
+  driverId      String
+  date          DateTime @map("date")   // date only (e.g. 2026-08-27)
+  activeSeconds Int      @default(0)    // total seconds in ONLINE or BUSY
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([driverId, date])
+  @@map("driver_daily_stats")
+}
+
+// Optional session audit (for debugging)
+model DriverSession {
+  id         String   @id @default(cuid())
+  driverId   String
+  startedAt  DateTime
+  endedAt    DateTime?
+  duration   Int?     // seconds (calculated on end)
+  createdAt  DateTime @default(now())
+  @@map("driver_sessions")
+}
+
 enum RatingStatus {
   PENDING
   SUBMITTED

@@ -45,6 +45,10 @@ import { UpdateDriverLocationDto } from './dto/update-driver-location.dto';
 import { DriverStatusResponseDto } from './dto/driver-status-response.dto';
 import { UpdateDriverStatusDto } from './dto/update-driver-status.dto';
 import { OrderService } from '../order/order.service';
+import { CurrentSessionResponseDto } from './dto/current-session-response.dto';
+import { DriverHoursResponseDto } from './dto/driver-hours-response.dto';
+import { GetDriverHoursQueryDto } from './dto/get-driver-hours-query.dto';
+import { DriverOnlineHoursService } from './driver-online-hours-service';
 
 @ApiTags('Dispatcher')
 @Controller('driver')
@@ -56,6 +60,7 @@ export class DriverController {
     private readonly driverOrderService: DriverOrderService,
     private readonly driverAssignmentService: DriverAssignmentService,
     private readonly orderService: OrderService,
+    private readonly hoursService: DriverOnlineHoursService,
   ) { }
 
   // ================================
@@ -616,6 +621,38 @@ async getDriverOrderHistory(
   ) {
     const driverId = user.id;
     return this.orderService.getDriverHistoryDetails(driverId, orderId);
+  }
+
+
+  
+  @Get(':driverId/hours')
+  @ApiOperation({ summary: 'Get total active hours for a driver on a specific date' })
+  @ApiParam({ name: 'driverId', description: 'Driver ID' })
+  @ApiQuery({ type: GetDriverHoursQueryDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns active hours for the given date',
+    type: DriverHoursResponseDto,
+  })
+  async getDriverHours(
+    @Param('driverId') driverId: string,
+    @Query() query: GetDriverHoursQueryDto,
+  ): Promise<DriverHoursResponseDto> {
+    return this.hoursService.getDriverHoursForDate(driverId, query.date);
+  }
+
+  @Get(':driverId/hours/current')
+  @ApiOperation({ summary: 'Get current active session duration for a driver' })
+  @ApiParam({ name: 'driverId', description: 'Driver ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns current session duration in seconds, or null if not active',
+    type: CurrentSessionResponseDto,
+  })
+  async getCurrentSession(
+    @Param('driverId') driverId: string,
+  ): Promise<CurrentSessionResponseDto> {
+    return this.hoursService.getCurrentSessionInfo(driverId);
   }
 
 
