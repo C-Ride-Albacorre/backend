@@ -3234,7 +3234,7 @@ export class OrderService {
     };
   }
 
-  async getTrackingDataWithOrderId(
+  async getTrackingDataWithOrderIdbk(
   orderId: string,
   reviewerId: string,
 ): Promise<TrackingDataResponseDto> {
@@ -3448,7 +3448,7 @@ export class OrderService {
 
   // order.service.ts (or a dedicated TrackingService)
 
-  async getTrackingDataWithOrderIdbk(orderId: string): Promise<TrackingDataResponseDto> {
+  async getTrackingDataWithOrderId(orderId: string): Promise<TrackingDataResponseDto> {
     // 1. Fetch order with store, items, driver assignment and driver profile
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
