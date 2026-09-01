@@ -11,11 +11,12 @@ import { ApiTags, ApiOperation, ApiResponse, ApiCreatedResponse, ApiBadRequestRe
 import { WaitlistService } from './waitlist.service';
 import { CreateVendorWaitlistDto } from './dto/create-vendor-waitlist.dto';
 import { CreateDriverWaitlistDto } from './dto/create-driver-waitlist.dto';
+import { CreateCustomerWaitlistDto } from './dto/create-customer-waitlist.dto';
 
 @ApiTags('Waitlist')
 @Controller('waitlist')
 export class WaitlistController {
-  constructor(private readonly waitlistService: WaitlistService) {}
+  constructor(private readonly waitlistService: WaitlistService) { }
 
   @Post('vendor')
   @HttpCode(HttpStatus.CREATED)
@@ -33,5 +34,15 @@ export class WaitlistController {
   @ApiBadRequestResponse({ description: 'Invalid input data.' })
   async addDriver(@Body() dto: CreateDriverWaitlistDto) {
     return this.waitlistService.addDriver(dto);
+  }
+
+
+  @Post('customer')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Add a customer to the waitlist' })
+  @ApiCreatedResponse({ description: 'Customer successfully added.' })
+  @ApiBadRequestResponse({ description: 'Invalid input.' })
+  async addCustomer(@Body() dto: CreateCustomerWaitlistDto) {
+    return this.waitlistService.addCustomer(dto);
   }
 }
