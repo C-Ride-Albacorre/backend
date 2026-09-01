@@ -23,6 +23,7 @@ import { ChatModule } from './modules/chat/chat.module';
 import { RatingModule } from './modules/rating/rating.module';
 import { CallModule } from './modules/call/call.module';
 import { WalletModule } from './modules/wallet/wallet.module';
+import { WaitlistModule } from './modules/waitlist/waitlist.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { WalletModule } from './modules/wallet/wallet.module';
     RatingModule,
     CallModule,
     WalletModule,
+    WaitlistModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],

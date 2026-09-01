@@ -3234,9 +3234,221 @@ export class OrderService {
     };
   }
 
+  async getTrackingDataWithOrderId(
+  orderId: string,
+  reviewerId: string,
+): Promise<TrackingDataResponseDto> {
+  // 1. Fetch order with store, items, driver assignment and rating
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      items: {
+        include: { store: true },
+      },
+      driverAssignment: true,
+    },
+  });
+
+  if (!order) {
+    throw new NotFoundException(`Order ${orderId} not found`);
+  }
+
+  // 2. Extract store info
+  const firstItem = order.items[0];
+  const store = firstItem?.store;
+
+  // 3. Build order object
+  const statusHistory = Array.isArray(order.statusHistory)
+    ? order.statusHistory
+    : [];
+
+  const orderData = {
+    id: order.id,
+    number: order.orderNumber,
+    code: order.orderCode,
+    status: order.orderStatus,
+    statusHistory,
+    totalAmount: order.totalAmount,
+    orderType: order.orderType,
+    createdAt: order.createdAt,
+    pickupLocation: order.pickupLocation,
+    dropoffLocation: order.dropoffLocation,
+  };
+
+  // 4. Build store object
+  const storeData = {
+    id: store?.id || '',
+    name: store?.storeName || '',
+    logo: store?.storeLogo || '',
+    address: store?.storeAddress || '',
+    lat: store?.latitude ?? null,
+    lng: store?.longitude ?? null,
+  };
+
+  // 5. Build driver & assignment data
+  let driverData = undefined;
+  let assignmentData = null;
+  let driverId: string | null = null;
+
+  const assignment = order.driverAssignment;
+
+  if (assignment?.driverId) {
+    driverId = assignment.driverId;
+
+    const [driverUser, driverProfile, rating] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: driverId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profilePicture: true,
+          phoneNumber: true,
+        },
+      }),
+
+      this.prisma.driverProfile.findUnique({
+        where: { userId: driverId },
+        select: {
+          status: true,
+          rating: true,
+          totalDeliveries: true,
+          vehicleMake: true,
+          vehicleModel: true,
+          licensePlate: true,
+        },
+      }),
+
+      // Get the rating/comment for this order from this reviewer
+      this.prisma.rating.findUnique({
+        where: {
+          orderId_reviewerId_reviewerRole: {
+            orderId,
+            reviewerId,
+            reviewerRole: 'CUSTOMER',
+          },
+        },
+        select: {
+          id: true,
+          rating: true,
+          comment: true,
+          status: true,
+          requestedAt: true,
+          submittedAt: true,
+          expiresAt: true,
+        },
+      }),
+    ]);
+
+    if (driverUser) {
+      driverData = {
+        id: driverUser.id,
+        fullName: `${driverUser.firstName} ${driverUser.lastName}`.trim(),
+        photo: driverUser.profilePicture,
+        phone: driverUser.phoneNumber,
+
+        rating: driverProfile?.rating ?? 0,
+        totalTrips: driverProfile?.totalDeliveries ?? 0,
+
+        vehicleMake: driverProfile?.vehicleMake ?? '',
+        vehicleModel: driverProfile?.vehicleModel ?? '',
+        vehiclePlate: driverProfile?.licensePlate ?? '',
+
+        status: driverProfile?.status ?? 'OFFLINE',
+
+        // Rating information for this order
+        review: {
+          id: rating?.id ?? null,
+          rating: rating?.rating ?? null,
+          comment: rating?.comment ?? null,
+          status: rating?.status ?? null,
+          requestedAt: rating?.requestedAt ?? null,
+          submittedAt: rating?.submittedAt ?? null,
+          expiresAt: rating?.expiresAt ?? null,
+        },
+      };
+    }
+
+    assignmentData = {
+      status: assignment.assignmentStatus,
+      assignedAt: assignment.assignedAt,
+      etaSeconds: assignment.etaSeconds ?? null,
+    };
+  }
+
+  // 6. Fetch real-time data from Redis
+  let leg: 'to-vendor' | 'to-customer' | null = null;
+  let etaSeconds: number | null = null;
+  let polyline: string | null = null;
+  let driverLocation: {
+    lat: number;
+    lng: number;
+    heading: number;
+    timestamp: number;
+  } | null = null;
+  let destination: { lat: number; lng: number } | null = null;
+
+  try {
+    const etaKey = `order:${orderId}:eta`;
+    const etaRaw = await this.redis.get(etaKey);
+
+    if (etaRaw) {
+      const parsed = JSON.parse(etaRaw);
+      leg = parsed.leg || null;
+      etaSeconds = parsed.etaSeconds || null;
+    }
+
+    const polylineKey = `order:${orderId}:polyline`;
+    polyline = (await this.redis.get(polylineKey)) || null;
+
+    const destKey = `order:${orderId}:destination`;
+    const destRaw = await this.redis.get(destKey);
+
+    if (destRaw) {
+      destination = JSON.parse(destRaw);
+    }
+
+    if (driverId) {
+      const locKey = `driver:${driverId}:loc`;
+      const locRaw = await this.redis.get(locKey);
+
+      if (locRaw) {
+        const parsed = JSON.parse(locRaw);
+
+        driverLocation = {
+          lat: parsed.lat,
+          lng: parsed.lng,
+          heading: parsed.heading || 0,
+          timestamp: parsed.timestamp || Date.now(),
+        };
+      }
+    }
+  } catch (error) {
+    this.logger.warn(
+      `Failed to fetch Redis data for order ${orderId}: ${error}`,
+    );
+  }
+
+  // 7. Assemble final response
+  return {
+    order: orderData,
+    store: storeData,
+    driver: driverData,
+    assignment: assignmentData,
+    tracking: {
+      leg,
+      etaSeconds: etaSeconds ?? assignment?.etaSeconds ?? null,
+      polyline,
+      driverLocation,
+      destination,
+    },
+  };
+}
+
 
   // order.service.ts (or a dedicated TrackingService)
-  async getTrackingDataWithOrderId(orderId: string): Promise<TrackingDataResponseDto> {
+
+  async getTrackingDataWithOrderIdbk(orderId: string): Promise<TrackingDataResponseDto> {
     // 1. Fetch order with store, items, driver assignment and driver profile
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
