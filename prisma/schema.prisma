@@ -739,6 +739,8 @@ enum DriverDocumentType {
 enum VehicleType {
   CAR
   EV
+  E_BIKE
+  MOTORCYCLE
 }
 
 enum Role {
@@ -1024,4 +1026,36 @@ model CustomerWaitlist {
   updatedAt     DateTime @updatedAt
 
   @@map("customer_waitlist")
+}
+
+model VehicleTypeConfig {
+  id                    String         @id @default(uuid())
+  name                  VehicleType    @default(CAR) // e.g., "eBike", "Motorbike", "THIS"
+  location              String         // e.g., "Lagos Island"
+  icon                  String?        // URL or icon identifier
+  deliveryRadiusKm      Float          // Max Radius
+  displayOrder          Int            @default(0)
+  isActive              Boolean        @default(true)
+  minDeliveryFee        Decimal        @db.Decimal(10, 2)
+  perKmRate             Decimal        @db.Decimal(10, 2)
+  deliveryCommissionPct Decimal        @db.Decimal(5, 2) // C-Ride share (e.g., 20.00 for 20%)
+  distanceBands         DistanceBand[]
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  // Ensure one configuration per vehicle type per location
+  @@unique([name, location])
+  @@index([location])
+  @@index([isActive])
+}
+
+model DistanceBand {
+  id                  String            @id @default(uuid())
+  vehicleTypeConfigId String
+  fromKm              Float
+  toKm                Float
+  flatFee             Decimal           @db.Decimal(10, 2)
+  vehicleTypeConfig   VehicleTypeConfig @relation(fields: [vehicleTypeConfigId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleTypeConfigId])
 }
