@@ -1,11 +1,18 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query, HttpStatus, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { VehicleTypesService } from './vehicle-types.service';
 import { CreateVehicleTypeConfigDto } from './dto/create-vehicle-type-config.dto';
 import { UpdateVehicleTypeConfigDto } from './dto/update-vehicle-type-config.dto';
+import { Roles } from '../../common/decorators/role.decorator';
+import { RolesGuard } from '../../common/guards/role.guard';
+import { UserRole } from '../../shared/enums';
+import { JwtAuthGuard } from '../../common/guards/auth.guard';
 
 @ApiTags('Vehicle Types & Pricing')
 @Controller('vehicle-types')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class VehicleTypesController {
   constructor(private readonly vehicleTypesService: VehicleTypesService) {}
 
