@@ -56,6 +56,22 @@ export class LocationService {
     };
   }
 
+  /**
+   * Returns all locations without pagination.
+   * @param activeOnly Optional boolean to fetch only active locations (useful for dropdowns)
+   */
+  async findAllUnpaginated(activeOnly: boolean = false) {
+    // If activeOnly is true, filter to return only active locations
+    const whereClause = activeOnly ? { isActive: true } : {};
+
+    return this.prisma.location.findMany({
+      where: whereClause,
+      orderBy: {
+        name: 'asc', // Alphabetical order is best practice for unpaginated lists
+      },
+    });
+  }
+
   // Endpoint for the dashboard stat cards (Total, Active, Inactive)
   async getStats() {
     const [total, active, inactive] = await Promise.all([

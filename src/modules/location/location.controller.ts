@@ -31,6 +31,16 @@ export class LocationController {
     return this.locationService.findAll(query);
   }
 
+   @Get('all')
+  @ApiOperation({ summary: 'Get all locations without pagination (e.g., for dropdowns)' })
+  @ApiQuery({ name: 'activeOnly', required: false, type: Boolean, description: 'Set to true to only return active locations' })
+  @ApiResponse({ status: 200, description: 'Returns a complete array of locations.' })
+  findAllUnpaginated(@Query('activeOnly') activeOnly?: string) {
+    // Convert the query string 'true'/'false' to a boolean
+    const isActiveOnly = activeOnly === 'true';
+    return this.locationService.findAllUnpaginated(isActiveOnly);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a specific location by ID' })
   @ApiResponse({ status: 200, description: 'Returns the location details.' })
