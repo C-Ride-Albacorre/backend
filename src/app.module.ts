@@ -25,6 +25,7 @@ import { CallModule } from './modules/call/call.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { WaitlistModule } from './modules/waitlist/waitlist.module';
 import { VehicleTypesModule } from './modules/vehicle-types/vehicle-types.module';
+import { LocationModule } from './modules/location/location.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { VehicleTypesModule } from './modules/vehicle-types/vehicle-types.module
     WalletModule,
     WaitlistModule,
     VehicleTypesModule,
+    LocationModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],
