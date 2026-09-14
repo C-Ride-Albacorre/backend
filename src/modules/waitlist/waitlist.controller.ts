@@ -25,6 +25,7 @@ import {
   ApiBadRequestResponse,
   ApiOkResponse,
   ApiParam,
+  ApiQuery,
   ApiNotFoundResponse,
   getSchemaPath,
 } from '@nestjs/swagger';
@@ -54,6 +55,9 @@ export class WaitlistController {
 
   @Get('vendor')
   @ApiOperation({ summary: 'Get all vendors on the waitlist (paginated)' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by vendor name, email, phone, or business name' })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10, description: 'Number of records per page' })
   @ApiOkResponse({
     description: 'Paginated list of vendors.',
     schema: {
@@ -88,6 +92,9 @@ export class WaitlistController {
   @Post('driver')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add a driver to the waitlist' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by driver name, email, or phone number' })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10, description: 'Number of records per page' })
   @ApiCreatedResponse({ description: 'Driver successfully added to waitlist.' })
   @ApiBadRequestResponse({ description: 'Invalid input data.' })
   async addDriver(@Body() dto: CreateDriverWaitlistDto) {
@@ -105,9 +112,12 @@ export class WaitlistController {
   }
 
 
-  
+
   @Get('customer')
   @ApiOperation({ summary: 'Get all customers on the waitlist (paginated)' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by customer name, email, or phone number' })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1, description: 'Page number' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10, description: 'Number of records per page' })
   @ApiOkResponse({
     description: 'Paginated list of customers.',
     schema: {
@@ -141,7 +151,7 @@ export class WaitlistController {
 
 
 
-   // ═══ STATS ═══
+  // ═══ STATS ═══
   @Get('stats')
   @ApiOperation({ summary: 'Get waitlist statistics (total vendors, drivers, and customers)' })
   @ApiOkResponse({ description: 'Waitlist statistics.', type: WaitlistStatsResponseDto })

@@ -1059,3 +1059,15 @@ model DistanceBand {
 
   @@index([vehicleTypeConfigId])
 }
+
+model Location {
+  id        String   @id @default(uuid())
+  name      String
+  city      String
+  state     String
+  country   String   @default("Nigeria")
+  zones     Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
