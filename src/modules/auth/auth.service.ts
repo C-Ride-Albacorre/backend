@@ -760,7 +760,7 @@ export class AuthService {
           }
           break;
 
-          case 'DISPATCHER':
+        case 'DISPATCHER':
           if (!user.isActive) {
             this.logger.warn(`Inactive user: ${user.id}`);
             throw new UnauthorizedException('Account is deactivated');
@@ -773,12 +773,20 @@ export class AuthService {
           }
           break;
 
+        // case 'ADMIN':
+        //   if (!user.isActive) {
+        //     this.logger.warn(`Inactive admin: ${user.id}`);
+        //     throw new UnauthorizedException('Admin account is deactivated');
+        //   }
+        //   // You can add extra checks for admin if needed
+        //   break;
+
         case 'ADMIN':
+        case 'SUPER_ADMIN':
           if (!user.isActive) {
             this.logger.warn(`Inactive admin: ${user.id}`);
             throw new UnauthorizedException('Admin account is deactivated');
           }
-          // You can add extra checks for admin if needed
           break;
 
         default:
@@ -1050,9 +1058,9 @@ export class AuthService {
     method?: 'email' | 'sms';
   }> {
     // const { email, phoneNumber } = dto;
-      const { identifier, client = 'web' } = dto;
+    const { identifier, client = 'web' } = dto;
 
-   // const identifier = email || phoneNumber;
+    // const identifier = email || phoneNumber;
 
     this.logger.log(`Password reset requested for: ${identifier}`);
 
@@ -1081,8 +1089,8 @@ export class AuthService {
       };
     }
 
-      // Determine flow: for dispatchers on mobile, use OTP-only
-   const isMobileFlow = dto.client === 'mobile' || user.role === UserRole.DISPATCHER;
+    // Determine flow: for dispatchers on mobile, use OTP-only
+    const isMobileFlow = dto.client === 'mobile' || user.role === UserRole.DISPATCHER;
 
     const resetToken = await this.generateResetToken(user);
     const method = identifier.includes('@') ? 'email' : 'sms';
@@ -1103,8 +1111,8 @@ export class AuthService {
       return {
         success: true,
         message: isMobileFlow
-        ? 'A verification code has been sent to your registered contact.'
-        : 'Password reset instructions sent successfully.',
+          ? 'A verification code has been sent to your registered contact.'
+          : 'Password reset instructions sent successfully.',
         //message: 'Password reset instructions sent successfully.',
         identifier: user.email || user.phoneNumber,
         method,
@@ -1301,65 +1309,65 @@ export class AuthService {
   }
 
 
-/**
- * Helper method to generate a secure reset token
- */
-private generateResetTokenForMobile(userId: string, identifier: string): string {
-  // Generate a cryptographically secure random token
-  const randomBytes = crypto.randomBytes(32);
-  const timestamp = Date.now().toString(36);
-  const hash = crypto
-    .createHash('sha256')
-    .update(`${userId}:${identifier}:${timestamp}`)
-    .digest('hex');
-  
-  return `${randomBytes.toString('hex').substring(0, 16)}${hash.substring(0, 16)}`;
-}
+  /**
+   * Helper method to generate a secure reset token
+   */
+  private generateResetTokenForMobile(userId: string, identifier: string): string {
+    // Generate a cryptographically secure random token
+    const randomBytes = crypto.randomBytes(32);
+    const timestamp = Date.now().toString(36);
+    const hash = crypto
+      .createHash('sha256')
+      .update(`${userId}:${identifier}:${timestamp}`)
+      .digest('hex');
 
-/**
- * Step 2: Reset password using the verification token
- */
-// src/auth/auth.service.ts
-
-// auth.service.ts
-async verifyResetOtp(dto: VerifyOtpDto): Promise<{
-  success: boolean;
-  message: string;
-  resetToken?: string;   // returned only on success
-}> {
-  const { identifier, otp } = dto;
-
-  // 1. Validate the OTP
-  const isValid = await this.verificationService.verifyOtp({
-    identifier,
-    otp,
-    purpose: VerificationPurpose.PASSWORD_RESET,
-  });
-
-  if (!isValid) {
-    return { success: false, message: 'Invalid or expired OTP.' };
+    return `${randomBytes.toString('hex').substring(0, 16)}${hash.substring(0, 16)}`;
   }
 
-  // 2. Retrieve the user and the stored reset token
-  const user = await this.userService.findUserByIdentifier(identifier);
-  if (!user) {
-    // Should not happen, but keep it secure
-    return { success: false, message: 'User not found.' };
-  }
+  /**
+   * Step 2: Reset password using the verification token
+   */
+  // src/auth/auth.service.ts
 
-  // 3. Generate a new reset token (or retrieve existing one if still valid)
-  //    For simplicity, generate a fresh token that will be used for the final reset.
-  const resetToken = await this.generateResetToken(user);
+  // auth.service.ts
+  async verifyResetOtp(dto: VerifyOtpDto): Promise<{
+    success: boolean;
+    message: string;
+    resetToken?: string;   // returned only on success
+  }> {
+    const { identifier, otp } = dto;
 
-  // (Optional) Invalidate the OTP so it cannot be reused
+    // 1. Validate the OTP
+    const isValid = await this.verificationService.verifyOtp({
+      identifier,
+      otp,
+      purpose: VerificationPurpose.PASSWORD_RESET,
+    });
+
+    if (!isValid) {
+      return { success: false, message: 'Invalid or expired OTP.' };
+    }
+
+    // 2. Retrieve the user and the stored reset token
+    const user = await this.userService.findUserByIdentifier(identifier);
+    if (!user) {
+      // Should not happen, but keep it secure
+      return { success: false, message: 'User not found.' };
+    }
+
+    // 3. Generate a new reset token (or retrieve existing one if still valid)
+    //    For simplicity, generate a fresh token that will be used for the final reset.
+    const resetToken = await this.generateResetToken(user);
+
+    // (Optional) Invalidate the OTP so it cannot be reused
     await this.verificationCacheService.revokeOtp(identifier);
 
-  return {
-    success: true,
-    message: 'OTP verified. You can now reset your password.',
-    resetToken,
-  };
-}
+    return {
+      success: true,
+      message: 'OTP verified. You can now reset your password.',
+      resetToken,
+    };
+  }
 
   /**
    * Verifies the OTP and returns a temporary reset token.
@@ -1383,7 +1391,7 @@ async verifyResetOtp(dto: VerifyOtpDto): Promise<{
 
     // 4. Store the token in Redis with the identifier and a 5‑minute TTL.
     //    We map token -> identifier so we can retrieve it later.
- 
+
     // 3. Store token -> identifier + userId in Redis with 5 min TTL.
     await this.redisService.safeSet(
       `reset:token:${resetToken}`,
@@ -2899,8 +2907,8 @@ async verifyResetOtp(dto: VerifyOtpDto): Promise<{
   async loginUser(loginDto: LoginDto, role: UserRole) {
     // const { email, password } = loginDto;
 
-  const email = Helper.normalizeEmail(loginDto.email);
-  const { password } = loginDto;
+    const email = Helper.normalizeEmail(loginDto.email);
+    const { password } = loginDto;
     this.logger.log(`user login attempt: ${email}`);
 
     const user = await this.userRepository.findByEmail(email);
