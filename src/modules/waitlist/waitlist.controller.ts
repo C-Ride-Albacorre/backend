@@ -37,6 +37,7 @@ import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { VendorWaitlistResponseDto } from './dto/vendor-waitlist-response.dto';
 import { CustomerWaitlistResponseDto } from './dto/customer-waitlist-response.dto';
 import { WaitlistStatsResponseDto } from './dto/waitlist-stats-response.dto';
+import { DriverWaitlistResponseDto } from './dto/driver-waitlist-response.dto';
 
 @ApiTags('Waitlist')
 @Controller('waitlist')
@@ -99,6 +100,40 @@ export class WaitlistController {
   @ApiBadRequestResponse({ description: 'Invalid input data.' })
   async addDriver(@Body() dto: CreateDriverWaitlistDto) {
     return this.waitlistService.addDriver(dto);
+  }
+
+
+  @Get('driver')
+  @ApiOperation({ summary: 'Get all drivers on the waitlist (paginated)' })
+  @ApiOkResponse({
+    description: 'Paginated list of drivers.',
+    schema: {
+      type: 'object',
+      properties: {
+        data: { type: 'array', items: { $ref: getSchemaPath(DriverWaitlistResponseDto) } },
+        meta: {
+          type: 'object',
+          properties: {
+            total: { type: 'number', example: 50 },
+            page: { type: 'number', example: 1 },
+            limit: { type: 'number', example: 10 },
+            totalPages: { type: 'number', example: 5 },
+          },
+        },
+      },
+    },
+  })
+  async getDrivers(@Query() pagination: PaginationQueryDto) {
+    return this.waitlistService.getDrivers(pagination);
+  }
+
+  @Get('driver/:id')
+  @ApiOperation({ summary: 'Get a driver by ID' })
+  @ApiParam({ name: 'id', description: 'Driver UUID' })
+  @ApiOkResponse({ description: 'Driver found.', type: DriverWaitlistResponseDto })
+  @ApiNotFoundResponse({ description: 'Driver not found.' })
+  async getDriverById(@Param('id', ParseUUIDPipe) id: string) {
+    return this.waitlistService.getDriverById(id);
   }
 
 
