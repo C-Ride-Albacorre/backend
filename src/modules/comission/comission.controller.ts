@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -22,6 +23,7 @@ import {
   ApiParam,
   ApiNoContentResponse,
   getSchemaPath,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { CommissionService } from './comission.service';
 import { CreateCommissionDto } from './dto/create-commission.dto';
@@ -30,7 +32,16 @@ import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { CommissionResponseDto } from './dto/commission-response.dto';
 import { CommissionStatsResponseDto } from './dto/commission-stats-response.dto';
 
-@ApiTags('Commission')
+import { Roles } from '../../common/decorators/role.decorator';
+import { RolesGuard } from '../../common/guards/role.guard';
+import { UserRole } from '../../shared/enums';
+import { JwtAuthGuard } from '../../common/guards/auth.guard';
+
+
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@ApiTags('Vendor Commission Rate & Service Charge')
 @Controller('commission')
 export class CommissionController {
   constructor(private readonly commissionService: CommissionService) {}
