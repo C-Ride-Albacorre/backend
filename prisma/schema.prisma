@@ -52,6 +52,7 @@ model User {
   subjectRatings        Rating[]           @relation("subjectRatings")
   reviewerRatings       Rating[]           @relation("reviewerRatings")
   wallet                Wallet?
+  commissions           Commission[]
 
   @@index([email])
   @@index([phoneNumber])
@@ -674,8 +675,8 @@ model Rating {
 model DriverDailyStats {
   id            String   @id @default(cuid())
   driverId      String
-  date          DateTime @map("date")   // date only (e.g. 2026-08-27)
-  activeSeconds Int      @default(0)    // total seconds in ONLINE or BUSY
+  date          DateTime @map("date") // date only (e.g. 2026-08-27)
+  activeSeconds Int      @default(0) // total seconds in ONLINE or BUSY
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -685,12 +686,13 @@ model DriverDailyStats {
 
 // Optional session audit (for debugging)
 model DriverSession {
-  id         String   @id @default(cuid())
-  driverId   String
-  startedAt  DateTime
-  endedAt    DateTime?
-  duration   Int?     // seconds (calculated on end)
-  createdAt  DateTime @default(now())
+  id        String    @id @default(cuid())
+  driverId  String
+  startedAt DateTime
+  endedAt   DateTime?
+  duration  Int? // seconds (calculated on end)
+  createdAt DateTime  @default(now())
+
   @@map("driver_sessions")
 }
 
@@ -1031,9 +1033,9 @@ model CustomerWaitlist {
 model VehicleTypeConfig {
   id                    String         @id @default(uuid())
   name                  VehicleType    @default(CAR) // e.g., "eBike", "Motorbike", "THIS"
-  location              String         // e.g., "Lagos Island"
-  icon                  String?        // URL or icon identifier
-  deliveryRadiusKm      Float          // Max Radius
+  location              String // e.g., "Lagos Island"
+  icon                  String? // URL or icon identifier
+  deliveryRadiusKm      Float // Max Radius
   displayOrder          Int            @default(0)
   isActive              Boolean        @default(true)
   minDeliveryFee        Decimal        @db.Decimal(10, 2)
@@ -1070,4 +1072,29 @@ model Location {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ═══ NEW: Commission model ═══
+model Commission {
+  id               String           @id @default(uuid())
+  vendorId         String
+  location         String // e.g. "Lagos Island", "Lagos Mainland"
+  city             String // e.g. "Lagos"
+  vendorCommission Float // percentage, e.g. 14.5
+  serviceCharge    Float // percentage, e.g. 5.0
+  status           CommissionStatus @default(ACTIVE)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  vendor User @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([city])
+  @@index([status])
+  @@map("commissions")
+}
+
+enum CommissionStatus {
+  ACTIVE
+  INACTIVE
 }
