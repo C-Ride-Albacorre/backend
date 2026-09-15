@@ -13,7 +13,9 @@ export class CommissionService {
   // ─── CREATE ───
   async create(dto: CreateCommissionDto) {
     // Verify vendor exists & has VENDOR role
-    const vendor = await this.prisma.user.findUnique({ where: { id: dto.vendorId } });
+    const vendor = await this.prisma.user.findUnique({
+      where: { id: dto.vendorId, role: 'VENDOR' },
+    });
     if (!vendor) throw new NotFoundException(`Vendor with ID ${dto.vendorId} not found`);
 
     return this.prisma.commission.create({
