@@ -26,6 +26,7 @@ import { WalletModule } from './modules/wallet/wallet.module';
 import { WaitlistModule } from './modules/waitlist/waitlist.module';
 import { VehicleTypesModule } from './modules/vehicle-types/vehicle-types.module';
 import { LocationModule } from './modules/location/location.module';
+import { CommissionModule } from './modules/comission/comission.module';
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { LocationModule } from './modules/location/location.module';
     WaitlistModule,
     VehicleTypesModule,
     LocationModule,
+    CommissionModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],

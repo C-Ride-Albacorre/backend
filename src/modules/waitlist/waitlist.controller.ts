@@ -16,6 +16,7 @@ import {
   Query,
   Param,
   ParseUUIDPipe,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -28,6 +29,7 @@ import {
   ApiQuery,
   ApiNotFoundResponse,
   getSchemaPath,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { WaitlistService } from './waitlist.service';
 import { CreateVendorWaitlistDto } from './dto/create-vendor-waitlist.dto';
@@ -38,9 +40,17 @@ import { VendorWaitlistResponseDto } from './dto/vendor-waitlist-response.dto';
 import { CustomerWaitlistResponseDto } from './dto/customer-waitlist-response.dto';
 import { WaitlistStatsResponseDto } from './dto/waitlist-stats-response.dto';
 import { DriverWaitlistResponseDto } from './dto/driver-waitlist-response.dto';
+import { Roles } from '../../common/decorators/role.decorator';
+import { RolesGuard } from '../../common/guards/role.guard';
+import { UserRole } from '../../shared/enums';
+import { JwtAuthGuard } from '../../common/guards/auth.guard';
+
 
 @ApiTags('Waitlist')
 @Controller('waitlist')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class WaitlistController {
   constructor(private readonly waitlistService: WaitlistService) { }
 

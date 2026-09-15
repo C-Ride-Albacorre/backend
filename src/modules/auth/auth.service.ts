@@ -115,6 +115,8 @@ export class AuthService {
   async createAdmin(superAdminId: string, dto: CreateAdminDto) {
     this.logger.log(`Super admin ${superAdminId} creating new admin`);
 
+    dto.email = Helper.normalizeEmail(dto.email);
+
     // Verify super admin exists and has correct role
     const superAdmin = await this.prisma.user.findUnique({
       where: { id: superAdminId },
