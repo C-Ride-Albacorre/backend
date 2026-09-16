@@ -1912,14 +1912,16 @@ export class CartService {
     dropoffAddress: string,
   ): Promise<DeliveryOptionDto[]> {
     // ── 1. Geocode the address up front ────────────────────────────────
+    this.logger.debug(`Geocoding dropoff address: ${dropoffAddress}`);
     const coordinates = await Helper.geocodeAddress(dropoffAddress);
 
     if (!coordinates) {
+      this.logger.error(`Failed to geocode address: ${dropoffAddress}`);
       throw new BadRequestException(
         'Invalid dropoff address. Unable to determine location.',
       );
     }
-
+   this.logger.debug(`Geocoded coordinates: ${coordinates.lat}, ${coordinates.lng}`);
     // ── 2. Load the cart + its (single) vendor store ───────────────────
     const cart = await this.prisma.cart.findUnique({
       where: { id: cartId },
@@ -1939,6 +1941,8 @@ export class CartService {
 
     const firstItem = cart.items[0];
     const store = firstItem?.product?.store ?? firstItem?.package?.store;
+    this.logger.debug(`Using store: ${store?.id}`);
+    
     if (!store) throw new BadRequestException('No vendor store found for cart');
     if (store.latitude == null || store.longitude == null) {
       throw new BadRequestException('Store coordinates are not configured');
@@ -1951,7 +1955,7 @@ export class CartService {
       coordinates.lat,
       coordinates.lng,
     );
-
+this.logger.debug(`Calculated distance: ${distanceKm.toFixed(2)} km`);
     const configs = await this.prisma.vehicleTypeConfig.findMany({
       where: {
         isActive: true,
@@ -1960,6 +1964,7 @@ export class CartService {
       include: { distanceBands: true },
       orderBy: { displayOrder: 'asc' },
     });
+    this.logger.debug(`Found eligible vehicle configs: ${configs.length}`);
 
     return configs.map((c) => ({
       id: c.id,
