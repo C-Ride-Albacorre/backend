@@ -10,14 +10,28 @@ import {
 import { AddToCartDto, CartItemDto, CartSummaryDto } from './dto/cart.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import Helper from 'src/shared/utils/helpers';
-import { CartStatus, Prisma } from '@prisma/client';
+import { CartStatus, CommissionStatus, Prisma } from '@prisma/client';
 import { JsonValue } from '@prisma/client/runtime/library';
+
+
+export interface DeliveryOptionDto {
+  id: string;              // VehicleTypeConfig.id  → pass back as dto.deliveryOptionId
+  name: string;
+  deliveryType: string;
+  icon: string | null;
+  location: string;
+  distanceKm: number;
+  deliveryFee: number;
+  deliveryRadiusKm: number;
+}
 
 @Injectable()
 export class CartService {
   private readonly logger = new Logger(CartService.name);
 
   constructor(private prisma: PrismaService) { }
+
+
 
   /**
    * Get or create user's cart
@@ -1299,9 +1313,18 @@ export class CartService {
 
     const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
     const [deliveryFee, serviceFee, taxAmount] = await Promise.all([
-      this.calculateDeliveryFee(cartId, prisma),
-      this.calculateServiceFee(subtotal, prisma),
+      this.calculateDeliveryFee(cartId, null, undefined, prisma),
+      // 
+      this.calculateServiceFee(
+        subtotal,
+        cart.items[0]?.product?.store?.userId ||
+        cart.items[0]?.package?.store?.userId ||
+        '',
+        prisma,
+      ),
+
       this.calculateTax(subtotal, prisma),
+
     ]);
 
     return {
@@ -1316,6 +1339,126 @@ export class CartService {
       totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
     };
   }
+
+  //  async getCartSummary(
+  //   cartId: string,
+  //   userId?: string,
+  //   sessionId?: string,
+  //   tx?: Prisma.TransactionClient,
+  // ): Promise<CartSummaryDto> {
+  //   if (!userId && !sessionId) {
+  //     throw new UnauthorizedException(
+  //       'Either userId or sessionId must be provided',
+  //     );
+  //   }
+
+  //   const prisma = tx ?? this.prisma;
+
+  //   const cart = await prisma.cart.findFirst({
+  //     where: {
+  //       id: cartId,
+  //       status: CartStatus.ACTIVE,
+  //       ...(userId ? { userId } : { sessionId }),
+  //     },
+  //     include: {
+  //       items: {
+  //         include: {
+  //           product: {
+  //             include: {
+  //               store: {
+  //                 include: {
+  //                   category: true, // Include category to get categoryId
+  //                 },
+  //               },
+  //               productImages: {
+  //                 orderBy: [{ isPrimary: 'desc' }, { displayOrder: 'asc' }],
+  //                 take: 1,
+  //               },
+  //             },
+  //           },
+  //           variant: true, // <-- Add this
+  //           package: {
+  //             include: {
+  //               store: {
+  //                 include: {
+  //                   category: true, // Include category for package store
+  //                 },
+  //               },
+  //             },
+  //           },
+  //         },
+  //       },
+  //     },
+  //   });
+
+  //   if (!cart) {
+  //     throw new NotFoundException('Active cart not found or access denied');
+  //   }
+
+  //   const items: CartItemDto[] = cart.items.map((item) => {
+  //     if (item.itemType === 'PRODUCT') {
+  //       const product = item.product;
+  //       return {
+  //         id: item.id,
+  //         itemType: item.itemType,
+  //         productId: item.productId,
+  //         variantId: item.variantId,
+  //         variantType: item.variant?.variantName ?? null,
+  //         packageId: null,
+  //         name: product?.productName || 'Product (deleted)',
+  //         imageUrl: product?.productImages?.[0]?.imageUrl || null,
+  //         quantity: item.quantity,
+  //         unitPrice: item.unitPrice,
+  //         totalPrice: item.totalPrice,
+  //         selectedAddons: Array.isArray(item.selectedAddons)
+  //           ? item.selectedAddons
+  //           : [],
+  //         storeId: product?.storeId || null,
+  //         storeName: product?.store?.storeName || null,
+  //         categoryId: product?.store?.categoryId || null, // Added categoryId
+  //         specialInstructions: item.specialInstructions,
+  //       };
+  //     }
+  //     const pkg = item.package;
+  //     return {
+  //       id: item.id,
+  //       itemType: item.itemType,
+  //       productId: null,
+  //       variantId: null,
+  //       packageId: item.packageId,
+  //       name: pkg?.name || 'Package (deleted)',
+  //       imageUrl: null,
+  //       quantity: item.quantity,
+  //       unitPrice: item.unitPrice,
+  //       totalPrice: item.totalPrice,
+  //       selectedAddons: [],
+  //       storeId: pkg?.storeId || null,
+  //       storeName: pkg?.store?.storeName || null,
+  //       categoryId: pkg?.store?.categoryId || null, // Added categoryId
+  //       specialInstructions: item.specialInstructions,
+  //     };
+  //   });
+
+  //   const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
+  //   const [deliveryFee, serviceFee, taxAmount] = await Promise.all([
+  //     this.calculateDeliveryFee(cartId, prisma),
+  //     this.calculateServiceFee(subtotal, prisma),
+  //     this.calculateTax(subtotal, prisma),
+  //   ]);
+
+  //   return {
+  //     cartId: cart.id,
+  //     storeId: cart.items[0]?.product?.storeId || cart.items[0]?.package?.storeId || null,
+  //     storeName: cart.items[0]?.product?.store?.storeName || cart.items[0]?.package?.store?.storeName || null,
+  //     items,
+  //     subtotal,
+  //     deliveryFee,
+  //     serviceFee,
+  //     taxAmount,
+  //     totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
+  //   };
+  // }
+
 
   // async getCartSummaryWithoutStoreIdandCategoryId(
   //   cartId: string,
@@ -1504,60 +1647,158 @@ export class CartService {
     return package_item;
   }
 
-  // private async updateCartTotal(cartId: string) {
-  //   const items = await this.prisma.cartItem.findMany({
-  //     where: { cartId },
-  //   });
+  async getDeliveryOptions(
+    cartId: string,
+    dropoffAddress: string,
+  ): Promise<DeliveryOptionDto[]> {
+    // ── 1. Geocode the address up front ────────────────────────────────
+    const coordinates = await Helper.geocodeAddress(dropoffAddress);
 
-  //   const total = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    if (!coordinates) {
+      throw new BadRequestException(
+        'Invalid dropoff address. Unable to determine location.',
+      );
+    }
 
-  //   await this.prisma.cart.update({
-  //     where: { id: cartId },
-  //     data: { totalAmount: total },
-  //   });
-  // }
+    // ── 2. Load the cart + its (single) vendor store ───────────────────
+    const cart = await this.prisma.cart.findUnique({
+      where: { id: cartId },
+      include: {
+        items: {
+          include: {
+            product: { include: { store: true } },
+            package: { include: { store: true } },
+          },
+        },
+      },
+    });
+    if (!cart) throw new NotFoundException('Cart not found');
+    if (cart.items.length === 0) {
+      throw new BadRequestException('Cart is empty');
+    }
 
-  // private async calculateDeliveryFee(cartId: string): Promise<number> {
-  //   // In production, calculate based on distance and delivery option
-  //   return 500; // Mock delivery fee
-  // }
+    const firstItem = cart.items[0];
+    const store = firstItem?.product?.store ?? firstItem?.package?.store;
+    if (!store) throw new BadRequestException('No vendor store found for cart');
+    if (store.latitude == null || store.longitude == null) {
+      throw new BadRequestException('Store coordinates are not configured');
+    }
 
-  // private async calculateServiceFee(subtotal: number): Promise<number> {
-  //   const serviceFees = await this.prisma.serviceFee.findMany({
-  //     where: { isActive: true },
-  //   });
+    // ── 3. Distance + eligible vehicle configs ─────────────────────────
+    const distanceKm = Helper.haversineDistanceKm(
+      store.latitude,
+      store.longitude,
+      coordinates.lat,
+      coordinates.lng,
+    );
 
-  //   let totalServiceFee = 0;
-  //   for (const fee of serviceFees) {
-  //     if (fee.feeType === 'PERCENTAGE') {
-  //       totalServiceFee += (subtotal * fee.value) / 100;
-  //     } else {
-  //       totalServiceFee += fee.value;
-  //     }
-  //   }
+    const configs = await this.prisma.vehicleTypeConfig.findMany({
+      where: {
+        isActive: true,
+        deliveryRadiusKm: { gte: distanceKm },
+      },
+      include: { distanceBands: true },
+      orderBy: { displayOrder: 'asc' },
+    });
 
-  //   return totalServiceFee;
-  // }
+    return configs.map((c) => ({
+      id: c.id,
+      name: c.name,
+      deliveryType: c.deliveryType,
+      icon: c.icon,
+      location: c.location,
+      distanceKm: Number(distanceKm.toFixed(2)),
+      deliveryFee: Helper.computeFeeFromConfig(
+        {
+          ...c,
+          minDeliveryFee: Number(c.minDeliveryFee),
+          perKmRate: Number(c.perKmRate),
+          distanceBands: c.distanceBands.map((band) => ({
+            minDistanceKm: band.fromKm,
+            maxDistanceKm: band.toKm,
+            fee: Number(band.flatFee),
+          })),
+        },
+        distanceKm,
+      ), deliveryRadiusKm: c.deliveryRadiusKm,
+    }));
+  }
 
-  // private async calculateTax(subtotal: number): Promise<number> {
-  //   const taxes = await this.prisma.taxSetting.findMany({
-  //     where: { isActive: true },
-  //   });
+  async getDeliveryOptionsbk(
+    cartId: string,
+    dropoffLocation: { latitude: number; longitude: number },
+    tx?: Prisma.TransactionClient,
+  ): Promise<DeliveryOptionDto[]> {
+    const prisma = tx ?? this.prisma;
 
-  //   let totalTax = 0;
-  //   for (const tax of taxes) {
-  //     totalTax += (subtotal * tax.rate) / 100;
-  //   }
+    const cart = await prisma.cart.findUnique({
+      where: { id: cartId },
+      include: {
+        items: {
+          include: {
+            product: { include: { store: true } },
+            package: { include: { store: true } },
+          },
+        },
+      },
+    });
+    if (!cart) throw new NotFoundException('Cart not found');
 
-  //   return totalTax;
-  // }
+    const firstItem = cart.items[0];
+    const store = firstItem?.product?.store ?? firstItem?.package?.store;
+    if (!store) throw new BadRequestException('No vendor store found for cart');
+    if (store.latitude == null || store.longitude == null) {
+      throw new BadRequestException('Store coordinates are not configured');
+    }
+
+    const distanceKm = Helper.haversineDistanceKm(
+      store.latitude,
+      store.longitude,
+      dropoffLocation.latitude,
+      dropoffLocation.longitude,
+    );
+
+    const configs = await prisma.vehicleTypeConfig.findMany({
+      where: {
+        isActive: true,
+        deliveryRadiusKm: { gte: distanceKm },
+      },
+      include: { distanceBands: true },
+      orderBy: { displayOrder: 'asc' },
+    });
+
+    return configs.map((c) => ({
+      id: c.id,
+      name: c.name,
+      deliveryType: c.deliveryType,
+      icon: c.icon,
+      location: c.location,
+      distanceKm: Number(distanceKm.toFixed(2)),
+      deliveryFee: Helper.computeFeeFromConfig(
+        {
+          ...c,
+          minDeliveryFee: Number(c.minDeliveryFee),
+          perKmRate: Number(c.perKmRate),
+          distanceBands: c.distanceBands.map((band) => ({
+            minDistanceKm: band.fromKm,
+            maxDistanceKm: band.toKm,
+            fee: Number(band.flatFee),
+          })),
+        },
+        distanceKm,
+      ),
+      deliveryRadiusKm: c.deliveryRadiusKm,
+    }));
+  }
+
+
 
   /**
    * Calculate delivery fee.
    * In production, compute based on distance and delivery option.
    * Accepts optional transaction client for use inside transactions.
    */
-  async calculateDeliveryFee(
+  async calculateDeliveryFeeOld(
     cartId: string,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
@@ -1569,12 +1810,120 @@ export class CartService {
     return 500;
   }
 
+  async calculateDeliveryFee(
+    cartId: string,
+    dropoffLocation: { latitude: number; longitude: number } | null,
+    selectedVehicleTypeConfigId?: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    const prisma = tx ?? this.prisma;
+
+    const cart = await prisma.cart.findUnique({
+      where: { id: cartId },
+      include: {
+        items: {
+          include: {
+            product: { include: { store: true } },
+            package: { include: { store: true } },
+          },
+        },
+      },
+    });
+    if (!cart) throw new NotFoundException('Cart not found');
+
+    const firstItem = cart.items[0];
+    const store = firstItem?.product?.store ?? firstItem?.package?.store;
+    if (!store) throw new BadRequestException('No vendor store found for cart');
+
+    // Delivery fee cannot be computed until the customer provides a dropoff
+    if (!dropoffLocation || store.latitude == null || store.longitude == null) {
+      return 0;
+    }
+
+    const distanceKm = Helper.haversineDistanceKm(
+      store.latitude,
+      store.longitude,
+      dropoffLocation.latitude,
+      dropoffLocation.longitude,
+    );
+
+    // ── (a) Customer already chose a vehicle type → price with it ────────────
+    if (selectedVehicleTypeConfigId) {
+      const config = await prisma.vehicleTypeConfig.findUnique({
+        where: { id: selectedVehicleTypeConfigId },
+        include: { distanceBands: true },
+      });
+
+      if (!config || !config.isActive) {
+        throw new BadRequestException('Selected delivery option is unavailable');
+      }
+      if (distanceKm > config.deliveryRadiusKm) {
+        throw new BadRequestException(
+          `Selected vehicle cannot deliver ${distanceKm.toFixed(1)} km`,
+        );
+      }
+      return Helper.computeFeeFromConfig(
+        {
+          minDeliveryFee: Number(config.minDeliveryFee),
+          perKmRate: Number(config.perKmRate),
+          distanceBands: config.distanceBands.map((band) => ({
+            minDistanceKm: band.fromKm,
+            maxDistanceKm: band.toKm,
+            fee: Number(band.flatFee),
+          })),
+        },
+        distanceKm,
+      );
+    }
+
+    // ── (b) No selection → find cheapest option within radius ────────────────
+    const inRange = await prisma.vehicleTypeConfig.findMany({
+      where: {
+        isActive: true,
+        deliveryRadiusKm: { gte: distanceKm },
+      },
+      include: { distanceBands: true },
+    });
+
+    if (inRange.length > 0) {
+      return Math.min(
+        ...inRange.map((c) =>
+          Helper.computeFeeFromConfig(
+            {
+              ...c,
+              minDeliveryFee: Number(c.minDeliveryFee),
+              perKmRate: Number(c.perKmRate),
+              distanceBands: c.distanceBands.map((band) => ({
+                minDistanceKm: band.fromKm,
+                maxDistanceKm: band.toKm,
+                fee: Number(band.flatFee),
+              })),
+            },
+            distanceKm,
+          ),
+        ),
+      );
+    }
+
+    // ── (c) No option covers the distance → fall back to minimumDeliveryFee ──
+    // Take the smallest minDeliveryFee across all active configs.
+    const fallback = await prisma.vehicleTypeConfig.findFirst({
+      where: { isActive: true },
+      orderBy: { minDeliveryFee: 'asc' },
+      select: { minDeliveryFee: true },
+    });
+
+    return fallback ? Number(fallback.minDeliveryFee) : 0;
+  }
+
+
+
   /**
    * Calculate service fee based on active service fee configurations.
    * Supports both percentage and fixed fees.
    * Accepts optional transaction client for use inside transactions.
    */
-  async calculateServiceFee(
+  async calculateServiceFeeOld(
     subtotal: number,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
@@ -1596,11 +1945,34 @@ export class CartService {
     return totalServiceFee;
   }
 
+  async calculateServiceFee(
+    subtotal: number,
+    vendorId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    const prisma = tx ?? this.prisma;
+
+    const commission = await prisma.commission.findFirst({
+      where: {
+        vendorId,
+        status: CommissionStatus.ACTIVE,
+      },
+    });
+
+    if (!commission) {
+      // No commission configured → no service fee.
+      // You may prefer to throw BadRequestException instead.
+      return 0;
+    }
+
+    return (subtotal * commission.serviceCharge) / 100;
+  }
+
   /**
    * Calculate tax based on active tax settings.
    * Accepts optional transaction client for use inside transactions.
    */
-  async calculateTax(
+  async calculateTaxOld(
     subtotal: number,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
@@ -1616,5 +1988,21 @@ export class CartService {
     }
 
     return totalTax;
+  }
+
+  async calculateTax(
+    subtotal: number,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    const prisma = tx ?? this.prisma;
+
+    const settings = await prisma.globalSetting.findUnique({
+      where: { id: 'global' },
+      select: { taxRate: true },
+    });
+
+    if (!settings || !settings.taxRate) return 0;
+
+    return (subtotal * settings.taxRate) / 100;
   }
 }

@@ -917,20 +917,60 @@ static isStoreOpen(operatingHours: any[]): boolean {
   }
   
 
-//   static async verifyPostGISEarthDistance(): Promise<boolean> {
-//   try {
-//     const result = await prisma.$queryRaw<{ exists: boolean }[]>`
-//       SELECT EXISTS (
-//         SELECT 1 
-//         FROM pg_extension 
-//         WHERE extname = 'earthdistance'
-//       ) as exists
-//     `;
-    
-//     return result[0]?.exists || false;
-//   } catch (error) {
-//     console.error('Failed to verify PostGIS earthdistance extension:', error);
-//     return false;
-//   }
-// }
+/**
+ * Great-circle distance between two points in km (Haversine).
+ * Good enough for city-scale delivery radius checks.
+ * Swap for Google Distance Matrix if you need road distance.
+ */
+static haversineDistanceKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Resolve the fee for a single VehicleTypeConfig given a distance.
+ * Prefers distance band pricing when a matching band exists,
+ * otherwise falls back to minDeliveryFee + perKmRate * distanceKm.
+ */
+static computeFeeFromConfig(
+  config: {
+    minDeliveryFee: number;
+    perKmRate: number;
+    distanceBands?: Array<{
+      minDistanceKm: number;
+      maxDistanceKm: number;
+      fee?: number | null;
+      ratePerKm?: number | null;
+    }>;
+  },
+  distanceKm: number,
+): number {
+  const band = config.distanceBands?.find(
+    (b) => distanceKm >= b.minDistanceKm && distanceKm <= b.maxDistanceKm,
+  );
+
+  if (band) {
+    if (band.fee != null) {
+      return band.fee;
+    }
+
+    if (band.ratePerKm != null) {
+      return band.ratePerKm * distanceKm;
+    }
+  }
+
+  return config.minDeliveryFee + config.perKmRate * distanceKm;
+}
+
 }
