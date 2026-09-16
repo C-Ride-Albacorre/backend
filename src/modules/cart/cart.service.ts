@@ -10,14 +10,28 @@ import {
 import { AddToCartDto, CartItemDto, CartSummaryDto } from './dto/cart.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import Helper from 'src/shared/utils/helpers';
-import { CartStatus, Prisma } from '@prisma/client';
+import { CartStatus, CommissionStatus, Prisma } from '@prisma/client';
 import { JsonValue } from '@prisma/client/runtime/library';
+
+
+export interface DeliveryOptionDto {
+  id: string;              // VehicleTypeConfig.id  → pass back as dto.deliveryOptionId
+  name: string;
+  deliveryType: string;
+  icon: string | null;
+  location: string;
+  distanceKm: number;
+  deliveryFee: number;
+  deliveryRadiusKm: number;
+}
 
 @Injectable()
 export class CartService {
   private readonly logger = new Logger(CartService.name);
 
   constructor(private prisma: PrismaService) { }
+
+
 
   /**
    * Get or create user's cart
@@ -577,7 +591,7 @@ export class CartService {
   /**
    * Merge guest ACTIVE cart into user ACTIVE cart – fully atomic.
    */
-  async mergeGuestCart(userId: string, sessionId: string): Promise<CartSummaryDto> {
+   async mergeGuestCart(userId: string, sessionId: string): Promise<CartSummaryDto> {
     if (!userId || !sessionId) {
       throw new BadRequestException('Both userId and sessionId are required');
     }
@@ -633,7 +647,14 @@ export class CartService {
 
         if (!guestCart || guestCart.items.length === 0) {
           // Nothing to merge – return current user cart summary
-          return this.getCartSummary(userCart.id, userId, undefined, tx);
+          return this.getCartSummary(
+            userCart.id,
+            userId,
+            undefined,
+            undefined,
+            undefined,
+            tx,
+          );
         }
 
         // ------------------------------------------------------
@@ -690,7 +711,7 @@ export class CartService {
         // ------------------------------------------------------
         // 6. Return merged cart summary
         // ------------------------------------------------------
-        return this.getCartSummary(userCart.id, userId, undefined, tx);
+        return this.getCartSummary(userCart.id, userId, undefined, undefined, undefined, tx);
       },
       {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
@@ -698,234 +719,356 @@ export class CartService {
       },
     );
   }
+  
+  // async mergeGuestCartOld(userId: string, sessionId: string): Promise<CartSummaryDto> {
+  //   if (!userId || !sessionId) {
+  //     throw new BadRequestException('Both userId and sessionId are required');
+  //   }
 
-  async mergeGuestCartVeryRecent(
-    userId: string,
-    sessionId: string,
-  ): Promise<CartSummaryDto> {
-    if (!userId || !sessionId) {
-      throw new BadRequestException('Both userId and sessionId are required');
-    }
+  //   return this.prisma.$transaction(
+  //     async (tx) => {
+  //       // ------------------------------------------------------
+  //       // 1. Get or create an ACTIVE cart for the user
+  //       // ------------------------------------------------------
+  //       let userCart = await tx.cart.findFirst({
+  //         where: { userId, status: CartStatus.ACTIVE },
+  //         include: { items: true },
+  //       });
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        // 1. Get or create user's active cart
-        let userCart = await tx.cart.findFirst({
-          where: { userId, status: CartStatus.ACTIVE },
-          include: { items: true },
-        });
-        if (!userCart) {
-          userCart = await tx.cart.create({
-            data: { userId, status: CartStatus.ACTIVE },
-            include: { items: true },
-          });
-          this.logger.log(
-            `Created new active cart ${userCart.id} for user ${userId}`,
-          );
-        }
+  //       if (!userCart) {
+  //         // Check if a cart exists for this user (any status)
+  //         const existingCart = await tx.cart.findFirst({
+  //           where: { userId },
+  //           include: { items: true },
+  //         });
 
-        // 2. Get guest's active cart (ignore non-active)
-        const guestCart = await tx.cart.findFirst({
-          where: { sessionId, status: CartStatus.ACTIVE },
-          include: { items: true },
-        });
+  //         if (existingCart) {
+  //           // Reuse the existing cart: set status to ACTIVE and clear old items
+  //           userCart = await tx.cart.update({
+  //             where: { id: existingCart.id },
+  //             data: {
+  //               status: CartStatus.ACTIVE,
+  //               items: { deleteMany: {} },   // remove all previous items
+  //               checkedOutAt: null,           // reset checkout timestamp
+  //             },
+  //             include: { items: true },
+  //           });
+  //           this.logger.log(
+  //             `Reused existing cart ${userCart.id} for user ${userId} (was ${existingCart.status})`,
+  //           );
+  //         } else {
+  //           // No cart at all – create a fresh one
+  //           userCart = await tx.cart.create({
+  //             data: { userId, status: CartStatus.ACTIVE },
+  //             include: { items: true },
+  //           });
+  //           this.logger.log(`Created new active cart ${userCart.id} for user ${userId}`);
+  //         }
+  //       }
 
-        if (!guestCart || guestCart.items.length === 0) {
-          return this.getCartSummary(userCart.id, userId, undefined, tx);
-        }
+  //       // ------------------------------------------------------
+  //       // 2. Get guest's ACTIVE cart
+  //       // ------------------------------------------------------
+  //       const guestCart = await tx.cart.findFirst({
+  //         where: { sessionId, status: CartStatus.ACTIVE },
+  //         include: { items: true },
+  //       });
 
-        // 3. Merge items
-        for (const guestItem of guestCart.items) {
-          const existingItem = await tx.cartItem.findFirst({
-            where: {
-              cartId: userCart.id,
-              itemType: guestItem.itemType,
-              productId: guestItem.productId,
-              packageId: guestItem.packageId,
-              variantId: guestItem.variantId,
-              selectedAddons: {
-                equals: this.normalizeAddons(guestItem.selectedAddons as any),
-              },
-            },
-          });
+  //       if (!guestCart || guestCart.items.length === 0) {
+  //         // Nothing to merge – return current user cart summary
+  //         return this.getCartSummary(userCart.id, userId, undefined, tx);
+  //       }
 
-          if (existingItem) {
-            await tx.cartItem.update({
-              where: { id: existingItem.id },
-              data: {
-                quantity: existingItem.quantity + guestItem.quantity,
-                totalPrice:
-                  Number(existingItem.totalPrice) +
-                  Number(guestItem.totalPrice),
-              },
-            });
-          } else {
-            await tx.cartItem.create({
-              data: {
-                cartId: userCart.id,
-                itemType: guestItem.itemType,
-                productId: guestItem.productId,
-                packageId: guestItem.packageId,
-                variantId: guestItem.variantId,
-                quantity: guestItem.quantity,
-                unitPrice: guestItem.unitPrice,
-                totalPrice: guestItem.totalPrice,
-                selectedAddons: guestItem.selectedAddons,
-                specialInstructions: guestItem.specialInstructions,
-              },
-            });
-          }
-        }
+  //       // ------------------------------------------------------
+  //       // 3. Merge guest items into user cart
+  //       // ------------------------------------------------------
+  //       for (const guestItem of guestCart.items) {
+  //         const existingItem = await tx.cartItem.findFirst({
+  //           where: {
+  //             cartId: userCart.id,
+  //             itemType: guestItem.itemType,
+  //             productId: guestItem.productId,
+  //             packageId: guestItem.packageId,
+  //             variantId: guestItem.variantId,
+  //             selectedAddons: { equals: this.normalizeAddons(guestItem.selectedAddons) },
+  //           },
+  //         });
 
-        // 4. Delete guest cart
-        await tx.cart.delete({ where: { id: guestCart.id } });
-        // 5. Update total
-        await this.updateCartTotal(userCart.id, tx);
-        // 6. Return summary
-        return this.getCartSummary(userCart.id, userId, undefined, tx);
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        timeout: 10000,
-      },
-    );
-  }
+  //         if (existingItem) {
+  //           await tx.cartItem.update({
+  //             where: { id: existingItem.id },
+  //             data: {
+  //               quantity: existingItem.quantity + guestItem.quantity,
+  //               totalPrice: Number(existingItem.totalPrice) + Number(guestItem.totalPrice),
+  //             },
+  //           });
+  //         } else {
+  //           await tx.cartItem.create({
+  //             data: {
+  //               cartId: userCart.id,
+  //               itemType: guestItem.itemType,
+  //               productId: guestItem.productId,
+  //               packageId: guestItem.packageId,
+  //               variantId: guestItem.variantId,
+  //               quantity: guestItem.quantity,
+  //               unitPrice: guestItem.unitPrice,
+  //               totalPrice: guestItem.totalPrice,
+  //               selectedAddons: guestItem.selectedAddons,
+  //               specialInstructions: guestItem.specialInstructions,
+  //             },
+  //           });
+  //         }
+  //       }
 
-  async mergeGuestCartMostRecent(
-    userId: string,
-    sessionId: string,
-  ): Promise<CartSummaryDto> {
-    // Validate inputs
-    if (!userId || !sessionId) {
-      throw new BadRequestException('Both userId and sessionId are required');
-    }
+  //       // ------------------------------------------------------
+  //       // 4. Delete the guest cart
+  //       // ------------------------------------------------------
+  //       await tx.cart.delete({ where: { id: guestCart.id } });
 
-    // Use serializable transaction for maximum consistency
-    return this.prisma.$transaction(
-      async (tx) => {
-        // 1. Get or create user's ACTIVE cart (inside transaction)
-        let userCart = await tx.cart.findFirst({
-          where: {
-            userId,
-            status: CartStatus.ACTIVE,
-          },
-          include: { items: true },
-        });
+  //       // ------------------------------------------------------
+  //       // 5. Update user cart total
+  //       // ------------------------------------------------------
+  //       await this.updateCartTotal(userCart.id, tx);
 
-        if (!userCart) {
-          userCart = await tx.cart.create({
-            data: {
-              userId,
-              status: CartStatus.ACTIVE,
-            },
-            include: { items: true },
-          });
-          this.logger.log(
-            `Created new active cart ${userCart.id} for user ${userId}`,
-          );
-        }
+  //       // ------------------------------------------------------
+  //       // 6. Return merged cart summary
+  //       // ------------------------------------------------------
+  //       return this.getCartSummary(userCart.id, userId, undefined, tx);
+  //     },
+  //     {
+  //       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+  //       timeout: 10000,
+  //     },
+  //   );
+  // }
 
-        // 2. Get guest's ACTIVE cart (ignore non-active or non-existent)
-        const guestCart = await tx.cart.findFirst({
-          where: {
-            sessionId,
-            status: CartStatus.ACTIVE,
-          },
-          include: { items: true },
-        });
+  // async mergeGuestCartVeryRecent(
+  //   userId: string,
+  //   sessionId: string,
+  // ): Promise<CartSummaryDto> {
+  //   if (!userId || !sessionId) {
+  //     throw new BadRequestException('Both userId and sessionId are required');
+  //   }
 
-        // 3. If no guest cart or guest cart is empty, return current user cart summary
-        if (!guestCart || guestCart.items.length === 0) {
-          this.logger.log(
-            `No active guest cart to merge for session ${sessionId}`,
-          );
-          // Use transaction client to get summary
-          return this.getCartSummary(userCart.id, userId, undefined, tx);
-        }
+  //   return this.prisma.$transaction(
+  //     async (tx) => {
+  //       // 1. Get or create user's active cart
+  //       let userCart = await tx.cart.findFirst({
+  //         where: { userId, status: CartStatus.ACTIVE },
+  //         include: { items: true },
+  //       });
+  //       if (!userCart) {
+  //         userCart = await tx.cart.create({
+  //           data: { userId, status: CartStatus.ACTIVE },
+  //           include: { items: true },
+  //         });
+  //         this.logger.log(
+  //           `Created new active cart ${userCart.id} for user ${userId}`,
+  //         );
+  //       }
 
-        this.logger.log(
-          `Merging ${guestCart.items.length} items from guest cart ${guestCart.id} to user cart ${userCart.id}`,
-        );
+  //       // 2. Get guest's active cart (ignore non-active)
+  //       const guestCart = await tx.cart.findFirst({
+  //         where: { sessionId, status: CartStatus.ACTIVE },
+  //         include: { items: true },
+  //       });
 
-        // 4. Merge each guest item into user cart
-        for (const guestItem of guestCart.items) {
-          // Find existing identical item in user cart (same type, IDs, and addons)
-          const existingItem = await tx.cartItem.findFirst({
-            where: {
-              cartId: userCart.id,
-              itemType: guestItem.itemType,
-              productId: guestItem.productId,
-              packageId: guestItem.packageId,
-              variantId: guestItem.variantId,
-              // Compare addons in a stable way
-              selectedAddons: {
-                equals: this.normalizeAddons(guestItem.selectedAddons as any),
-              },
-            },
-          });
+  //       if (!guestCart || guestCart.items.length === 0) {
+  //         return this.getCartSummary(userCart.id, userId, undefined, tx);
+  //       }
 
-          if (existingItem) {
-            // Combine quantities and total price
-            await tx.cartItem.update({
-              where: { id: existingItem.id },
-              data: {
-                quantity: existingItem.quantity + guestItem.quantity,
-                totalPrice:
-                  Number(existingItem.totalPrice) +
-                  Number(guestItem.totalPrice),
-              },
-            });
-            this.logger.debug(
-              `Updated existing item ${existingItem.id}, new quantity = ${existingItem.quantity + guestItem.quantity}`,
-            );
-          } else {
-            // Create new cart item
-            await tx.cartItem.create({
-              data: {
-                cartId: userCart.id,
-                itemType: guestItem.itemType,
-                productId: guestItem.productId,
-                packageId: guestItem.packageId,
-                variantId: guestItem.variantId,
-                quantity: guestItem.quantity,
-                unitPrice: guestItem.unitPrice,
-                totalPrice: guestItem.totalPrice,
-                selectedAddons: guestItem.selectedAddons,
-                specialInstructions: guestItem.specialInstructions,
-              },
-            });
-            this.logger.debug(`Created new cart item from guest item`);
-          }
-        }
+  //       // 3. Merge items
+  //       for (const guestItem of guestCart.items) {
+  //         const existingItem = await tx.cartItem.findFirst({
+  //           where: {
+  //             cartId: userCart.id,
+  //             itemType: guestItem.itemType,
+  //             productId: guestItem.productId,
+  //             packageId: guestItem.packageId,
+  //             variantId: guestItem.variantId,
+  //             selectedAddons: {
+  //               equals: this.normalizeAddons(guestItem.selectedAddons as any),
+  //             },
+  //           },
+  //         });
 
-        // 5. Delete the guest cart (only after successful merge)
-        await tx.cart.delete({
-          where: { id: guestCart.id },
-        });
-        this.logger.log(`Deleted guest cart ${guestCart.id}`);
+  //         if (existingItem) {
+  //           await tx.cartItem.update({
+  //             where: { id: existingItem.id },
+  //             data: {
+  //               quantity: existingItem.quantity + guestItem.quantity,
+  //               totalPrice:
+  //                 Number(existingItem.totalPrice) +
+  //                 Number(guestItem.totalPrice),
+  //             },
+  //           });
+  //         } else {
+  //           await tx.cartItem.create({
+  //             data: {
+  //               cartId: userCart.id,
+  //               itemType: guestItem.itemType,
+  //               productId: guestItem.productId,
+  //               packageId: guestItem.packageId,
+  //               variantId: guestItem.variantId,
+  //               quantity: guestItem.quantity,
+  //               unitPrice: guestItem.unitPrice,
+  //               totalPrice: guestItem.totalPrice,
+  //               selectedAddons: guestItem.selectedAddons,
+  //               specialInstructions: guestItem.specialInstructions,
+  //             },
+  //           });
+  //         }
+  //       }
 
-        // 6. Recalculate user cart total inside transaction
-        await this.updateCartTotal(userCart.id);
+  //       // 4. Delete guest cart
+  //       await tx.cart.delete({ where: { id: guestCart.id } });
+  //       // 5. Update total
+  //       await this.updateCartTotal(userCart.id, tx);
+  //       // 6. Return summary
+  //       return this.getCartSummary(userCart.id, userId, undefined, tx);
+  //     },
+  //     {
+  //       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+  //       timeout: 10000,
+  //     },
+  //   );
+  // }
 
-        // 7. Return the merged cart summary using the same transaction
-        const summary = await this.getCartSummary(
-          userCart.id,
-          userId,
-          undefined,
-          tx,
-        );
-        this.logger.log(
-          `Cart merge completed. User cart ${userCart.id} now has ${summary.items.length} items, total ${summary.totalAmount}`,
-        );
-        return summary;
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        maxWait: 5000, // maximum time to wait for transaction to start
-        timeout: 10000, // maximum time the transaction can run
-      },
-    );
-  }
+  // async mergeGuestCartMostRecent(
+  //   userId: string,
+  //   sessionId: string,
+  // ): Promise<CartSummaryDto> {
+  //   // Validate inputs
+  //   if (!userId || !sessionId) {
+  //     throw new BadRequestException('Both userId and sessionId are required');
+  //   }
+
+  //   // Use serializable transaction for maximum consistency
+  //   return this.prisma.$transaction(
+  //     async (tx) => {
+  //       // 1. Get or create user's ACTIVE cart (inside transaction)
+  //       let userCart = await tx.cart.findFirst({
+  //         where: {
+  //           userId,
+  //           status: CartStatus.ACTIVE,
+  //         },
+  //         include: { items: true },
+  //       });
+
+  //       if (!userCart) {
+  //         userCart = await tx.cart.create({
+  //           data: {
+  //             userId,
+  //             status: CartStatus.ACTIVE,
+  //           },
+  //           include: { items: true },
+  //         });
+  //         this.logger.log(
+  //           `Created new active cart ${userCart.id} for user ${userId}`,
+  //         );
+  //       }
+
+  //       // 2. Get guest's ACTIVE cart (ignore non-active or non-existent)
+  //       const guestCart = await tx.cart.findFirst({
+  //         where: {
+  //           sessionId,
+  //           status: CartStatus.ACTIVE,
+  //         },
+  //         include: { items: true },
+  //       });
+
+  //       // 3. If no guest cart or guest cart is empty, return current user cart summary
+  //       if (!guestCart || guestCart.items.length === 0) {
+  //         this.logger.log(
+  //           `No active guest cart to merge for session ${sessionId}`,
+  //         );
+  //         // Use transaction client to get summary
+  //         return this.getCartSummary(userCart.id, userId, undefined, tx);
+  //       }
+
+  //       this.logger.log(
+  //         `Merging ${guestCart.items.length} items from guest cart ${guestCart.id} to user cart ${userCart.id}`,
+  //       );
+
+  //       // 4. Merge each guest item into user cart
+  //       for (const guestItem of guestCart.items) {
+  //         // Find existing identical item in user cart (same type, IDs, and addons)
+  //         const existingItem = await tx.cartItem.findFirst({
+  //           where: {
+  //             cartId: userCart.id,
+  //             itemType: guestItem.itemType,
+  //             productId: guestItem.productId,
+  //             packageId: guestItem.packageId,
+  //             variantId: guestItem.variantId,
+  //             // Compare addons in a stable way
+  //             selectedAddons: {
+  //               equals: this.normalizeAddons(guestItem.selectedAddons as any),
+  //             },
+  //           },
+  //         });
+
+  //         if (existingItem) {
+  //           // Combine quantities and total price
+  //           await tx.cartItem.update({
+  //             where: { id: existingItem.id },
+  //             data: {
+  //               quantity: existingItem.quantity + guestItem.quantity,
+  //               totalPrice:
+  //                 Number(existingItem.totalPrice) +
+  //                 Number(guestItem.totalPrice),
+  //             },
+  //           });
+  //           this.logger.debug(
+  //             `Updated existing item ${existingItem.id}, new quantity = ${existingItem.quantity + guestItem.quantity}`,
+  //           );
+  //         } else {
+  //           // Create new cart item
+  //           await tx.cartItem.create({
+  //             data: {
+  //               cartId: userCart.id,
+  //               itemType: guestItem.itemType,
+  //               productId: guestItem.productId,
+  //               packageId: guestItem.packageId,
+  //               variantId: guestItem.variantId,
+  //               quantity: guestItem.quantity,
+  //               unitPrice: guestItem.unitPrice,
+  //               totalPrice: guestItem.totalPrice,
+  //               selectedAddons: guestItem.selectedAddons,
+  //               specialInstructions: guestItem.specialInstructions,
+  //             },
+  //           });
+  //           this.logger.debug(`Created new cart item from guest item`);
+  //         }
+  //       }
+
+  //       // 5. Delete the guest cart (only after successful merge)
+  //       await tx.cart.delete({
+  //         where: { id: guestCart.id },
+  //       });
+  //       this.logger.log(`Deleted guest cart ${guestCart.id}`);
+
+  //       // 6. Recalculate user cart total inside transaction
+  //       await this.updateCartTotal(userCart.id);
+
+  //       // 7. Return the merged cart summary using the same transaction
+  //       const summary = await this.getCartSummary(
+  //         userCart.id,
+  //         userId,
+  //         undefined,
+  //         tx,
+  //       );
+  //       this.logger.log(
+  //         `Cart merge completed. User cart ${userCart.id} now has ${summary.items.length} items, total ${summary.totalAmount}`,
+  //       );
+  //       return summary;
+  //     },
+  //     {
+  //       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+  //       maxWait: 5000, // maximum time to wait for transaction to start
+  //       timeout: 10000, // maximum time the transaction can run
+  //     },
+  //   );
+  // }
 
   /**
    * Helper to normalize addons for consistent comparison.
@@ -1198,7 +1341,153 @@ export class CartService {
    * Get cart summary – only for ACTIVE carts, with ownership check.
    * Can be used inside a transaction by passing `tx`.
    */
+
   async getCartSummary(
+    cartId: string,
+    userId?: string,
+    sessionId?: string,
+    dropoffAddress?: string,
+    deliveryOptionId?: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<CartSummaryDto> {
+    if (!userId && !sessionId) {
+      throw new UnauthorizedException(
+        'Either userId or sessionId must be provided',
+      );
+    }
+
+    const prisma = tx ?? this.prisma;
+
+    const cart = await prisma.cart.findFirst({
+      where: {
+        id: cartId,
+        status: CartStatus.ACTIVE,
+        ...(userId ? { userId } : { sessionId }),
+      },
+      include: {
+        items: {
+          include: {
+            product: {
+              include: {
+                store: { include: { category: true } },
+                productImages: {
+                  orderBy: [{ isPrimary: 'desc' }, { displayOrder: 'asc' }],
+                  take: 1,
+                },
+              },
+            },
+            variant: true,
+            package: {
+              include: { store: { include: { category: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    if (!cart) {
+      throw new NotFoundException('Active cart not found or access denied');
+    }
+
+    // ---- Map items (unchanged) -------------------------------------------
+    const items: CartItemDto[] = cart.items.map((item) => {
+      if (item.itemType === 'PRODUCT') {
+        const product = item.product;
+        return {
+          id: item.id,
+          itemType: item.itemType,
+          productId: item.productId,
+          variantId: item.variantId,
+          variantType: item.variant?.variantName ?? null,
+          packageId: null,
+          name: product?.productName || 'Product (deleted)',
+          imageUrl: product?.productImages?.[0]?.imageUrl || null,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          selectedAddons: Array.isArray(item.selectedAddons)
+            ? item.selectedAddons
+            : [],
+          storeId: product?.storeId || null,
+          storeName: product?.store?.storeName || null,
+          categoryId: product?.store?.categoryId || null,
+          specialInstructions: item.specialInstructions,
+        };
+      }
+      const pkg = item.package;
+      return {
+        id: item.id,
+        itemType: item.itemType,
+        productId: null,
+        variantId: null,
+        packageId: item.packageId,
+        name: pkg?.name || 'Package (deleted)',
+        imageUrl: null,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        selectedAddons: [],
+        storeId: pkg?.storeId || null,
+        storeName: pkg?.store?.storeName || null,
+        categoryId: pkg?.store?.categoryId || null,
+        specialInstructions: item.specialInstructions,
+      };
+    });
+
+    const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
+
+    // ---- Resolve the single vendor store ---------------------------------
+    const store =
+      cart.items[0]?.product?.store ?? cart.items[0]?.package?.store ?? null;
+
+    // ---- Fees ------------------------------------------------------------
+    // Delivery fee: only computable when an address has been supplied.
+    let deliveryFee = 0;
+    if (dropoffAddress && items.length > 0 && store) {
+      // Geocode outside the fee calc so the fee method stays pure
+      const coords = await Helper.geocodeAddress(dropoffAddress);
+
+      if (!coords) {
+        throw new BadRequestException(
+          'Invalid dropoff address. Unable to determine location.',
+        );
+      }
+
+      deliveryFee = await this.calculateDeliveryFee(
+        cartId,
+        { latitude: coords.lat, longitude: coords.lng },
+        deliveryOptionId,
+        prisma,
+      );
+    }
+
+    // Service fee: single vendor → one commission lookup
+    let serviceFee = 0;
+    if (store) {
+      serviceFee = await this.calculateServiceFee(
+        subtotal,
+        store.userId,
+        prisma,
+      );
+    }
+
+    // Tax: from GlobalSetting.taxRate
+    const taxAmount = await this.calculateTax(subtotal, prisma);
+
+    return {
+      cartId: cart.id,
+      storeId: store?.id ?? null,
+      storeName: store?.storeName ?? null,
+      items,
+      subtotal,
+      deliveryFee,
+      serviceFee,
+      taxAmount,
+      totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
+    };
+  }
+
+  async getCartSummaryold(
     cartId: string,
     userId?: string,
     sessionId?: string,
@@ -1299,9 +1588,18 @@ export class CartService {
 
     const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
     const [deliveryFee, serviceFee, taxAmount] = await Promise.all([
-      this.calculateDeliveryFee(cartId, prisma),
-      this.calculateServiceFee(subtotal, prisma),
+      this.calculateDeliveryFee(cartId, null, undefined, prisma),
+      // 
+      this.calculateServiceFee(
+        subtotal,
+        cart.items[0]?.product?.store?.userId ||
+        cart.items[0]?.package?.store?.userId ||
+        '',
+        prisma,
+      ),
+
       this.calculateTax(subtotal, prisma),
+
     ]);
 
     return {
@@ -1316,6 +1614,126 @@ export class CartService {
       totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
     };
   }
+
+  //  async getCartSummary(
+  //   cartId: string,
+  //   userId?: string,
+  //   sessionId?: string,
+  //   tx?: Prisma.TransactionClient,
+  // ): Promise<CartSummaryDto> {
+  //   if (!userId && !sessionId) {
+  //     throw new UnauthorizedException(
+  //       'Either userId or sessionId must be provided',
+  //     );
+  //   }
+
+  //   const prisma = tx ?? this.prisma;
+
+  //   const cart = await prisma.cart.findFirst({
+  //     where: {
+  //       id: cartId,
+  //       status: CartStatus.ACTIVE,
+  //       ...(userId ? { userId } : { sessionId }),
+  //     },
+  //     include: {
+  //       items: {
+  //         include: {
+  //           product: {
+  //             include: {
+  //               store: {
+  //                 include: {
+  //                   category: true, // Include category to get categoryId
+  //                 },
+  //               },
+  //               productImages: {
+  //                 orderBy: [{ isPrimary: 'desc' }, { displayOrder: 'asc' }],
+  //                 take: 1,
+  //               },
+  //             },
+  //           },
+  //           variant: true, // <-- Add this
+  //           package: {
+  //             include: {
+  //               store: {
+  //                 include: {
+  //                   category: true, // Include category for package store
+  //                 },
+  //               },
+  //             },
+  //           },
+  //         },
+  //       },
+  //     },
+  //   });
+
+  //   if (!cart) {
+  //     throw new NotFoundException('Active cart not found or access denied');
+  //   }
+
+  //   const items: CartItemDto[] = cart.items.map((item) => {
+  //     if (item.itemType === 'PRODUCT') {
+  //       const product = item.product;
+  //       return {
+  //         id: item.id,
+  //         itemType: item.itemType,
+  //         productId: item.productId,
+  //         variantId: item.variantId,
+  //         variantType: item.variant?.variantName ?? null,
+  //         packageId: null,
+  //         name: product?.productName || 'Product (deleted)',
+  //         imageUrl: product?.productImages?.[0]?.imageUrl || null,
+  //         quantity: item.quantity,
+  //         unitPrice: item.unitPrice,
+  //         totalPrice: item.totalPrice,
+  //         selectedAddons: Array.isArray(item.selectedAddons)
+  //           ? item.selectedAddons
+  //           : [],
+  //         storeId: product?.storeId || null,
+  //         storeName: product?.store?.storeName || null,
+  //         categoryId: product?.store?.categoryId || null, // Added categoryId
+  //         specialInstructions: item.specialInstructions,
+  //       };
+  //     }
+  //     const pkg = item.package;
+  //     return {
+  //       id: item.id,
+  //       itemType: item.itemType,
+  //       productId: null,
+  //       variantId: null,
+  //       packageId: item.packageId,
+  //       name: pkg?.name || 'Package (deleted)',
+  //       imageUrl: null,
+  //       quantity: item.quantity,
+  //       unitPrice: item.unitPrice,
+  //       totalPrice: item.totalPrice,
+  //       selectedAddons: [],
+  //       storeId: pkg?.storeId || null,
+  //       storeName: pkg?.store?.storeName || null,
+  //       categoryId: pkg?.store?.categoryId || null, // Added categoryId
+  //       specialInstructions: item.specialInstructions,
+  //     };
+  //   });
+
+  //   const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
+  //   const [deliveryFee, serviceFee, taxAmount] = await Promise.all([
+  //     this.calculateDeliveryFee(cartId, prisma),
+  //     this.calculateServiceFee(subtotal, prisma),
+  //     this.calculateTax(subtotal, prisma),
+  //   ]);
+
+  //   return {
+  //     cartId: cart.id,
+  //     storeId: cart.items[0]?.product?.storeId || cart.items[0]?.package?.storeId || null,
+  //     storeName: cart.items[0]?.product?.store?.storeName || cart.items[0]?.package?.store?.storeName || null,
+  //     items,
+  //     subtotal,
+  //     deliveryFee,
+  //     serviceFee,
+  //     taxAmount,
+  //     totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
+  //   };
+  // }
+
 
   // async getCartSummaryWithoutStoreIdandCategoryId(
   //   cartId: string,
@@ -1474,21 +1892,6 @@ export class CartService {
     }
   }
 
-  private async getProductDetailsbk(productId: string, variantId?: string) {
-    if (variantId) {
-      const variant = await this.prisma.variant.findUnique({
-        where: { id: variantId },
-      });
-      if (!variant) throw new NotFoundException('Variant not found');
-      return { price: variant.price };
-    } else {
-      const product = await this.prisma.product.findUnique({
-        where: { id: productId },
-      });
-      if (!product) throw new NotFoundException('Product not found');
-      return { price: product.basePrice };
-    }
-  }
 
   private async getAddonDetails(addonIds: string[]) {
     return this.prisma.addon.findMany({
@@ -1504,60 +1907,158 @@ export class CartService {
     return package_item;
   }
 
-  // private async updateCartTotal(cartId: string) {
-  //   const items = await this.prisma.cartItem.findMany({
-  //     where: { cartId },
-  //   });
+  async getDeliveryOptions(
+    cartId: string,
+    dropoffAddress: string,
+  ): Promise<DeliveryOptionDto[]> {
+    // ── 1. Geocode the address up front ────────────────────────────────
+    const coordinates = await Helper.geocodeAddress(dropoffAddress);
 
-  //   const total = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    if (!coordinates) {
+      throw new BadRequestException(
+        'Invalid dropoff address. Unable to determine location.',
+      );
+    }
 
-  //   await this.prisma.cart.update({
-  //     where: { id: cartId },
-  //     data: { totalAmount: total },
-  //   });
-  // }
+    // ── 2. Load the cart + its (single) vendor store ───────────────────
+    const cart = await this.prisma.cart.findUnique({
+      where: { id: cartId },
+      include: {
+        items: {
+          include: {
+            product: { include: { store: true } },
+            package: { include: { store: true } },
+          },
+        },
+      },
+    });
+    if (!cart) throw new NotFoundException('Cart not found');
+    if (cart.items.length === 0) {
+      throw new BadRequestException('Cart is empty');
+    }
 
-  // private async calculateDeliveryFee(cartId: string): Promise<number> {
-  //   // In production, calculate based on distance and delivery option
-  //   return 500; // Mock delivery fee
-  // }
+    const firstItem = cart.items[0];
+    const store = firstItem?.product?.store ?? firstItem?.package?.store;
+    if (!store) throw new BadRequestException('No vendor store found for cart');
+    if (store.latitude == null || store.longitude == null) {
+      throw new BadRequestException('Store coordinates are not configured');
+    }
 
-  // private async calculateServiceFee(subtotal: number): Promise<number> {
-  //   const serviceFees = await this.prisma.serviceFee.findMany({
-  //     where: { isActive: true },
-  //   });
+    // ── 3. Distance + eligible vehicle configs ─────────────────────────
+    const distanceKm = Helper.haversineDistanceKm(
+      store.latitude,
+      store.longitude,
+      coordinates.lat,
+      coordinates.lng,
+    );
 
-  //   let totalServiceFee = 0;
-  //   for (const fee of serviceFees) {
-  //     if (fee.feeType === 'PERCENTAGE') {
-  //       totalServiceFee += (subtotal * fee.value) / 100;
-  //     } else {
-  //       totalServiceFee += fee.value;
-  //     }
-  //   }
+    const configs = await this.prisma.vehicleTypeConfig.findMany({
+      where: {
+        isActive: true,
+        deliveryRadiusKm: { gte: distanceKm },
+      },
+      include: { distanceBands: true },
+      orderBy: { displayOrder: 'asc' },
+    });
 
-  //   return totalServiceFee;
-  // }
+    return configs.map((c) => ({
+      id: c.id,
+      name: c.name,
+      deliveryType: c.deliveryType,
+      icon: c.icon,
+      location: c.location,
+      distanceKm: Number(distanceKm.toFixed(2)),
+      deliveryFee: Helper.computeFeeFromConfig(
+        {
+          ...c,
+          minDeliveryFee: Number(c.minDeliveryFee),
+          perKmRate: Number(c.perKmRate),
+          distanceBands: c.distanceBands.map((band) => ({
+            minDistanceKm: band.fromKm,
+            maxDistanceKm: band.toKm,
+            fee: Number(band.flatFee),
+          })),
+        },
+        distanceKm,
+      ), deliveryRadiusKm: c.deliveryRadiusKm,
+    }));
+  }
 
-  // private async calculateTax(subtotal: number): Promise<number> {
-  //   const taxes = await this.prisma.taxSetting.findMany({
-  //     where: { isActive: true },
-  //   });
+  async getDeliveryOptionsbk(
+    cartId: string,
+    dropoffLocation: { latitude: number; longitude: number },
+    tx?: Prisma.TransactionClient,
+  ): Promise<DeliveryOptionDto[]> {
+    const prisma = tx ?? this.prisma;
 
-  //   let totalTax = 0;
-  //   for (const tax of taxes) {
-  //     totalTax += (subtotal * tax.rate) / 100;
-  //   }
+    const cart = await prisma.cart.findUnique({
+      where: { id: cartId },
+      include: {
+        items: {
+          include: {
+            product: { include: { store: true } },
+            package: { include: { store: true } },
+          },
+        },
+      },
+    });
+    if (!cart) throw new NotFoundException('Cart not found');
 
-  //   return totalTax;
-  // }
+    const firstItem = cart.items[0];
+    const store = firstItem?.product?.store ?? firstItem?.package?.store;
+    if (!store) throw new BadRequestException('No vendor store found for cart');
+    if (store.latitude == null || store.longitude == null) {
+      throw new BadRequestException('Store coordinates are not configured');
+    }
+
+    const distanceKm = Helper.haversineDistanceKm(
+      store.latitude,
+      store.longitude,
+      dropoffLocation.latitude,
+      dropoffLocation.longitude,
+    );
+
+    const configs = await prisma.vehicleTypeConfig.findMany({
+      where: {
+        isActive: true,
+        deliveryRadiusKm: { gte: distanceKm },
+      },
+      include: { distanceBands: true },
+      orderBy: { displayOrder: 'asc' },
+    });
+
+    return configs.map((c) => ({
+      id: c.id,
+      name: c.name,
+      deliveryType: c.deliveryType,
+      icon: c.icon,
+      location: c.location,
+      distanceKm: Number(distanceKm.toFixed(2)),
+      deliveryFee: Helper.computeFeeFromConfig(
+        {
+          ...c,
+          minDeliveryFee: Number(c.minDeliveryFee),
+          perKmRate: Number(c.perKmRate),
+          distanceBands: c.distanceBands.map((band) => ({
+            minDistanceKm: band.fromKm,
+            maxDistanceKm: band.toKm,
+            fee: Number(band.flatFee),
+          })),
+        },
+        distanceKm,
+      ),
+      deliveryRadiusKm: c.deliveryRadiusKm,
+    }));
+  }
+
+
 
   /**
    * Calculate delivery fee.
    * In production, compute based on distance and delivery option.
    * Accepts optional transaction client for use inside transactions.
    */
-  async calculateDeliveryFee(
+  async calculateDeliveryFeeOld(
     cartId: string,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
@@ -1569,12 +2070,120 @@ export class CartService {
     return 500;
   }
 
+  async calculateDeliveryFee(
+    cartId: string,
+    dropoffLocation: { latitude: number; longitude: number } | null,
+    selectedVehicleTypeConfigId?: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    const prisma = tx ?? this.prisma;
+
+    const cart = await prisma.cart.findUnique({
+      where: { id: cartId },
+      include: {
+        items: {
+          include: {
+            product: { include: { store: true } },
+            package: { include: { store: true } },
+          },
+        },
+      },
+    });
+    if (!cart) throw new NotFoundException('Cart not found');
+
+    const firstItem = cart.items[0];
+    const store = firstItem?.product?.store ?? firstItem?.package?.store;
+    if (!store) throw new BadRequestException('No vendor store found for cart');
+
+    // Delivery fee cannot be computed until the customer provides a dropoff
+    if (!dropoffLocation || store.latitude == null || store.longitude == null) {
+      return 0;
+    }
+
+    const distanceKm = Helper.haversineDistanceKm(
+      store.latitude,
+      store.longitude,
+      dropoffLocation.latitude,
+      dropoffLocation.longitude,
+    );
+
+    // ── (a) Customer already chose a vehicle type → price with it ────────────
+    if (selectedVehicleTypeConfigId) {
+      const config = await prisma.vehicleTypeConfig.findUnique({
+        where: { id: selectedVehicleTypeConfigId },
+        include: { distanceBands: true },
+      });
+
+      if (!config || !config.isActive) {
+        throw new BadRequestException('Selected delivery option is unavailable');
+      }
+      if (distanceKm > config.deliveryRadiusKm) {
+        throw new BadRequestException(
+          `Selected vehicle cannot deliver ${distanceKm.toFixed(1)} km`,
+        );
+      }
+      return Helper.computeFeeFromConfig(
+        {
+          minDeliveryFee: Number(config.minDeliveryFee),
+          perKmRate: Number(config.perKmRate),
+          distanceBands: config.distanceBands.map((band) => ({
+            minDistanceKm: band.fromKm,
+            maxDistanceKm: band.toKm,
+            fee: Number(band.flatFee),
+          })),
+        },
+        distanceKm,
+      );
+    }
+
+    // ── (b) No selection → find cheapest option within radius ────────────────
+    const inRange = await prisma.vehicleTypeConfig.findMany({
+      where: {
+        isActive: true,
+        deliveryRadiusKm: { gte: distanceKm },
+      },
+      include: { distanceBands: true },
+    });
+
+    if (inRange.length > 0) {
+      return Math.min(
+        ...inRange.map((c) =>
+          Helper.computeFeeFromConfig(
+            {
+              ...c,
+              minDeliveryFee: Number(c.minDeliveryFee),
+              perKmRate: Number(c.perKmRate),
+              distanceBands: c.distanceBands.map((band) => ({
+                minDistanceKm: band.fromKm,
+                maxDistanceKm: band.toKm,
+                fee: Number(band.flatFee),
+              })),
+            },
+            distanceKm,
+          ),
+        ),
+      );
+    }
+
+    // ── (c) No option covers the distance → fall back to minimumDeliveryFee ──
+    // Take the smallest minDeliveryFee across all active configs.
+    const fallback = await prisma.vehicleTypeConfig.findFirst({
+      where: { isActive: true },
+      orderBy: { minDeliveryFee: 'asc' },
+      select: { minDeliveryFee: true },
+    });
+
+    return fallback ? Number(fallback.minDeliveryFee) : 0;
+  }
+
+
+
   /**
    * Calculate service fee based on active service fee configurations.
    * Supports both percentage and fixed fees.
    * Accepts optional transaction client for use inside transactions.
    */
-  async calculateServiceFee(
+  async calculateServiceFeeOld(
     subtotal: number,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
@@ -1596,11 +2205,34 @@ export class CartService {
     return totalServiceFee;
   }
 
+  async calculateServiceFee(
+    subtotal: number,
+    vendorId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    const prisma = tx ?? this.prisma;
+
+    const commission = await prisma.commission.findFirst({
+      where: {
+        vendorId,
+        status: CommissionStatus.ACTIVE,
+      },
+    });
+
+    if (!commission) {
+      // No commission configured → no service fee.
+      // You may prefer to throw BadRequestException instead.
+      return 0;
+    }
+
+    return (subtotal * commission.serviceCharge) / 100;
+  }
+
   /**
    * Calculate tax based on active tax settings.
    * Accepts optional transaction client for use inside transactions.
    */
-  async calculateTax(
+  async calculateTaxOld(
     subtotal: number,
     tx?: Prisma.TransactionClient,
   ): Promise<number> {
@@ -1616,5 +2248,21 @@ export class CartService {
     }
 
     return totalTax;
+  }
+
+  async calculateTax(
+    subtotal: number,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    const prisma = tx ?? this.prisma;
+
+    const settings = await prisma.globalSetting.findUnique({
+      where: { id: 'global' },
+      select: { taxRate: true },
+    });
+
+    if (!settings || !settings.taxRate) return 0;
+
+    return (subtotal * settings.taxRate) / 100;
   }
 }

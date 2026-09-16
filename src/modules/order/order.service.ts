@@ -26,7 +26,7 @@ import {
   Role,
 } from '@prisma/client';
 import { CartService } from '../cart/cart.service';
-import Helper from 'src/shared/utils/helpers';
+import Helper from '../../shared/utils/helpers';
 import { DateTime } from 'luxon';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -238,366 +238,746 @@ export class OrderService {
    * - Validates store hours and daily limits atomically.
    * - Retries on transient transaction failures.
    */
+  // async createOrderOld(
+  //   userId: string,
+  //   dto: CreateOrderDto,
+  // ): Promise<OrderSummaryDto> {
+  //   const requestId = crypto.randomUUID();
+  //   this.logger.log(
+  //     `[${requestId}] ORDER_CREATE_STARTED user=${userId} cart=${dto.cartId}`,
+  //   );
+
+  //   // ----- Pre-transaction fast validations (no lock) -----
+  //   const existingCart = await this.prisma.cart.findUnique({
+  //     where: { id: dto.cartId },
+  //     select: { id: true, userId: true, status: true },
+  //   });
+  //   if (!existingCart) throw new NotFoundException('Cart not found');
+  //   if (existingCart.userId !== userId)
+  //     throw new ForbiddenException('Access denied');
+  //   if (existingCart.status !== CartStatus.ACTIVE)
+  //     throw new BadRequestException(`Cart is ${existingCart.status}`);
+
+  //   // ----- Idempotency check (if key provided) -----
+  //   if (dto.idempotencyKey) {
+  //     const existing = await this.prisma.idempotencyRecord.findUnique({
+  //       where: { key: dto.idempotencyKey },
+  //     });
+  //     if (existing?.orderId) {
+  //       this.logger.log(
+  //         `[${requestId}] Idempotent request, returning existing order ${existing.orderId}`,
+  //       );
+  //       return this.getOrderSummary(existing.orderId, userId);
+  //     }
+  //   }
+
+  //   // ----- Precompute time‑based values (constant across retries) -----
+  //   const timezone = 'Africa/Lagos';
+  //   const now = DateTime.now().setZone(timezone);
+  //   const currentMinutes = now.hour * 60 + now.minute;
+  //   // const todayWeekday = now.toFormat('cccc');
+  //   const todayWeekday = now.weekdayLong.toUpperCase();
+  //   const startOfDay = now.startOf('day').toJSDate();
+  //   const endOfDay = now.endOf('day').toJSDate();
+  //   const orderNumber = Helper.generateOrderNumber();
+  //   const orderCode = Helper.generate4DigitCode();
+
+  //   const MAX_RETRIES = 3;
+  //   let lastError: any;
+
+  //   // Before transaction
+  //   let enrichedDropoffLocation = null;
+
+  //   if (dto.dropoffLocation) {
+  //     const address = this.buildFullAddress(dto.dropoffLocation);
+
+  //     this.logger.log(`checking customer's address ${address}`)
+
+
+  //     const coordinates = await Helper.geocodeAddress(address);
+
+  //     if (!coordinates) {
+  //       this.logger.log('Invalid dropoff address. Unable to determine location.')
+  //       throw new BadRequestException(
+  //         'Invalid dropoff address. Unable to determine location.',
+  //       );
+  //     }
+
+  //     enrichedDropoffLocation = {
+  //       ...dto.dropoffLocation,
+  //       latitude: coordinates.lat,
+  //       longitude: coordinates.lng,
+  //     };
+  //   }
+
+  //   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  //     try {
+  //       const order = await this.prisma.$transaction(
+  //         async (tx) => {
+  //           // --------------------------------------------------------------
+  //           // 1. Lock the cart row (SELECT FOR UPDATE)
+  //           // --------------------------------------------------------------
+  //           const lockedCart = await tx.$queryRaw<
+  //             Array<{ id: string; userId: string; status: string }>
+  //           >`
+  //           SELECT id, "userId", status FROM "Cart" WHERE id = ${dto.cartId} FOR UPDATE
+  //         `;
+  //           if (!lockedCart.length)
+  //             throw new NotFoundException('Cart not found');
+  //           if (lockedCart[0].userId !== userId)
+  //             throw new ForbiddenException('Access denied');
+  //           if (lockedCart[0].status !== CartStatus.ACTIVE) {
+  //             throw new BadRequestException(`Cart is ${lockedCart[0].status}`);
+  //           }
+
+  //           // --------------------------------------------------------------
+  //           // 2. Fetch full cart with items (row is locked)
+  //           // --------------------------------------------------------------
+  //           const cartWithItems = await tx.cart.findUnique({
+  //             where: { id: dto.cartId },
+  //             include: {
+  //               items: {
+  //                 include: {
+  //                   product: {
+  //                     include: {
+  //                       store: true,
+  //                       productImages: {
+  //                         orderBy: [
+  //                           { isPrimary: 'desc' },
+  //                           { displayOrder: 'asc' },
+  //                         ],
+  //                         take: 1,
+  //                       },
+  //                     },
+  //                   },
+  //                   package: { include: { store: true } },
+  //                 },
+  //               },
+  //             },
+  //           });
+  //           if (!cartWithItems) throw new NotFoundException('Cart not found');
+
+  //           // --------------------------------------------------------------
+  //           // 3. Build cart summary from fetched data (before status change)
+  //           // --------------------------------------------------------------
+  //           const items = cartWithItems.items.map((item) => {
+  //             if (item.itemType === 'PRODUCT') {
+  //               const product = item.product;
+  //               return {
+  //                 id: item.id,
+  //                 itemType: item.itemType,
+  //                 productId: item.productId,
+  //                 variantId: item.variantId,
+  //                 packageId: null,
+  //                 name: product?.productName || 'Product (deleted)',
+  //                 imageUrl: product?.productImages?.[0]?.imageUrl || null,
+  //                 quantity: item.quantity,
+  //                 unitPrice: item.unitPrice,
+  //                 totalPrice: item.totalPrice,
+  //                 selectedAddons: Array.isArray(item.selectedAddons)
+  //                   ? item.selectedAddons
+  //                   : [],
+  //                 storeId: product?.storeId || null,
+  //                 storeName: product?.store?.storeName || null,
+  //                 specialInstructions: item.specialInstructions,
+  //               };
+  //             } else {
+  //               const pkg = item.package;
+  //               return {
+  //                 id: item.id,
+  //                 itemType: item.itemType,
+  //                 productId: null,
+  //                 variantId: null,
+  //                 packageId: item.packageId,
+  //                 name: pkg?.name || 'Package (deleted)',
+  //                 imageUrl: null,
+  //                 quantity: item.quantity,
+  //                 unitPrice: item.unitPrice,
+  //                 totalPrice: item.totalPrice,
+  //                 selectedAddons: [],
+  //                 storeId: pkg?.storeId || null,
+  //                 storeName: pkg?.store?.storeName || null,
+  //                 specialInstructions: item.specialInstructions,
+  //               };
+  //             }
+  //           });
+
+  //           const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
+
+  //           // Calculate fees using the transaction client
+  //           const deliveryFee = await this.cartService.calculateDeliveryFee(
+  //             dto.cartId,
+  //             tx,
+  //           );
+  //           const serviceFee = await this.cartService.calculateServiceFee(
+  //             subtotal,
+  //             tx,
+  //           );
+  //           const taxAmount = await this.cartService.calculateTax(subtotal, tx);
+
+  //           const cartSummary = {
+  //             cartId: cartWithItems.id,
+  //             items,
+  //             subtotal,
+  //             deliveryFee,
+  //             serviceFee,
+  //             taxAmount,
+  //             totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
+  //           };
+
+  //           if (cartSummary.items.length === 0) {
+  //             throw new BadRequestException('Cart is empty');
+  //           }
+
+  //           // --------------------------------------------------------------
+  //           // 4. Idempotency record creation (if key provided)
+  //           // --------------------------------------------------------------
+  //           if (dto.idempotencyKey) {
+  //             await tx.idempotencyRecord.create({
+  //               data: { key: dto.idempotencyKey, status: 'PROCESSING' },
+  //             });
+  //           }
+
+  //           // --------------------------------------------------------------
+  //           // 5. Mark cart as CHECKED_OUT (now safe)
+  //           // --------------------------------------------------------------
+  //           await tx.cart.update({
+  //             where: { id: dto.cartId },
+  //             data: {
+  //               status: CartStatus.CHECKED_OUT,
+  //               checkedOutAt: new Date(),
+  //             },
+  //           });
+
+  //           // --------------------------------------------------------------
+  //           // 6. Store validation with atomic daily limits
+  //           // --------------------------------------------------------------
+  //           const storeIds = [
+  //             ...new Set(
+  //               cartSummary.items.map((i) => i.storeId).filter(Boolean),
+  //             ),
+  //           ] as string[];
+
+  //           if (!storeIds.length) {
+  //             throw new BadRequestException('No vendor found for cart');
+  //           }
+
+  //           // Fetch store details for validation
+  //           const store = await tx.store.findUnique({
+  //             where: { id: storeIds[0] },
+  //             select: {
+  //               id: true,
+  //               storeName: true,
+  //               storeAddress: true,
+  //               latitude: true,
+  //               longitude: true,
+  //             },
+  //           });
+
+  //           if (!store) {
+  //             throw new NotFoundException('Vendor store not found');
+  //           }
+
+  //           for (const storeId of storeIds) {
+  //             await this.validateStoreWithAtomicCounter(
+  //               tx,
+  //               storeId,
+  //               todayWeekday,
+  //               currentMinutes,
+  //               startOfDay,
+  //               endOfDay,
+  //             );
+  //           }
+
+
+
+  //           // --------------------------------------------------------------
+  //           // 7. Create order
+  //           // --------------------------------------------------------------
+  //           const newOrder = await tx.order.create({
+  //             data: {
+  //               orderNumber,
+  //               orderCode,
+  //               userId,
+  //               orderType: this.determineOrderType(cartSummary.items),
+  //               subtotal: cartSummary.subtotal,
+  //               deliveryFee: cartSummary.deliveryFee,
+  //               serviceFee: cartSummary.serviceFee,
+  //               taxAmount: cartSummary.taxAmount,
+  //               totalAmount: cartSummary.totalAmount,
+  //               deliveryOptionId: dto.deliveryOptionId,
+  //               // pickupLocation: dto.pickupLocation
+  //               //   ? (dto.pickupLocation as unknown as Prisma.JsonObject)
+  //               //   : null,
+  //               pickupLocation: {
+  //                 storeId: store.id,
+  //                 storeName: store.storeName,
+  //                 address: store.storeAddress,
+  //                 latitude: store.latitude,
+  //                 longitude: store.longitude,
+  //               } as Prisma.JsonObject,
+  //               dropoffLocation: enrichedDropoffLocation
+  //                 ? (enrichedDropoffLocation as Prisma.JsonObject)
+  //                 : null,
+  //               recipientName: dto.recipientName,
+  //               recipientPhone: dto.recipientPhone,
+  //               deliveryInstructions: dto.deliveryInstructions,
+  //               paymentStatus: PaymentStatus.PENDING,
+  //               orderStatus: OrderStatus.ORDER_PLACED,
+  //               statusHistory: [
+  //                 {
+  //                   status: OrderStatus.ORDER_PLACED,
+  //                   timestamp: now.toISO(),
+  //                   note: 'Order created',
+  //                 },
+  //               ],
+  //             },
+  //           });
+
+  //           // --------------------------------------------------------------
+  //           // 8. Create order items
+  //           // --------------------------------------------------------------
+  //           await tx.orderItem.createMany({
+  //             data: cartSummary.items.map((item) => ({
+  //               orderId: newOrder.id,
+  //               itemType: item.itemType as CartItemType,
+  //               productId: item.itemType === 'PRODUCT' ? item.productId : null,
+  //               packageId:
+  //                 item.itemType === 'PACKAGE' || item.itemType === 'DOCUMENT'
+  //                   ? item.packageId
+  //                   : null,
+  //               storeId: item.storeId || null,
+  //               variantId: item.variantId || null,
+  //               selectedAddons: item.selectedAddons || [],
+  //               quantity: item.quantity,
+  //               unitPrice: item.unitPrice,
+  //               totalPrice: item.totalPrice,
+  //               specialInstructions: item.specialInstructions || null,
+  //             })),
+  //           });
+
+  //           // --------------------------------------------------------------
+  //           // 9. Update idempotency record to COMPLETED
+  //           // --------------------------------------------------------------
+  //           if (dto.idempotencyKey) {
+  //             await tx.idempotencyRecord.update({
+  //               where: { key: dto.idempotencyKey },
+  //               data: { status: 'COMPLETED', orderId: newOrder.id },
+  //             });
+  //           }
+
+  //           return newOrder;
+  //         },
+  //         {
+  //           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+  //           timeout: 15000, // 15 seconds
+  //         },
+  //       );
+
+  //       this.logger.log(
+  //         `[${requestId}] ORDER_CREATE_SUCCESS order=${order.id}`,
+  //       );
+  //       return this.getOrderSummary(order.id, userId);
+  //     } catch (err: any) {
+  //       lastError = err;
+  //       this.logger.error(
+  //         `[${requestId}] Attempt ${attempt} failed: ${err.message}`,
+  //         err.stack,
+  //       );
+
+  //       const isRetryable = err.code === 'P2034' || err.code === 'P2028';
+  //       if (!isRetryable || attempt === MAX_RETRIES) {
+  //         // No need to manually reset cart status – transaction rollback already did it
+  //         throw err;
+  //       }
+  //       this.logger.warn(
+  //         `[${requestId}] Retrying transaction, attempt ${attempt + 1}`,
+  //       );
+  //       await new Promise((resolve) => setTimeout(resolve, 100 * attempt)); // exponential backoff
+  //     }
+  //   }
+  //   throw lastError;
+  // }
+
   async createOrder(
-    userId: string,
-    dto: CreateOrderDto,
-  ): Promise<OrderSummaryDto> {
-    const requestId = crypto.randomUUID();
-    this.logger.log(
-      `[${requestId}] ORDER_CREATE_STARTED user=${userId} cart=${dto.cartId}`,
-    );
+  userId: string,
+  dto: CreateOrderDto,
+): Promise<OrderSummaryDto> {
+  const requestId = crypto.randomUUID();
+  this.logger.log(
+    `[${requestId}] ORDER_CREATE_STARTED user=${userId} cart=${dto.cartId}`,
+  );
 
-    // ----- Pre-transaction fast validations (no lock) -----
-    const existingCart = await this.prisma.cart.findUnique({
-      where: { id: dto.cartId },
-      select: { id: true, userId: true, status: true },
+  // ----- Pre-transaction fast validations (no lock) -----
+  const existingCart = await this.prisma.cart.findUnique({
+    where: { id: dto.cartId },
+    select: { id: true, userId: true, status: true },
+  });
+  if (!existingCart) throw new NotFoundException('Cart not found');
+  if (existingCart.userId !== userId)
+    throw new ForbiddenException('Access denied');
+  if (existingCart.status !== CartStatus.ACTIVE)
+    throw new BadRequestException(`Cart is ${existingCart.status}`);
+
+  // ----- Idempotency check (if key provided) -----
+  if (dto.idempotencyKey) {
+    const existing = await this.prisma.idempotencyRecord.findUnique({
+      where: { key: dto.idempotencyKey },
     });
-    if (!existingCart) throw new NotFoundException('Cart not found');
-    if (existingCart.userId !== userId)
-      throw new ForbiddenException('Access denied');
-    if (existingCart.status !== CartStatus.ACTIVE)
-      throw new BadRequestException(`Cart is ${existingCart.status}`);
+    if (existing?.orderId) {
+      this.logger.log(
+        `[${requestId}] Idempotent request, returning existing order ${existing.orderId}`,
+      );
+      return this.getOrderSummary(existing.orderId, userId);
+    }
+  }
 
-    // ----- Idempotency check (if key provided) -----
-    if (dto.idempotencyKey) {
-      const existing = await this.prisma.idempotencyRecord.findUnique({
-        where: { key: dto.idempotencyKey },
-      });
-      if (existing?.orderId) {
-        this.logger.log(
-          `[${requestId}] Idempotent request, returning existing order ${existing.orderId}`,
-        );
-        return this.getOrderSummary(existing.orderId, userId);
-      }
+  // ----- Precompute time-based values (constant across retries) -----
+  const timezone = 'Africa/Lagos';
+  const now = DateTime.now().setZone(timezone);
+  const currentMinutes = now.hour * 60 + now.minute;
+  const todayWeekday = now.weekdayLong.toUpperCase();
+  const startOfDay = now.startOf('day').toJSDate();
+  const endOfDay = now.endOf('day').toJSDate();
+  const orderNumber = Helper.generateOrderNumber();
+  const orderCode = Helper.generate4DigitCode();
+
+  const MAX_RETRIES = 3;
+  let lastError: any;
+
+  // ----- Enrich dropoff location with coordinates (before transaction) -----
+  let enrichedDropoffLocation: {
+    latitude: number;
+    longitude: number;
+    [key: string]: any;
+  } | null = null;
+
+  if (dto.dropoffLocation) {
+    const address = this.buildFullAddress(dto.dropoffLocation);
+    this.logger.log(`[${requestId}] Checking customer's address ${address}`);
+
+    const coordinates = await Helper.geocodeAddress(address);
+
+    if (!coordinates) {
+      this.logger.log(
+        `[${requestId}] Invalid dropoff address. Unable to determine location.`,
+      );
+      throw new BadRequestException(
+        'Invalid dropoff address. Unable to determine location.',
+      );
     }
 
-    // ----- Precompute time‑based values (constant across retries) -----
-    const timezone = 'Africa/Lagos';
-    const now = DateTime.now().setZone(timezone);
-    const currentMinutes = now.hour * 60 + now.minute;
-    // const todayWeekday = now.toFormat('cccc');
-    const todayWeekday = now.weekdayLong.toUpperCase();
-    const startOfDay = now.startOf('day').toJSDate();
-    const endOfDay = now.endOf('day').toJSDate();
-    const orderNumber = Helper.generateOrderNumber();
-    const orderCode = Helper.generate4DigitCode();
+    enrichedDropoffLocation = {
+      ...dto.dropoffLocation,
+      latitude: coordinates.lat,
+      longitude: coordinates.lng,
+    };
+  }
 
-    const MAX_RETRIES = 3;
-    let lastError: any;
-
-    // Before transaction
-    let enrichedDropoffLocation = null;
-
-    if (dto.dropoffLocation) {
-      const address = this.buildFullAddress(dto.dropoffLocation);
-
-      this.logger.log(`checking customer's address ${address}`)
-
-
-      const coordinates = await Helper.geocodeAddress(address);
-
-      if (!coordinates) {
-        this.logger.log('Invalid dropoff address. Unable to determine location.')
-        throw new BadRequestException(
-          'Invalid dropoff address. Unable to determine location.',
-        );
-      }
-
-      enrichedDropoffLocation = {
-        ...dto.dropoffLocation,
-        latitude: coordinates.lat,
-        longitude: coordinates.lng,
-      };
-    }
-
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const order = await this.prisma.$transaction(
-          async (tx) => {
-            // --------------------------------------------------------------
-            // 1. Lock the cart row (SELECT FOR UPDATE)
-            // --------------------------------------------------------------
-            const lockedCart = await tx.$queryRaw<
-              Array<{ id: string; userId: string; status: string }>
-            >`
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const order = await this.prisma.$transaction(
+        async (tx) => {
+          // ------------------------------------------------------------
+          // 1. Lock the cart row (SELECT FOR UPDATE)
+          // ------------------------------------------------------------
+          const lockedCart = await tx.$queryRaw<
+            Array<{ id: string; userId: string; status: string }>
+          >`
             SELECT id, "userId", status FROM "Cart" WHERE id = ${dto.cartId} FOR UPDATE
           `;
-            if (!lockedCart.length)
-              throw new NotFoundException('Cart not found');
-            if (lockedCart[0].userId !== userId)
-              throw new ForbiddenException('Access denied');
-            if (lockedCart[0].status !== CartStatus.ACTIVE) {
-              throw new BadRequestException(`Cart is ${lockedCart[0].status}`);
-            }
+          if (!lockedCart.length)
+            throw new NotFoundException('Cart not found');
+          if (lockedCart[0].userId !== userId)
+            throw new ForbiddenException('Access denied');
+          if (lockedCart[0].status !== CartStatus.ACTIVE) {
+            throw new BadRequestException(`Cart is ${lockedCart[0].status}`);
+          }
 
-            // --------------------------------------------------------------
-            // 2. Fetch full cart with items (row is locked)
-            // --------------------------------------------------------------
-            const cartWithItems = await tx.cart.findUnique({
-              where: { id: dto.cartId },
-              include: {
-                items: {
-                  include: {
-                    product: {
-                      include: {
-                        store: true,
-                        productImages: {
-                          orderBy: [
-                            { isPrimary: 'desc' },
-                            { displayOrder: 'asc' },
-                          ],
-                          take: 1,
-                        },
+          // ------------------------------------------------------------
+          // 2. Fetch full cart with items (row is locked)
+          // ------------------------------------------------------------
+          const cartWithItems = await tx.cart.findUnique({
+            where: { id: dto.cartId },
+            include: {
+              items: {
+                include: {
+                  product: {
+                    include: {
+                      store: true,
+                      productImages: {
+                        orderBy: [
+                          { isPrimary: 'desc' },
+                          { displayOrder: 'asc' },
+                        ],
+                        take: 1,
                       },
                     },
-                    package: { include: { store: true } },
                   },
+                  package: { include: { store: true } },
                 },
               },
-            });
-            if (!cartWithItems) throw new NotFoundException('Cart not found');
+            },
+          });
+          if (!cartWithItems) throw new NotFoundException('Cart not found');
+          if (cartWithItems.items.length === 0) {
+            throw new BadRequestException('Cart is empty');
+          }
 
-            // --------------------------------------------------------------
-            // 3. Build cart summary from fetched data (before status change)
-            // --------------------------------------------------------------
-            const items = cartWithItems.items.map((item) => {
-              if (item.itemType === 'PRODUCT') {
-                const product = item.product;
-                return {
-                  id: item.id,
-                  itemType: item.itemType,
-                  productId: item.productId,
-                  variantId: item.variantId,
-                  packageId: null,
-                  name: product?.productName || 'Product (deleted)',
-                  imageUrl: product?.productImages?.[0]?.imageUrl || null,
-                  quantity: item.quantity,
-                  unitPrice: item.unitPrice,
-                  totalPrice: item.totalPrice,
-                  selectedAddons: Array.isArray(item.selectedAddons)
-                    ? item.selectedAddons
-                    : [],
-                  storeId: product?.storeId || null,
-                  storeName: product?.store?.storeName || null,
-                  specialInstructions: item.specialInstructions,
-                };
-              } else {
-                const pkg = item.package;
-                return {
-                  id: item.id,
-                  itemType: item.itemType,
-                  productId: null,
-                  variantId: null,
-                  packageId: item.packageId,
-                  name: pkg?.name || 'Package (deleted)',
-                  imageUrl: null,
-                  quantity: item.quantity,
-                  unitPrice: item.unitPrice,
-                  totalPrice: item.totalPrice,
-                  selectedAddons: [],
-                  storeId: pkg?.storeId || null,
-                  storeName: pkg?.store?.storeName || null,
-                  specialInstructions: item.specialInstructions,
-                };
-              }
-            });
-
-            const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
-
-            // Calculate fees using the transaction client
-            const deliveryFee = await this.cartService.calculateDeliveryFee(
-              dto.cartId,
-              tx,
-            );
-            const serviceFee = await this.cartService.calculateServiceFee(
-              subtotal,
-              tx,
-            );
-            const taxAmount = await this.cartService.calculateTax(subtotal, tx);
-
-            const cartSummary = {
-              cartId: cartWithItems.id,
-              items,
-              subtotal,
-              deliveryFee,
-              serviceFee,
-              taxAmount,
-              totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
-            };
-
-            if (cartSummary.items.length === 0) {
-              throw new BadRequestException('Cart is empty');
-            }
-
-            // --------------------------------------------------------------
-            // 4. Idempotency record creation (if key provided)
-            // --------------------------------------------------------------
-            if (dto.idempotencyKey) {
-              await tx.idempotencyRecord.create({
-                data: { key: dto.idempotencyKey, status: 'PROCESSING' },
-              });
-            }
-
-            // --------------------------------------------------------------
-            // 5. Mark cart as CHECKED_OUT (now safe)
-            // --------------------------------------------------------------
-            await tx.cart.update({
-              where: { id: dto.cartId },
-              data: {
-                status: CartStatus.CHECKED_OUT,
-                checkedOutAt: new Date(),
-              },
-            });
-
-            // --------------------------------------------------------------
-            // 6. Store validation with atomic daily limits
-            // --------------------------------------------------------------
-            const storeIds = [
-              ...new Set(
-                cartSummary.items.map((i) => i.storeId).filter(Boolean),
-              ),
-            ] as string[];
-
-            if (!storeIds.length) {
-              throw new BadRequestException('No vendor found for cart');
-            }
-
-            // Fetch store details for validation
-            const store = await tx.store.findUnique({
-              where: { id: storeIds[0] },
-              select: {
-                id: true,
-                storeName: true,
-                storeAddress: true,
-                latitude: true,
-                longitude: true,
-              },
-            });
-
-            if (!store) {
-              throw new NotFoundException('Vendor store not found');
-            }
-
-            for (const storeId of storeIds) {
-              await this.validateStoreWithAtomicCounter(
-                tx,
-                storeId,
-                todayWeekday,
-                currentMinutes,
-                startOfDay,
-                endOfDay,
-              );
-            }
-
-
-
-            // --------------------------------------------------------------
-            // 7. Create order
-            // --------------------------------------------------------------
-            const newOrder = await tx.order.create({
-              data: {
-                orderNumber,
-                orderCode,
-                userId,
-                orderType: this.determineOrderType(cartSummary.items),
-                subtotal: cartSummary.subtotal,
-                deliveryFee: cartSummary.deliveryFee,
-                serviceFee: cartSummary.serviceFee,
-                taxAmount: cartSummary.taxAmount,
-                totalAmount: cartSummary.totalAmount,
-                deliveryOptionId: dto.deliveryOptionId,
-                // pickupLocation: dto.pickupLocation
-                //   ? (dto.pickupLocation as unknown as Prisma.JsonObject)
-                //   : null,
-                pickupLocation: {
-                  storeId: store.id,
-                  storeName: store.storeName,
-                  address: store.storeAddress,
-                  latitude: store.latitude,
-                  longitude: store.longitude,
-                } as Prisma.JsonObject,
-                dropoffLocation: enrichedDropoffLocation
-                  ? (enrichedDropoffLocation as Prisma.JsonObject)
-                  : null,
-                recipientName: dto.recipientName,
-                recipientPhone: dto.recipientPhone,
-                deliveryInstructions: dto.deliveryInstructions,
-                paymentStatus: PaymentStatus.PENDING,
-                orderStatus: OrderStatus.ORDER_PLACED,
-                statusHistory: [
-                  {
-                    status: OrderStatus.ORDER_PLACED,
-                    timestamp: now.toISO(),
-                    note: 'Order created',
-                  },
-                ],
-              },
-            });
-
-            // --------------------------------------------------------------
-            // 8. Create order items
-            // --------------------------------------------------------------
-            await tx.orderItem.createMany({
-              data: cartSummary.items.map((item) => ({
-                orderId: newOrder.id,
-                itemType: item.itemType as CartItemType,
-                productId: item.itemType === 'PRODUCT' ? item.productId : null,
-                packageId:
-                  item.itemType === 'PACKAGE' || item.itemType === 'DOCUMENT'
-                    ? item.packageId
-                    : null,
-                storeId: item.storeId || null,
-                variantId: item.variantId || null,
-                selectedAddons: item.selectedAddons || [],
+          // ------------------------------------------------------------
+          // 3. Build cart summary items from fetched data
+          // ------------------------------------------------------------
+          const items = cartWithItems.items.map((item) => {
+            if (item.itemType === 'PRODUCT') {
+              const product = item.product;
+              return {
+                id: item.id,
+                itemType: item.itemType,
+                productId: item.productId,
+                variantId: item.variantId,
+                packageId: null,
+                name: product?.productName || 'Product (deleted)',
+                imageUrl: product?.productImages?.[0]?.imageUrl || null,
                 quantity: item.quantity,
                 unitPrice: item.unitPrice,
                 totalPrice: item.totalPrice,
-                specialInstructions: item.specialInstructions || null,
-              })),
-            });
-
-            // --------------------------------------------------------------
-            // 9. Update idempotency record to COMPLETED
-            // --------------------------------------------------------------
-            if (dto.idempotencyKey) {
-              await tx.idempotencyRecord.update({
-                where: { key: dto.idempotencyKey },
-                data: { status: 'COMPLETED', orderId: newOrder.id },
-              });
+                selectedAddons: Array.isArray(item.selectedAddons)
+                  ? item.selectedAddons
+                  : [],
+                storeId: product?.storeId || null,
+                storeName: product?.store?.storeName || null,
+                specialInstructions: item.specialInstructions,
+              };
+            } else {
+              const pkg = item.package;
+              return {
+                id: item.id,
+                itemType: item.itemType,
+                productId: null,
+                variantId: null,
+                packageId: item.packageId,
+                name: pkg?.name || 'Package (deleted)',
+                imageUrl: null,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                totalPrice: item.totalPrice,
+                selectedAddons: [],
+                storeId: pkg?.storeId || null,
+                storeName: pkg?.store?.storeName || null,
+                specialInstructions: item.specialInstructions,
+              };
             }
+          });
 
-            return newOrder;
-          },
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-            timeout: 15000, // 15 seconds
-          },
-        );
+          const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
 
-        this.logger.log(
-          `[${requestId}] ORDER_CREATE_SUCCESS order=${order.id}`,
-        );
-        return this.getOrderSummary(order.id, userId);
-      } catch (err: any) {
-        lastError = err;
-        this.logger.error(
-          `[${requestId}] Attempt ${attempt} failed: ${err.message}`,
-          err.stack,
-        );
+          // ------------------------------------------------------------
+          // 4. Resolve the single vendor store for this cart
+          //    (cart is guaranteed single-store by the add-to-cart flow)
+          // ------------------------------------------------------------
+          const storeIds = [
+            ...new Set(items.map((i) => i.storeId).filter(Boolean)),
+          ] as string[];
 
-        const isRetryable = err.code === 'P2034' || err.code === 'P2028';
-        if (!isRetryable || attempt === MAX_RETRIES) {
-          // No need to manually reset cart status – transaction rollback already did it
-          throw err;
-        }
-        this.logger.warn(
-          `[${requestId}] Retrying transaction, attempt ${attempt + 1}`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, 100 * attempt)); // exponential backoff
+          if (!storeIds.length) {
+            throw new BadRequestException('No vendor found for cart');
+          }
+          if (storeIds.length > 1) {
+            // Should never happen given the single-store add-to-cart rule.
+            // Fail loudly rather than silently pick one.
+            throw new BadRequestException(
+              'Cart contains items from multiple stores',
+            );
+          }
+
+          const store = await tx.store.findUnique({
+            where: { id: storeIds[0] },
+            select: {
+              id: true,
+              storeName: true,
+              storeAddress: true,
+              latitude: true,
+              longitude: true,
+              userId: true,
+            },
+          });
+          if (!store) throw new NotFoundException('Vendor store not found');
+
+          // ------------------------------------------------------------
+          // 5. Calculate fees
+          // ------------------------------------------------------------
+
+          // 5a. Delivery — distance-based, vehicle-type-config driven
+          const deliveryFee = await this.cartService.calculateDeliveryFee(
+            dto.cartId,
+            enrichedDropoffLocation
+              ? {
+                  latitude: enrichedDropoffLocation.latitude,
+                  longitude: enrichedDropoffLocation.longitude,
+                }
+              : null,
+            dto.deliveryOptionId, // chosen VehicleTypeConfig.id (may be undefined)
+            tx,
+          );
+
+          // 5b. Service fee — single vendor, single commission lookup
+          const serviceFee = await this.cartService.calculateServiceFee(
+            subtotal,
+            store.userId,
+            tx,
+          );
+
+          // 5c. Tax — VAT from GlobalSetting.taxRate
+          const taxAmount = await this.cartService.calculateTax(subtotal, tx);
+
+          const cartSummary = {
+            cartId: cartWithItems.id,
+            items,
+            subtotal,
+            deliveryFee,
+            serviceFee,
+            taxAmount,
+            totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
+          };
+
+          // ------------------------------------------------------------
+          // 6. Idempotency record creation (if key provided)
+          // ------------------------------------------------------------
+          if (dto.idempotencyKey) {
+            await tx.idempotencyRecord.create({
+              data: { key: dto.idempotencyKey, status: 'PROCESSING' },
+            });
+          }
+
+          // ------------------------------------------------------------
+          // 7. Mark cart as CHECKED_OUT (now safe)
+          // ------------------------------------------------------------
+          await tx.cart.update({
+            where: { id: dto.cartId },
+            data: {
+              status: CartStatus.CHECKED_OUT,
+              checkedOutAt: new Date(),
+            },
+          });
+
+          // ------------------------------------------------------------
+          // 8. Store validation with atomic daily limits
+          // ------------------------------------------------------------
+          await this.validateStoreWithAtomicCounter(
+            tx,
+            store.id,
+            todayWeekday,
+            currentMinutes,
+            startOfDay,
+            endOfDay,
+          );
+
+          // ------------------------------------------------------------
+          // 9. Create order
+          // ------------------------------------------------------------
+          const newOrder = await tx.order.create({
+            data: {
+              orderNumber,
+              orderCode,
+              userId,
+              orderType: this.determineOrderType(cartSummary.items),
+              subtotal: cartSummary.subtotal,
+              deliveryFee: cartSummary.deliveryFee,
+              serviceFee: cartSummary.serviceFee,
+              taxAmount: cartSummary.taxAmount,
+              totalAmount: cartSummary.totalAmount,
+              deliveryOptionId: dto.deliveryOptionId,
+              pickupLocation: {
+                storeId: store.id,
+                storeName: store.storeName,
+                address: store.storeAddress,
+                latitude: store.latitude,
+                longitude: store.longitude,
+              } as Prisma.JsonObject,
+              dropoffLocation: enrichedDropoffLocation
+                ? (enrichedDropoffLocation as Prisma.JsonObject)
+                : null,
+              recipientName: dto.recipientName,
+              recipientPhone: dto.recipientPhone,
+              deliveryInstructions: dto.deliveryInstructions,
+              paymentStatus: PaymentStatus.PENDING,
+              orderStatus: OrderStatus.ORDER_PLACED,
+              statusHistory: [
+                {
+                  status: OrderStatus.ORDER_PLACED,
+                  timestamp: now.toISO(),
+                  note: 'Order created',
+                },
+              ],
+            },
+          });
+
+          // ------------------------------------------------------------
+          // 10. Create order items
+          // ------------------------------------------------------------
+          await tx.orderItem.createMany({
+            data: cartSummary.items.map((item) => ({
+              orderId: newOrder.id,
+              itemType: item.itemType as CartItemType,
+              productId:
+                item.itemType === 'PRODUCT' ? item.productId : null,
+              packageId:
+                item.itemType === 'PACKAGE' || item.itemType === 'DOCUMENT'
+                  ? item.packageId
+                  : null,
+              storeId: item.storeId || null,
+              variantId: item.variantId || null,
+              selectedAddons: item.selectedAddons || [],
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+              specialInstructions: item.specialInstructions || null,
+            })),
+          });
+
+          // ------------------------------------------------------------
+          // 11. Update idempotency record to COMPLETED
+          // ------------------------------------------------------------
+          if (dto.idempotencyKey) {
+            await tx.idempotencyRecord.update({
+              where: { key: dto.idempotencyKey },
+              data: { status: 'COMPLETED', orderId: newOrder.id },
+            });
+          }
+
+          return newOrder;
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          timeout: 15000, // 15 seconds
+        },
+      );
+
+      this.logger.log(
+        `[${requestId}] ORDER_CREATE_SUCCESS order=${order.id}`,
+      );
+      return this.getOrderSummary(order.id, userId);
+    } catch (err: any) {
+      lastError = err;
+      this.logger.error(
+        `[${requestId}] Attempt ${attempt} failed: ${err.message}`,
+        err.stack,
+      );
+
+      const isRetryable = err.code === 'P2034' || err.code === 'P2028';
+      if (!isRetryable || attempt === MAX_RETRIES) {
+        // No need to manually reset cart status – transaction rollback already did it
+        throw err;
       }
+      this.logger.warn(
+        `[${requestId}] Retrying transaction, attempt ${attempt + 1}`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100 * attempt)); // exponential backoff
     }
-    throw lastError;
   }
+  throw lastError;
+}
+
 
 
   // ================================
