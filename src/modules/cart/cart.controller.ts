@@ -255,6 +255,10 @@ async getDeliveryOptions(
   @Headers('x-session-id') sessionId: string,
   @Query() query: GetDeliveryOptionsQueryDto,
 ) {
+   console.log('🔥 DELIVERY OPTIONS HIT');
+  console.log('query:', query);
+  console.log('sessionId:', sessionId);
+  console.log('user:', req.user);
   const userId = req.user?.id ?? null;
 
   if (!userId && !sessionId) {

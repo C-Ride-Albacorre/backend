@@ -83,7 +83,7 @@ async getOrCreateCart(
   sessionId?: string,
   tx?: Prisma.TransactionClient,
 ) {
-  this.logger.debug(
+  this.logger.log(
     `getOrCreateCart called: hasUserId=${!!userId}, hasSessionId=${!!sessionId}, usingTransaction=${!!tx}`,
   );
 
@@ -98,7 +98,7 @@ async getOrCreateCart(
 
   try {
     if (hasUser) {
-      this.logger.debug(`Looking for active cart for user ${userId}`);
+      this.logger.log(`Looking for active cart for user ${userId}`);
 
       // 1. Try to find an ACTIVE cart
       let cart = await prisma.cart.findFirst({
@@ -110,14 +110,14 @@ async getOrCreateCart(
       });
 
       if (cart) {
-        this.logger.debug(
+        this.logger.log(
           `Found active cart ${cart.id} for user ${userId} with ${cart.items.length} item(s)`,
         );
 
         return cart;
       }
 
-      this.logger.debug(
+      this.logger.log(
         `No active cart found for user ${userId}, checking for existing carts`,
       );
 
@@ -128,7 +128,7 @@ async getOrCreateCart(
       });
 
       if (existingCart) {
-        this.logger.debug(
+        this.logger.log(
           `Found existing cart ${existingCart.id} for user ${userId} with status ${existingCart.status}. Resetting cart`,
         );
 
@@ -151,7 +151,7 @@ async getOrCreateCart(
         return cart;
       }
 
-      this.logger.debug(
+      this.logger.log(
         `No existing cart found for user ${userId}, creating a new cart`,
       );
 
@@ -172,7 +172,7 @@ async getOrCreateCart(
     }
 
     // Guest flow
-    this.logger.debug(
+    this.logger.log(
       `Guest cart flow started for session ${safeSessionId}`,
     );
 
@@ -186,14 +186,14 @@ async getOrCreateCart(
     });
 
     if (cart) {
-      this.logger.debug(
+      this.logger.log(
         `Found active guest cart ${cart.id} for session ${safeSessionId} with ${cart.items.length} item(s)`,
       );
 
       return cart;
     }
 
-    this.logger.debug(
+    this.logger.log(
       `No active guest cart found for session ${safeSessionId}, checking for existing carts`,
     );
 
@@ -204,7 +204,7 @@ async getOrCreateCart(
     });
 
     if (existingGuestCart) {
-      this.logger.debug(
+      this.logger.log(
         `Found existing guest cart ${existingGuestCart.id} with status ${existingGuestCart.status}. Resetting cart`,
       );
 
@@ -227,7 +227,7 @@ async getOrCreateCart(
       return cart;
     }
 
-    this.logger.debug(
+    this.logger.log(
       `No existing guest cart found for session ${safeSessionId}, creating a new cart`,
     );
 
@@ -1199,7 +1199,7 @@ async getOrCreateCart(
   //                 Number(guestItem.totalPrice),
   //             },
   //           });
-  //           this.logger.debug(
+  //           this.logger.log(
   //             `Updated existing item ${existingItem.id}, new quantity = ${existingItem.quantity + guestItem.quantity}`,
   //           );
   //         } else {
@@ -1218,7 +1218,7 @@ async getOrCreateCart(
   //               specialInstructions: guestItem.specialInstructions,
   //             },
   //           });
-  //           this.logger.debug(`Created new cart item from guest item`);
+  //           this.logger.log(`Created new cart item from guest item`);
   //         }
   //       }
 
@@ -2093,7 +2093,7 @@ async getOrCreateCart(
     dropoffAddress: string,
   ): Promise<DeliveryOptionDto[]> {
     // ── 1. Geocode the address up front ────────────────────────────────
-    this.logger.debug(`Geocoding dropoff address: ${dropoffAddress}`);
+    this.logger.log(`Geocoding dropoff address: ${dropoffAddress}`);
     const coordinates = await Helper.geocodeAddress(dropoffAddress);
 
     if (!coordinates) {
@@ -2102,7 +2102,7 @@ async getOrCreateCart(
         'Invalid dropoff address. Unable to determine location.',
       );
     }
-    this.logger.debug(`Geocoded coordinates: ${coordinates.lat}, ${coordinates.lng}`);
+    this.logger.log(`Geocoded coordinates: ${coordinates.lat}, ${coordinates.lng}`);
     // ── 2. Load the cart + its (single) vendor store ───────────────────
     const cart = await this.prisma.cart.findUnique({
       where: { id: cartId },
@@ -2122,7 +2122,7 @@ async getOrCreateCart(
 
     const firstItem = cart.items[0];
     const store = firstItem?.product?.store ?? firstItem?.package?.store;
-    this.logger.debug(`Using store: ${store?.id}`);
+    this.logger.log(`Using store: ${store?.id}`);
 
     if (!store) throw new BadRequestException('No vendor store found for cart');
     if (store.latitude == null || store.longitude == null) {
@@ -2136,7 +2136,7 @@ async getOrCreateCart(
       coordinates.lat,
       coordinates.lng,
     );
-    this.logger.debug(`Calculated distance: ${distanceKm.toFixed(2)} km`);
+    this.logger.log(`Calculated distance: ${distanceKm.toFixed(2)} km`);
     const configs = await this.prisma.vehicleTypeConfig.findMany({
       where: {
         isActive: true,
@@ -2145,7 +2145,7 @@ async getOrCreateCart(
       include: { distanceBands: true },
       orderBy: { displayOrder: 'asc' },
     });
-    this.logger.debug(`Found eligible vehicle configs: ${configs.length}`);
+    this.logger.log(`Found eligible vehicle configs: ${configs.length}`);
 
     return configs.map((c) => ({
       id: c.id,
