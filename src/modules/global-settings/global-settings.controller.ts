@@ -1,18 +1,20 @@
-// import { Controller } from '@nestjs/common';
-// import { GlobalSettingsService } from './global-settings.service';
-
-// @Controller('global-settings')
-// export class GlobalSettingsController {
-//   constructor(private readonly globalSettingsService: GlobalSettingsService) {}
-// }
-import { Controller, Get, Post, Patch, Body } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, Post, Patch, Body, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { CreateGlobalSettingsDto } from './dto/create-settings.dto';
 import { UpdateGlobalSettingsDto } from './dto/update-settings.dto';
 import { GlobalSettingsService } from './global-settings.service';
+import { Roles } from '../../common/decorators/role.decorator';
+import { RolesGuard } from '../../common/guards/role.guard';
+import { UserRole } from '../../shared/enums';
+import { JwtAuthGuard } from '../../common/guards/auth.guard';
+
+
 
 @ApiTags('Global Settings')
 @Controller('settings')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 export class GlobalSettingsController {
   constructor(private readonly settingsService: GlobalSettingsService) {}
 
