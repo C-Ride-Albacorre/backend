@@ -2,7 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { CreateDistanceBandDto } from './create-distance-band.dto';
-import { VehicleType } from '@prisma/client';
+import { DeliveryType, VehicleType } from '@prisma/client';
 
 export class CreateVehicleTypeConfigDto {
     //   @ApiProperty({ example: 'eBike', description: 'Name of the vehicle type' })
@@ -12,6 +12,10 @@ export class CreateVehicleTypeConfigDto {
     @ApiProperty({ enum: VehicleType, example: VehicleType.CAR, description: 'Name of the vehicle type' })
     @IsEnum(VehicleType)
     name: VehicleType;
+
+    @ApiProperty({ enum: DeliveryType, example: DeliveryType.STANDARD, description: 'Delivery type' })
+    @IsEnum(DeliveryType)
+    deliveryType: DeliveryType;
 
     @ApiProperty({ example: 'Lagos Island', description: 'Location where this applies' })
     @IsString()
