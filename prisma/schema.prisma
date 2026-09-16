@@ -1033,6 +1033,7 @@ model CustomerWaitlist {
 model VehicleTypeConfig {
   id                    String         @id @default(uuid())
   name                  VehicleType    @default(CAR) // e.g., "eBike", "Motorbike", "THIS"
+  deliveryType          DeliveryType   @default(STANDARD) // e.g., "Standard", "Express", "Priority", "Scheduled"
   location              String // e.g., "Lagos Island"
   icon                  String? // URL or icon identifier
   deliveryRadiusKm      Float // Max Radius
@@ -1049,6 +1050,13 @@ model VehicleTypeConfig {
   @@unique([name, location])
   @@index([location])
   @@index([isActive])
+}
+
+enum DeliveryType {
+  STANDARD
+  EXPRESS
+  PRIORITY
+  SCHEDULED
 }
 
 model DistanceBand {
@@ -1097,4 +1105,18 @@ model Commission {
 enum CommissionStatus {
   ACTIVE
   INACTIVE
+}
+
+model GlobalSetting {
+  id              String   @id @default("global") // Forces a single row
+  timezone        String
+  currency        String
+  defaultLanguage String
+  dateFormat      String
+  taxRate         Float
+  supportEmail    String
+  supportPhone    String
+  openingTime     String
+  closingTime     String
+  updatedAt       DateTime @updatedAt
 }
