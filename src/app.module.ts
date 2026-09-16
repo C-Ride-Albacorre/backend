@@ -27,6 +27,7 @@ import { WaitlistModule } from './modules/waitlist/waitlist.module';
 import { VehicleTypesModule } from './modules/vehicle-types/vehicle-types.module';
 import { LocationModule } from './modules/location/location.module';
 import { CommissionModule } from './modules/comission/comission.module';
+import { GlobalSettingsModule } from './modules/global-settings/global-settings.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { CommissionModule } from './modules/comission/comission.module';
     VehicleTypesModule,
     LocationModule,
     CommissionModule,
+    GlobalSettingsModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],
