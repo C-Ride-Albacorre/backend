@@ -77,7 +77,188 @@ export class CartService {
    * - If only non‑ACTIVE carts exist (e.g., CHECKED_OUT), create a new one.
    * - If no cart exists, create one.
    */
-  async getOrCreateCart(userId?: string, sessionId?: string, tx?: Prisma.TransactionClient) {
+
+async getOrCreateCart(
+  userId?: string,
+  sessionId?: string,
+  tx?: Prisma.TransactionClient,
+) {
+  this.logger.debug(
+    `getOrCreateCart called: hasUserId=${!!userId}, hasSessionId=${!!sessionId}, usingTransaction=${!!tx}`,
+  );
+
+  if (!userId && !sessionId) {
+    this.logger.warn('getOrCreateCart called without userId or sessionId');
+    throw new BadRequestException('User or sessionId must be provided');
+  }
+
+  const prisma = tx ?? this.prisma;
+  const safeSessionId = sessionId?.trim() || null;
+  const hasUser = !!userId;
+
+  try {
+    if (hasUser) {
+      this.logger.debug(`Looking for active cart for user ${userId}`);
+
+      // 1. Try to find an ACTIVE cart
+      let cart = await prisma.cart.findFirst({
+        where: {
+          userId,
+          status: CartStatus.ACTIVE,
+        },
+        include: { items: true },
+      });
+
+      if (cart) {
+        this.logger.debug(
+          `Found active cart ${cart.id} for user ${userId} with ${cart.items.length} item(s)`,
+        );
+
+        return cart;
+      }
+
+      this.logger.debug(
+        `No active cart found for user ${userId}, checking for existing carts`,
+      );
+
+      // 2. Find ANY existing cart for this user
+      const existingCart = await prisma.cart.findFirst({
+        where: { userId },
+        include: { items: true },
+      });
+
+      if (existingCart) {
+        this.logger.debug(
+          `Found existing cart ${existingCart.id} for user ${userId} with status ${existingCart.status}. Resetting cart`,
+        );
+
+        // 3. Reuse existing cart
+        cart = await prisma.cart.update({
+          where: { id: existingCart.id },
+          data: {
+            status: CartStatus.ACTIVE,
+            items: { deleteMany: {} },
+            checkedOutAt: null,
+            totalAmount: 0,
+          },
+          include: { items: true },
+        });
+
+        this.logger.log(
+          `Reset existing cart ${cart.id} to ACTIVE for user ${userId}`,
+        );
+
+        return cart;
+      }
+
+      this.logger.debug(
+        `No existing cart found for user ${userId}, creating a new cart`,
+      );
+
+      // 4. No cart at all – create a fresh one
+      cart = await prisma.cart.create({
+        data: {
+          userId,
+          status: CartStatus.ACTIVE,
+        },
+        include: { items: true },
+      });
+
+      this.logger.log(
+        `Created new active cart ${cart.id} for user ${userId}`,
+      );
+
+      return cart;
+    }
+
+    // Guest flow
+    this.logger.debug(
+      `Guest cart flow started for session ${safeSessionId}`,
+    );
+
+    // 1. Try to find an ACTIVE cart
+    let cart = await prisma.cart.findFirst({
+      where: {
+        sessionId: safeSessionId,
+        status: CartStatus.ACTIVE,
+      },
+      include: { items: true },
+    });
+
+    if (cart) {
+      this.logger.debug(
+        `Found active guest cart ${cart.id} for session ${safeSessionId} with ${cart.items.length} item(s)`,
+      );
+
+      return cart;
+    }
+
+    this.logger.debug(
+      `No active guest cart found for session ${safeSessionId}, checking for existing carts`,
+    );
+
+    // 2. Find ANY existing guest cart
+    const existingGuestCart = await prisma.cart.findFirst({
+      where: { sessionId: safeSessionId },
+      include: { items: true },
+    });
+
+    if (existingGuestCart) {
+      this.logger.debug(
+        `Found existing guest cart ${existingGuestCart.id} with status ${existingGuestCart.status}. Resetting cart`,
+      );
+
+      // 3. Reuse existing guest cart
+      cart = await prisma.cart.update({
+        where: { id: existingGuestCart.id },
+        data: {
+          status: CartStatus.ACTIVE,
+          items: { deleteMany: {} },
+          checkedOutAt: null,
+          totalAmount: 0,
+        },
+        include: { items: true },
+      });
+
+      this.logger.log(
+        `Reset existing guest cart ${cart.id} to ACTIVE for session ${safeSessionId}`,
+      );
+
+      return cart;
+    }
+
+    this.logger.debug(
+      `No existing guest cart found for session ${safeSessionId}, creating a new cart`,
+    );
+
+    // 4. Create fresh guest cart
+    cart = await prisma.cart.create({
+      data: {
+        sessionId: safeSessionId,
+        status: CartStatus.ACTIVE,
+      },
+      include: { items: true },
+    });
+
+    this.logger.log(
+      `Created new active guest cart ${cart.id} for session ${safeSessionId}`,
+    );
+
+    return cart;
+  } catch (error) {
+    this.logger.error(
+      `Failed to get or create cart: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      error instanceof Error ? error.stack : undefined,
+    );
+
+    throw error;
+  }
+}
+
+
+  async getOrCreateCartbk0(userId?: string, sessionId?: string, tx?: Prisma.TransactionClient) {
     if (!userId && !sessionId) {
       throw new BadRequestException('User or sessionId must be provided');
     }
@@ -591,7 +772,7 @@ export class CartService {
   /**
    * Merge guest ACTIVE cart into user ACTIVE cart – fully atomic.
    */
-   async mergeGuestCart(userId: string, sessionId: string): Promise<CartSummaryDto> {
+  async mergeGuestCart(userId: string, sessionId: string): Promise<CartSummaryDto> {
     if (!userId || !sessionId) {
       throw new BadRequestException('Both userId and sessionId are required');
     }
@@ -719,7 +900,7 @@ export class CartService {
       },
     );
   }
-  
+
   // async mergeGuestCartOld(userId: string, sessionId: string): Promise<CartSummaryDto> {
   //   if (!userId || !sessionId) {
   //     throw new BadRequestException('Both userId and sessionId are required');
@@ -1921,7 +2102,7 @@ export class CartService {
         'Invalid dropoff address. Unable to determine location.',
       );
     }
-   this.logger.debug(`Geocoded coordinates: ${coordinates.lat}, ${coordinates.lng}`);
+    this.logger.debug(`Geocoded coordinates: ${coordinates.lat}, ${coordinates.lng}`);
     // ── 2. Load the cart + its (single) vendor store ───────────────────
     const cart = await this.prisma.cart.findUnique({
       where: { id: cartId },
@@ -1942,7 +2123,7 @@ export class CartService {
     const firstItem = cart.items[0];
     const store = firstItem?.product?.store ?? firstItem?.package?.store;
     this.logger.debug(`Using store: ${store?.id}`);
-    
+
     if (!store) throw new BadRequestException('No vendor store found for cart');
     if (store.latitude == null || store.longitude == null) {
       throw new BadRequestException('Store coordinates are not configured');
@@ -1955,7 +2136,7 @@ export class CartService {
       coordinates.lat,
       coordinates.lng,
     );
-this.logger.debug(`Calculated distance: ${distanceKm.toFixed(2)} km`);
+    this.logger.debug(`Calculated distance: ${distanceKm.toFixed(2)} km`);
     const configs = await this.prisma.vehicleTypeConfig.findMany({
       where: {
         isActive: true,
