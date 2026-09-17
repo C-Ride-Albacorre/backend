@@ -943,7 +943,31 @@ static haversineDistanceKm(
  * Prefers distance band pricing when a matching band exists,
  * otherwise falls back to minDeliveryFee + perKmRate * distanceKm.
  */
-static computeFeeFromConfig(
+static computeFeeFromConfig(config, distanceKm): number {
+  const band = config.distanceBands?.find(
+    (b) => distanceKm >= b.minDistanceKm && distanceKm <= b.maxDistanceKm,
+  );
+
+  let fee: number;
+
+  if (band) {
+    if (band.fee != null) {
+      fee = Number(band.fee);
+    } else if (band.ratePerKm != null) {
+      fee = Number(band.ratePerKm) * distanceKm;
+    } else {
+      fee = Number(config.minDeliveryFee) + Number(config.perKmRate) * distanceKm;
+    }
+  } else {
+    fee = Number(config.minDeliveryFee) + Number(config.perKmRate) * distanceKm;
+  }
+
+  return Math.round(fee * 100) / 100;   // kobo-exact
+}
+
+
+
+static computeFeeFromConfigbk(
   config: {
     minDeliveryFee: number;
     perKmRate: number;
@@ -972,5 +996,8 @@ static computeFeeFromConfig(
 
   return config.minDeliveryFee + config.perKmRate * distanceKm;
 }
+
+
+
 
 }
