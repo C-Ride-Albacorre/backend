@@ -15,7 +15,7 @@ import { StoreFilterDto } from './dto/store-filter.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { StoreStatus, UserRole } from '../../shared/enums';
 import Helper from '../../shared/utils/helpers';
-import { OnBoardingStatus, PaymentStatus, Prisma, Role, UserStatus } from '@prisma/client';
+import { OnBoardingStatus, PaymentStatus, Prisma, Role, SettlementStatus, UserStatus } from '@prisma/client';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { User } from '../user/entities/user.entity';
 import {
@@ -28,6 +28,8 @@ import { ApproveDispatcherDto } from './dto/approve-dispatcher.dto';
 import { DispatcherFilterDto } from './dto/dispatcher-filter.dto';
 import { CustomerFilterDto } from './dto/customer.dto';
 import { UpdateCustomerStatusDto } from './dto/update-customer-status.dto';
+import { UpdateSettlementStatusDto } from './dto/settlement/update-settlement-status.dto';
+import { VendorSettlementFilterDto } from './dto/settlement/vendor-settlement-filter.dto';
 
 @Injectable()
 export class AdminService {
@@ -39,69 +41,6 @@ export class AdminService {
     private readonly cloudinaryService: CloudinaryService,
   ) { }
 
-  // /**
-  //  * Create a new admin (only super_admin can do this)
-  //  */
-  // async createAdmin(superAdminId: string, dto: CreateAdminDto) {
-  //   this.logger.log(`Super admin ${superAdminId} creating new admin`);
-
-  //   // Verify super admin exists and has correct role
-  //   const superAdmin = await this.prisma.user.findUnique({
-  //     where: { id: superAdminId },
-  //   });
-
-  //   if (!superAdmin || superAdmin.role !== UserRole.SUPER_ADMIN) {
-  //     throw new ForbiddenException('Only super admins can create admins');
-  //   }
-
-  //   // Check if user already exists
-  //   const existingUser = await this.prisma.user.findFirst({
-  //     where: {
-  //       email: dto.email,
-  //     },
-  //   });
-
-  //   if (existingUser) {
-  //     throw new BadRequestException(
-  //       'User with this email or phone already exists',
-  //     );
-  //   }
-
-  //   // Hash password
-  //   const hashedPassword = await Helper.hashText(dto.password);
-
-  //   // Create admin user
-  //   const admin = await this.prisma.user.create({
-  //     data: {
-  //       email: dto.email,
-  //       // phoneNumber: dto.phoneNumber,
-  //       firstName: dto.firstName,
-  //       lastName: dto.lastName,
-  //       password: hashedPassword,
-  //       role: UserRole.ADMIN,
-  //       isActive: true,
-  //       isVerified: true,
-  //       verifiedAt: new Date(),
-  //     },
-  //     select: {
-  //       id: true,
-  //       email: true,
-  //       phoneNumber: true,
-  //       firstName: true,
-  //       lastName: true,
-  //       role: true,
-  //       createdAt: true,
-  //     },
-  //   });
-
-  //   this.logger.log(`Admin created: ${admin.email || admin.phoneNumber}`);
-
-  //   return {
-  //     success: true,
-  //     message: 'Admin created successfully',
-  //     data: admin,
-  //   };
-  // }
 
   /**
    * Get all vendors with filtering and pagination
@@ -317,300 +256,12 @@ export class AdminService {
     };
   }
 
-  async getAllVendorsbk(filterDto: VendorFilterDto) {
-    const { status, search, hasStores, page = 1, limit = 10 } = filterDto;
-    const skip = (page - 1) * limit;
-
-    // Build where clause
-    const where: any = {
-      role: UserRole.VENDOR,
-    };
-
-    if (status) {
-      where.user = {
-        status,
-      };
-    }
-
-    if (search) {
-      where.businessInfo = {
-        ...where.businessInfo,
-        OR: [
-          { businessName: { contains: search, mode: 'insensitive' } },
-          { businessEmail: { contains: search, mode: 'insensitive' } },
-        ],
-      };
-    }
-
-    if (hasStores !== undefined) {
-      where.stores = hasStores ? { some: {} } : { none: {} };
-    }
-
-    // Get vendors with pagination
-    const [vendors, total] = await Promise.all([
-      this.prisma.user.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          businessInfo: true,
-          stores: {
-            select: {
-              id: true,
-              storeName: true,
-              status: true,
-            },
-          },
-          _count: {
-            select: {
-              stores: true,
-            },
-          },
-        },
-      }),
-      this.prisma.user.count({ where }),
-    ]);
-
-    // Format response
-    const formattedVendors = vendors.map((vendor) => ({
-      id: vendor.id,
-      email: vendor.email,
-      phoneNumber: vendor.phoneNumber,
-      firstName: vendor.firstName,
-      lastName: vendor.lastName,
-      createdAt: vendor.createdAt,
-      businessInfo: vendor.businessInfo,
-      stores: vendor.stores,
-      storeCount: vendor._count.stores,
-    }));
-
-    return {
-      success: true,
-      data: formattedVendors,
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
-  }
+ 
 
   /**
    * Approve or reject a vendor
    */
-  // async approveVendor(
-  //   adminId: string,
-  //   vendorId: string,
-  //   dto: ApproveVendorDto,
-  // ) {
-  //   this.logger.log(`Admin ${adminId} approving vendor ${vendorId}`);
-
-  //   // Find vendor
-  //   const vendor = await this.prisma.user.findFirst({
-  //     where: {
-  //       id: vendorId,
-  //       role: UserRole.VENDOR,
-  //     },
-  //     include: {
-  //       businessInfo: true,
-  //     },
-  //   });
-
-  //   if (!vendor) {
-  //     throw new NotFoundException('Vendor not found');
-  //   }
-
-  //   if (!vendor.businessInfo) {
-  //     throw new BadRequestException('Vendor business profile not found');
-  //   }
-
-  //   // Check if already processed
-  //   if (vendor.status !== UserStatus.UNDER_REVIEW) {
-  //     throw new BadRequestException(
-  //       `Vendor already ${vendor.status.toLowerCase()}`,
-  //     );
-  //   }
-
-  //   // Process based on action
-  //   let updatedProfile;
-  //   const now = new Date();
-
-  //   switch (dto.action) {
-  //     case ApprovalAction.APPROVE:
-  //       updatedProfile = await this.prisma.user.update({
-  //         where: { userId: vendorId },
-  //         data: {
-  //           status: UserStatus.APPROVED,
-  //           approvedAt: now,
-  //           approvedBy: adminId,
-  //           rejectionReason: null,
-  //         },
-  //       });
-  //       this.logger.log(`Vendor ${vendorId} approved`);
-  //       break;
-
-  //     case ApprovalAction.REJECT:
-  //       if (!dto.rejectionReason) {
-  //         throw new BadRequestException('Rejection reason is required');
-  //       }
-  //       updatedProfile = await this.userRepository.update({
-  //         where: { userId: vendorId },
-  //         data: {
-  //           status: UserStatus.REJECTED,
-  //           approvedAt: null,
-  //           approvedBy: adminId,
-  //           rejectionReason: dto.rejectionReason,
-  //         },
-  //       });
-  //       this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
-  //       break;
-
-  //     case ApprovalAction.SUSPEND:
-  //       updatedProfile = await this.prisma.businessInfo.update({
-  //         where: { userId: vendorId },
-  //         data: {
-  //           status: UserStatus.SUSPENDED,
-  //           approvedAt: null,
-  //           approvedBy: adminId,
-  //           rejectionReason: dto.rejectionReason,
-  //         },
-  //       });
-
-  //       // Also suspend all vendor's stores
-  //       await this.prisma.store.updateMany({
-  //         where: { vendorId },
-  //         data: { status: StoreStatus.SUSPENDED },
-  //       });
-
-  //       this.logger.log(`Vendor ${vendorId} suspended`);
-  //       break;
-
-  //     default:
-  //       throw new BadRequestException('Invalid action');
-  //   }
-
-  //   return {
-  //     success: true,
-  //     message: `Vendor ${dto.action.toLowerCase()}d successfully`,
-  //     data: updatedProfile,
-  //   };
-  // }
-
-  async approveVendorbk(
-    adminId: string,
-    vendorId: string,
-    dto: ApproveVendorDto,
-  ) {
-    this.logger.log(`Admin ${adminId} approving vendor ${vendorId}`);
-
-    const vendor = await this.prisma.user.findFirst({
-      where: {
-        id: vendorId,
-        role: UserRole.VENDOR,
-      },
-      include: {
-        businessInfo: true,
-      },
-    });
-
-    if (!vendor) {
-      throw new NotFoundException('Vendor not found');
-    }
-
-    if (!vendor.businessInfo) {
-      throw new BadRequestException(
-        'Vendor business profile not found. Kindly complete onboarding to proceed',
-      );
-    }
-
-    // if (vendor.status === UserStatus.APPROVED) {
-    //   throw new BadRequestException(
-    //     `Vendor already ${vendor.status.toLowerCase()}`,
-    //   );
-    // }
-    if (vendor.status === 'ACTIVE') {
-      return {
-        success: true,
-        message: `Vendor already ${vendor.status.toLowerCase()}`,
-        data: vendor,
-      };
-    }
-
-    const now = new Date();
-    let userUpdateData: Partial<User>;
-    let updatedUser;
-
-    switch (dto.action) {
-      case UserStatus.APPROVED:
-        userUpdateData = {
-          status: UserStatus.APPROVED,
-          approvedAt: now,
-          approvedBy: adminId,
-          rejectionReason: null,
-        };
-
-        updatedUser = await this.userRepository.update(
-          vendor.id,
-          userUpdateData,
-        );
-
-        this.logger.log(`Vendor ${vendorId} approved`);
-        break;
-
-      case UserStatus.REJECTED:
-        if (!dto.rejectionReason) {
-          throw new BadRequestException('Rejection reason is required');
-        }
-
-        userUpdateData = {
-          status: UserStatus.REJECTED,
-          approvedAt: null,
-          approvedBy: adminId,
-          rejectionReason: dto.rejectionReason,
-        };
-
-        updatedUser = await this.userRepository.update(
-          vendor.id,
-          userUpdateData,
-        );
-
-        this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
-        break;
-
-      case UserStatus.SUSPENDED:
-        userUpdateData = {
-          status: UserStatus.SUSPENDED,
-          approvedAt: null,
-          approvedBy: adminId,
-          rejectionReason: dto.rejectionReason,
-        };
-
-        updatedUser = await this.userRepository.update(
-          vendor.id,
-          userUpdateData,
-        );
-
-        await this.prisma.store.updateMany({
-          where: { userId: vendorId },
-          data: { status: StoreStatus.SUSPENDED },
-        });
-
-        this.logger.log(`Vendor ${vendorId} suspended`);
-        break;
-
-      default:
-        throw new BadRequestException('Invalid action');
-    }
-
-    return {
-      success: true,
-      message: `Vendor ${dto.action.toLowerCase()} successfully`,
-      role: updatedUser.role,
-    };
-  }
-
+ 
   async approveVendor(
     adminId: string,
     vendorId: string,
@@ -728,6 +379,340 @@ export class AdminService {
       role: updatedUser.role,
     };
   }
+
+  /** VENDOR SETTLEMENT */
+  // ----------------------------------------------------------------
+  // LIST
+  // ----------------------------------------------------------------
+  async findAll(filter: VendorSettlementFilterDto) {
+    const { search, status, vendorId, periodStart, periodEnd, page = 1, limit = 10 } = filter;
+    const skip = (page - 1) * limit;
+
+    // Default list = vendor-level aggregates (storeId = null).
+    // When vendorId is supplied, show per-store rows for that vendor.
+    const where: Prisma.VendorSettlementWhereInput = {
+      storeId: vendorId ? { not: null } : null,
+    };
+
+    if (vendorId) where.vendorId = vendorId;
+    if (status) where.status = status;
+
+    if (periodStart || periodEnd) {
+      where.AND = [
+        ...(periodStart ? [{ periodStart: { gte: new Date(periodStart) } }] : []),
+        ...(periodEnd ? [{ periodEnd: { lte: new Date(periodEnd) } }] : []),
+      ];
+    }
+
+    if (search) {
+      where.OR = [
+        { reference: { contains: search, mode: 'insensitive' } },
+        {
+          vendor: {
+            OR: [
+              { firstName: { contains: search, mode: 'insensitive' } },
+              { lastName: { contains: search, mode: 'insensitive' } },
+              {
+                businessInfo: {
+                  businessName: { contains: search, mode: 'insensitive' },
+                },
+              },
+            ],
+          },
+        },
+        {
+          store: {
+            OR: [
+              { storeName: { contains: search, mode: 'insensitive' } },
+              { storeAddress: { contains: search, mode: 'insensitive' } },
+            ],
+          },
+        },
+      ];
+    }
+
+    const [rows, total, stats] = await Promise.all([
+      this.prisma.vendorSettlement.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: [{ createdAt: 'desc' }],
+        include: {
+          vendor: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              businessInfo: {
+                select: {
+                  businessName: true,
+                  businessEmail: true,
+                  // bankName / accountNumber fields if they live here
+                },
+              },
+            },
+          },
+          store: {
+            select: {
+              id: true,
+              storeName: true,
+              storeAddress: true,
+              // city / state if you have them
+            },
+          },
+        },
+      }),
+      this.prisma.vendorSettlement.count({ where }),
+      this.getStats(),
+    ]);
+
+    return {
+      data: rows.map((r) => this.toRowDto(r)),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+      stats,
+    };
+  }
+
+  // ----------------------------------------------------------------
+  // STATS — dashboard cards
+  // ----------------------------------------------------------------
+  async getStats() {
+    // Cards operate on vendor-level aggregates only (storeId = null)
+    const baseWhere: Prisma.VendorSettlementWhereInput = { storeId: null };
+
+    // "This cycle" = latest periodEnd across all settlements
+    const latest = await this.prisma.vendorSettlement.findFirst({
+      where: baseWhere,
+      orderBy: { periodEnd: 'desc' },
+      select: { periodStart: true, periodEnd: true },
+    });
+
+    const cycleWhere: Prisma.VendorSettlementWhereInput = latest
+      ? {
+          ...baseWhere,
+          periodStart: { gte: latest.periodStart },
+          periodEnd: { lte: latest.periodEnd },
+        }
+      : baseWhere;
+
+    const [awaiting, processing, settled, pendingAgg, allAgg] =
+      await Promise.all([
+        this.prisma.vendorSettlement.count({
+          where: { ...baseWhere, status: SettlementStatus.PENDING },
+        }),
+        this.prisma.vendorSettlement.count({
+          where: { ...baseWhere, status: SettlementStatus.PROCESSING },
+        }),
+        this.prisma.vendorSettlement.count({
+          where: { ...cycleWhere, status: SettlementStatus.SETTLED },
+        }),
+        this.prisma.vendorSettlement.aggregate({
+          where: {
+            ...baseWhere,
+            status: { in: [SettlementStatus.PENDING, SettlementStatus.PROCESSING] },
+          },
+          _sum: { netSettlement: true },
+        }),
+        this.prisma.vendorSettlement.aggregate({
+          where: baseWhere,
+          _sum: { netSettlement: true, commission: true },
+        }),
+      ]);
+
+    return {
+      awaitingSettlement: awaiting,
+      processing: processing,
+      settledThisCycle: settled,
+      totalNetPending: Number(pendingAgg._sum.netSettlement ?? 0),
+      totalNet: Number(allAgg._sum.netSettlement ?? 0),
+      totalCommission: Math.abs(Number(allAgg._sum.commission ?? 0)),
+    };
+  }
+
+  // ----------------------------------------------------------------
+  // VENDOR DROPDOWN
+  // ----------------------------------------------------------------
+  async getVendorsForFilter() {
+    const vendors = await this.prisma.user.findMany({
+      where: {
+        role: 'VENDOR',
+        vendorSettlements: { some: {} },
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        businessInfo: { select: { businessName: true } },
+      },
+      orderBy: { firstName: 'asc' },
+    });
+
+    return vendors.map((v) => ({
+      id: v.id,
+      name:
+        v.businessInfo?.businessName ??
+        `${v.firstName} ${v.lastName}`.trim(),
+    }));
+  }
+
+  // ----------------------------------------------------------------
+  // SINGLE
+  // ----------------------------------------------------------------
+  async findOne(id: string) {
+    const row = await this.prisma.vendorSettlement.findUnique({
+      where: { id },
+      include: {
+        vendor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            businessInfo: true,
+          },
+        },
+        store: {
+          select: { id: true, storeName: true, storeAddress: true },
+        },
+      },
+    });
+    if (!row) throw new NotFoundException('Settlement not found');
+    return this.toRowDto(row);
+  }
+
+  // ----------------------------------------------------------------
+  // UPDATE STATUS
+  // ----------------------------------------------------------------
+  async updateStatus(id: string, dto: UpdateSettlementStatusDto) {
+    const existing = await this.prisma.vendorSettlement.findUnique({
+      where: { id },
+      select: { id: true, status: true },
+    });
+    if (!existing) throw new NotFoundException('Settlement not found');
+
+    const allowed: Record<SettlementStatus, SettlementStatus[]> = {
+      PENDING: [SettlementStatus.PROCESSING],
+      PROCESSING: [SettlementStatus.SETTLED, SettlementStatus.PENDING],
+      SETTLED: [],
+    };
+    if (!allowed[existing.status].includes(dto.status)) {
+      throw new BadRequestException(
+        `Cannot transition from ${existing.status} to ${dto.status}`,
+      );
+    }
+
+    const updated = await this.prisma.vendorSettlement.update({
+      where: { id },
+      data: {
+        status: dto.status,
+        notes: dto.notes ?? undefined,
+        settledAt:
+          dto.status === SettlementStatus.SETTLED ? new Date() : undefined,
+      },
+    });
+
+    return this.toRowDto(updated);
+  }
+
+  // ----------------------------------------------------------------
+  // CSV EXPORT
+  // ----------------------------------------------------------------
+  async exportCsv(filter: VendorSettlementFilterDto): Promise<string> {
+    // Reuse the list query without pagination
+    const result = await this.findAll({ ...filter, page: 1, limit: 10000 });
+
+    const headers = [
+      'ID',
+      'Vendor',
+      'Location',
+      'Period',
+      'Orders',
+      'Gross Sales',
+      'Commission',
+      'Service Charge',
+      'Net Settlement',
+      'Due Date',
+      'Status',
+    ];
+
+    const escape = (v: unknown) => {
+      const s = String(v ?? '');
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"`
+        : s;
+    };
+
+    const lines = [headers.join(',')];
+    for (const r of result.data) {
+      lines.push(
+        [
+          r.reference,
+          r.vendorName,
+          r.location,
+          r.period,
+          r.orders,
+          r.grossSales,
+          r.commission,
+          r.serviceCharge,
+          r.netSettlement,
+          new Date(r.dueDate).toISOString().slice(0, 10),
+          r.status,
+        ]
+          .map(escape)
+          .join(','),
+      );
+    }
+    return lines.join('\n');
+  }
+
+  // ----------------------------------------------------------------
+  // MAPPER
+  // ----------------------------------------------------------------
+  private toRowDto(row: any) {
+    const vendorName =
+      row.vendor?.businessInfo?.businessName ??
+      `${row.vendor?.firstName ?? ''} ${row.vendor?.lastName ?? ''}`.trim();
+
+    const location =
+      row.store?.storeAddress ?? // you may have a city/state field — use that instead
+      row.vendor?.businessInfo?.city ??
+      '—';
+
+    const period = this.formatPeriod(row.periodStart, row.periodEnd);
+
+    return {
+      id: row.id,
+      reference: row.reference,
+      vendorName: row.store?.storeName ?? vendorName,
+      location,
+      period,
+      dueDate: row.dueDate,
+      orders: row.totalOrders,
+      grossSales: Number(row.grossSales),
+      commission: -Math.abs(Number(row.commission)),
+      serviceCharge: -Math.abs(Number(row.serviceCharge)),
+      netSettlement: Number(row.netSettlement),
+      status: row.status,
+      bank: row.vendor?.businessInfo?.bankName
+        ? {
+            bankName: row.vendor.businessInfo.bankName,
+            accountLast4:
+              row.vendor.businessInfo.accountNumber?.slice(-4) ?? '••••',
+          }
+        : undefined,
+    };
+  }
+
+  private formatPeriod(start: Date, end: Date): string {
+    const fmt = (d: Date) =>
+      d.toLocaleString('en-NG', { month: 'short', year: 'numeric' });
+    return `${fmt(new Date(start))} – ${fmt(new Date(end))}`;
+  }
+
 
   /**
    * Get all stores with filtering and pagination
