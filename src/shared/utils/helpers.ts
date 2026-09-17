@@ -999,5 +999,74 @@ static computeFeeFromConfigbk(
 
 
 
+// In your Helper class or a dedicated service
+static async getRouteDetails(
+  origin: { latitude: number; longitude: number },
+  destination: { latitude: number; longitude: number },
+): Promise<{ distanceMeters: number; durationSeconds: number } | null> {
+  try {
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      throw new Error('GOOGLE_MAPS_API_KEY is not set.');
+    }
+
+    const url = 'https://routes.googleapis.com/directions/v2:computeRoutes';
+    
+    const requestBody = {
+      origin: {
+        location: {
+          latLng: {
+            latitude: origin.latitude,
+            longitude: origin.longitude,
+          },
+        },
+      },
+      destination: {
+        location: {
+          latLng: {
+            latitude: destination.latitude,
+            longitude: destination.longitude,
+          },
+        },
+      },
+      travelMode: 'DRIVE',
+      // 'routingPreference' is used for traffic-aware routing. Valid only for DRIVE.
+      routingPreference: 'TRAFFIC_AWARE', 
+    };
+
+    const response = await axios.post(url, requestBody, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        // The field mask is REQUIRED. This tells Google exactly what data to return.
+        'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration',
+      },
+    });
+
+    const route = response.data.routes?.[0];
+    if (!route) {
+      console.error('No route found in Google Routes API response.');
+      return null;
+    }
+
+    // The duration is returned as a string like "1234s". Convert it to a number.
+    const durationSeconds = parseInt(route.duration.replace('s', ''), 10);
+
+    return {
+      distanceMeters: route.distanceMeters, // This is already a number
+      durationSeconds: durationSeconds,
+    };
+  } catch (error) {
+    // Implement robust error handling (e.g., logging, retries, fallback)
+    if (axios.isAxiosError(error)) {
+      console.error('Google Routes API request failed:', error.response?.data || error.message);
+    } else {
+      console.error('An unexpected error occurred:', error);
+    }
+    return null;
+  }
+}
+
+
 
 }
