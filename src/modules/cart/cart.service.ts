@@ -13,8 +13,27 @@ import Helper from 'src/shared/utils/helpers';
 import { CartStatus, CommissionStatus, Prisma } from '@prisma/client';
 import { JsonValue } from '@prisma/client/runtime/library';
 
-
 export interface DeliveryOptionDto {
+  id: string;
+  name: string;
+  deliveryType: string;
+  icon: string | null;
+  location: string;
+  distanceKm: number;          // now road distance when Routes API succeeds
+  deliveryFee: number;
+  deliveryRadiusKm: number;
+  isOutOfRange: boolean;
+
+  // ── ETA ─────────────────────────────────────────────────────────────
+  etaMinutesMin: number;
+  etaMinutesMax: number;
+  etaLabel: string;
+
+  // ── Diagnostics (optional, useful while you tune) ───────────────────
+  distanceSource: 'google_routes' | 'haversine';
+}
+
+export interface DeliveryOptionDtoOld {
   id: string;              // VehicleTypeConfig.id  → pass back as dto.deliveryOptionId
   name: string;
   deliveryType: string;
@@ -52,8 +71,14 @@ private toDeliveryOptionDto(
     }>;
   },
   distanceKm: number,
+  durationSeconds: number | null,
+  distanceSource: 'google_routes' | 'haversine',
   isOutOfRange: boolean,
 ): DeliveryOptionDto {
+  const eta = this.computeEtaRangeFromDuration(
+    durationSeconds ?? Math.max(60, (distanceKm / 25) * 3600),
+  );
+
   return {
     id: config.id,
     name: config.name,
@@ -80,6 +105,10 @@ private toDeliveryOptionDto(
     ),
     deliveryRadiusKm: config.deliveryRadiusKm,
     isOutOfRange,
+    etaMinutesMin: eta.min,
+    etaMinutesMax: eta.max,
+    etaLabel: eta.label,
+    distanceSource,
   };
 }
   /**
@@ -2138,7 +2167,177 @@ async getOrCreateCart(
   }
 
 
-  async getDeliveryOptions(
+  /**
+ * Turn a routing duration into a friendly ETA range.
+ *
+ * Google already accounts for traffic. We add:
+ *   - prep/handoff time at the store (rider collects from vendor)
+ *   - a variance band (traffic jitter, drop-off search, gate access)
+ */
+private computeEtaRangeFromDuration(
+  durationSeconds: number,
+  config?: {
+    minDeliveryMinutes?: number | null;
+    maxDeliveryMinutes?: number | null;
+  },
+): { min: number; max: number; label: string } {
+  // ── Explicit config wins (ops override) ───────────────────────────────
+  if (
+    config?.minDeliveryMinutes != null &&
+    config?.maxDeliveryMinutes != null
+  ) {
+    return {
+      min: config.minDeliveryMinutes,
+      max: config.maxDeliveryMinutes,
+      label: `${config.minDeliveryMinutes} – ${config.maxDeliveryMinutes} min`,
+    };
+  }
+
+  // ── Derive from routing duration ──────────────────────────────────────
+  const PREP_MINUTES   = 10;  // rider pickup + handoff at store
+  const MIN_VARIANCE   = 0.90; // best case: 10% faster than Google's estimate
+  const MAX_VARIANCE   = 1.30; // worst case: 30% slower
+
+  const baseMinutes = durationSeconds / 60 + PREP_MINUTES;
+
+  const rawMin = baseMinutes * MIN_VARIANCE;
+  const rawMax = baseMinutes * MAX_VARIANCE;
+
+  // Round to nearest 5 for a human-friendly label
+  const round5 = (n: number) => Math.max(5, Math.round(n / 5) * 5);
+  const min = round5(rawMin);
+  const max = round5(rawMax);
+
+  return { min, max, label: `${min} – ${max} min` };
+}
+
+
+async getDeliveryOptions(
+  cartId: string,
+  dropoffAddress: string,
+): Promise<DeliveryOptionDto[]> {
+  // ── 1. Geocode dropoff ─────────────────────────────────────────────────
+  const coords = await Helper.geocodeAddress(dropoffAddress);
+  if (!coords) {
+    throw new BadRequestException(
+      'Invalid dropoff address. Unable to determine location.',
+    );
+  }
+
+  // ── 2. Load cart + vendor store ────────────────────────────────────────
+  const cart = await this.prisma.cart.findUnique({
+    where: { id: cartId },
+    include: {
+      items: {
+        include: {
+          product: { include: { store: true } },
+          package: { include: { store: true } },
+        },
+      },
+    },
+  });
+  if (!cart) throw new NotFoundException('Cart not found');
+  if (cart.items.length === 0) throw new BadRequestException('Cart is empty');
+
+  const firstItem = cart.items[0];
+  const store = firstItem?.product?.store ?? firstItem?.package?.store;
+  if (!store) throw new BadRequestException('No vendor store found for cart');
+  if (store.latitude == null || store.longitude == null) {
+    throw new BadRequestException('Store coordinates are not configured');
+  }
+
+  const origin = { latitude: store.latitude, longitude: store.longitude };
+  const destination = { latitude: coords.lat, longitude: coords.lng };
+
+  // ── 3. One routing call for the whole request ──────────────────────────
+  const route = await Helper.getRouteDetails(origin, destination);
+
+  let distanceKm: number;
+  let distanceSource: 'google_routes' | 'haversine';
+  let durationSeconds: number | null = null;
+
+  if (route) {
+    distanceKm = route.distanceMeters / 1000;
+    durationSeconds = route.durationSeconds;
+    distanceSource = 'google_routes';
+  } else {
+    // Graceful fallback — never block the customer on Google being down
+    distanceKm = Helper.haversineDistanceKm(
+      origin.latitude,
+      origin.longitude,
+      destination.latitude,
+      destination.longitude,
+    );
+    distanceSource = 'haversine';
+  }
+
+  // ── 4. Options within radius (road km basis when Routes succeeded) ─────
+  const inRange = await this.prisma.vehicleTypeConfig.findMany({
+    where: {
+      isActive: true,
+      deliveryRadiusKm: { gte: distanceKm },
+    },
+    include: { distanceBands: true },
+    orderBy: { displayOrder: 'asc' },
+  });
+
+  if (inRange.length > 0) {
+    return inRange.map((c) =>
+      this.toDeliveryOptionDto(
+        {
+          ...c,
+          distanceBands: c.distanceBands.map((band) => ({
+            minDistanceKm: band.fromKm,
+            maxDistanceKm: band.toKm,
+            fee: band.flatFee,
+          })),
+        },
+        distanceKm,
+        durationSeconds,
+        distanceSource,
+        false,
+      ),
+    );
+  }
+
+  // ── 5. Fallback — nothing in range ────────────────────────────────────
+  const fallback = await this.prisma.vehicleTypeConfig.findFirst({
+    where: { isActive: true },
+    orderBy: { minDeliveryFee: 'asc' },
+    include: { distanceBands: true },
+  });
+
+  if (!fallback) {
+    throw new BadRequestException(
+      'Delivery is not configured for this vendor',
+    );
+  }
+
+  const fallbackDto = this.toDeliveryOptionDto(
+    {
+      ...fallback,
+      distanceBands: fallback.distanceBands.map((band) => ({
+        minDistanceKm: band.fromKm,
+        maxDistanceKm: band.toKm,
+        fee: band.flatFee,
+      })),
+    },
+    distanceKm,
+    durationSeconds,
+    distanceSource,
+    true,
+  );
+
+  // ETA is meaningless outside the vehicle's radius — override the label
+  return [
+    {
+      ...fallbackDto,
+      etaLabel: 'Subject to dispatcher confirmation',
+    },
+  ];
+}
+
+  async getDeliveryOptionsWithRouteDetails(
   cartId: string,
   dropoffAddress: string,
 ): Promise<DeliveryOptionDto[]> {
@@ -2202,6 +2401,8 @@ async getOrCreateCart(
           })),
         },
         distanceKm,
+        null,
+        'haversine',
         false,
       ),
     );
@@ -2235,158 +2436,162 @@ async getOrCreateCart(
       deliveryFee: Number(Number(fallback.minDeliveryFee).toFixed(2)),
       deliveryRadiusKm: fallback.deliveryRadiusKm,
       isOutOfRange: true,
+      etaMinutesMin: 0,
+      etaMinutesMax: 0,
+      etaLabel: 'Subject to dispatcher confirmation',
+      distanceSource: 'haversine',
     },
   ];
 }
 
-  async getDeliveryOptionsWithoutFallback(
-    cartId: string,
-    dropoffAddress: string,
-  ): Promise<DeliveryOptionDto[]> {
-    // ── 1. Geocode the address up front ────────────────────────────────
-    this.logger.log(`Geocoding dropoff address: ${dropoffAddress}`);
-    const coordinates = await Helper.geocodeAddress(dropoffAddress);
+  // async getDeliveryOptionsWithoutFallback(
+  //   cartId: string,
+  //   dropoffAddress: string,
+  // ): Promise<DeliveryOptionDto[]> {
+  //   // ── 1. Geocode the address up front ────────────────────────────────
+  //   this.logger.log(`Geocoding dropoff address: ${dropoffAddress}`);
+  //   const coordinates = await Helper.geocodeAddress(dropoffAddress);
 
-    if (!coordinates) {
-      this.logger.error(`Failed to geocode address: ${dropoffAddress}`);
-      throw new BadRequestException(
-        'Invalid dropoff address. Unable to determine location.',
-      );
-    }
-    this.logger.log(`Geocoded coordinates: ${coordinates.lat}, ${coordinates.lng}`);
-    // ── 2. Load the cart + its (single) vendor store ───────────────────
-    const cart = await this.prisma.cart.findUnique({
-      where: { id: cartId },
-      include: {
-        items: {
-          include: {
-            product: { include: { store: true } },
-            package: { include: { store: true } },
-          },
-        },
-      },
-    });
-    if (!cart) throw new NotFoundException('Cart not found');
-    if (cart.items.length === 0) {
-      throw new BadRequestException('Cart is empty');
-    }
+  //   if (!coordinates) {
+  //     this.logger.error(`Failed to geocode address: ${dropoffAddress}`);
+  //     throw new BadRequestException(
+  //       'Invalid dropoff address. Unable to determine location.',
+  //     );
+  //   }
+  //   this.logger.log(`Geocoded coordinates: ${coordinates.lat}, ${coordinates.lng}`);
+  //   // ── 2. Load the cart + its (single) vendor store ───────────────────
+  //   const cart = await this.prisma.cart.findUnique({
+  //     where: { id: cartId },
+  //     include: {
+  //       items: {
+  //         include: {
+  //           product: { include: { store: true } },
+  //           package: { include: { store: true } },
+  //         },
+  //       },
+  //     },
+  //   });
+  //   if (!cart) throw new NotFoundException('Cart not found');
+  //   if (cart.items.length === 0) {
+  //     throw new BadRequestException('Cart is empty');
+  //   }
 
-    const firstItem = cart.items[0];
-    const store = firstItem?.product?.store ?? firstItem?.package?.store;
-    this.logger.log(`Using store: ${store?.id}`);
+  //   const firstItem = cart.items[0];
+  //   const store = firstItem?.product?.store ?? firstItem?.package?.store;
+  //   this.logger.log(`Using store: ${store?.id}`);
 
-    if (!store) throw new BadRequestException('No vendor store found for cart');
-    if (store.latitude == null || store.longitude == null) {
-      throw new BadRequestException('Store coordinates are not configured');
-    }
+  //   if (!store) throw new BadRequestException('No vendor store found for cart');
+  //   if (store.latitude == null || store.longitude == null) {
+  //     throw new BadRequestException('Store coordinates are not configured');
+  //   }
 
-    // ── 3. Distance + eligible vehicle configs ─────────────────────────
-    const distanceKm = Helper.haversineDistanceKm(
-      store.latitude,
-      store.longitude,
-      coordinates.lat,
-      coordinates.lng,
-    );
-    this.logger.log(`Calculated distance: ${distanceKm.toFixed(2)} km`);
-    const configs = await this.prisma.vehicleTypeConfig.findMany({
-      where: {
-        isActive: true,
-        deliveryRadiusKm: { gte: distanceKm },
-      },
-      include: { distanceBands: true },
-      orderBy: { displayOrder: 'asc' },
-    });
-    this.logger.log(`Found eligible vehicle configs: ${configs.length}`);
+  //   // ── 3. Distance + eligible vehicle configs ─────────────────────────
+  //   const distanceKm = Helper.haversineDistanceKm(
+  //     store.latitude,
+  //     store.longitude,
+  //     coordinates.lat,
+  //     coordinates.lng,
+  //   );
+  //   this.logger.log(`Calculated distance: ${distanceKm.toFixed(2)} km`);
+  //   const configs = await this.prisma.vehicleTypeConfig.findMany({
+  //     where: {
+  //       isActive: true,
+  //       deliveryRadiusKm: { gte: distanceKm },
+  //     },
+  //     include: { distanceBands: true },
+  //     orderBy: { displayOrder: 'asc' },
+  //   });
+  //   this.logger.log(`Found eligible vehicle configs: ${configs.length}`);
 
-    return configs.map((c) => ({
-      id: c.id,
-      name: c.name,
-      deliveryType: c.deliveryType,
-      icon: c.icon,
-      location: c.location,
-      distanceKm: Number(distanceKm.toFixed(2)),
-      deliveryFee: Helper.computeFeeFromConfig(
-        {
-          ...c,
-          minDeliveryFee: Number(c.minDeliveryFee),
-          perKmRate: Number(c.perKmRate),
-          distanceBands: c.distanceBands.map((band) => ({
-            minDistanceKm: band.fromKm,
-            maxDistanceKm: band.toKm,
-            fee: Number(band.flatFee),
-          })),
-        },
-        distanceKm,
-      ), deliveryRadiusKm: c.deliveryRadiusKm,
-    }));
-  }
+  //   return configs.map((c) => ({
+  //     id: c.id,
+  //     name: c.name,
+  //     deliveryType: c.deliveryType,
+  //     icon: c.icon,
+  //     location: c.location,
+  //     distanceKm: Number(distanceKm.toFixed(2)),
+  //     deliveryFee: Helper.computeFeeFromConfig(
+  //       {
+  //         ...c,
+  //         minDeliveryFee: Number(c.minDeliveryFee),
+  //         perKmRate: Number(c.perKmRate),
+  //         distanceBands: c.distanceBands.map((band) => ({
+  //           minDistanceKm: band.fromKm,
+  //           maxDistanceKm: band.toKm,
+  //           fee: Number(band.flatFee),
+  //         })),
+  //       },
+  //       distanceKm,
+  //     ), deliveryRadiusKm: c.deliveryRadiusKm,
+  //   }));
+  // }
 
-  async getDeliveryOptionsbk(
-    cartId: string,
-    dropoffLocation: { latitude: number; longitude: number },
-    tx?: Prisma.TransactionClient,
-  ): Promise<DeliveryOptionDto[]> {
-    const prisma = tx ?? this.prisma;
+  // async getDeliveryOptionsbk(
+  //   cartId: string,
+  //   dropoffLocation: { latitude: number; longitude: number },
+  //   tx?: Prisma.TransactionClient,
+  // ): Promise<DeliveryOptionDto[]> {
+  //   const prisma = tx ?? this.prisma;
 
-    const cart = await prisma.cart.findUnique({
-      where: { id: cartId },
-      include: {
-        items: {
-          include: {
-            product: { include: { store: true } },
-            package: { include: { store: true } },
-          },
-        },
-      },
-    });
-    if (!cart) throw new NotFoundException('Cart not found');
+  //   const cart = await prisma.cart.findUnique({
+  //     where: { id: cartId },
+  //     include: {
+  //       items: {
+  //         include: {
+  //           product: { include: { store: true } },
+  //           package: { include: { store: true } },
+  //         },
+  //       },
+  //     },
+  //   });
+  //   if (!cart) throw new NotFoundException('Cart not found');
 
-    const firstItem = cart.items[0];
-    const store = firstItem?.product?.store ?? firstItem?.package?.store;
-    if (!store) throw new BadRequestException('No vendor store found for cart');
-    if (store.latitude == null || store.longitude == null) {
-      throw new BadRequestException('Store coordinates are not configured');
-    }
+  //   const firstItem = cart.items[0];
+  //   const store = firstItem?.product?.store ?? firstItem?.package?.store;
+  //   if (!store) throw new BadRequestException('No vendor store found for cart');
+  //   if (store.latitude == null || store.longitude == null) {
+  //     throw new BadRequestException('Store coordinates are not configured');
+  //   }
 
-    const distanceKm = Helper.haversineDistanceKm(
-      store.latitude,
-      store.longitude,
-      dropoffLocation.latitude,
-      dropoffLocation.longitude,
-    );
+  //   const distanceKm = Helper.haversineDistanceKm(
+  //     store.latitude,
+  //     store.longitude,
+  //     dropoffLocation.latitude,
+  //     dropoffLocation.longitude,
+  //   );
 
-    const configs = await prisma.vehicleTypeConfig.findMany({
-      where: {
-        isActive: true,
-        deliveryRadiusKm: { gte: distanceKm },
-      },
-      include: { distanceBands: true },
-      orderBy: { displayOrder: 'asc' },
-    });
+  //   const configs = await prisma.vehicleTypeConfig.findMany({
+  //     where: {
+  //       isActive: true,
+  //       deliveryRadiusKm: { gte: distanceKm },
+  //     },
+  //     include: { distanceBands: true },
+  //     orderBy: { displayOrder: 'asc' },
+  //   });
 
-    return configs.map((c) => ({
-      id: c.id,
-      name: c.name,
-      deliveryType: c.deliveryType,
-      icon: c.icon,
-      location: c.location,
-      distanceKm: Number(distanceKm.toFixed(2)),
-      deliveryFee: Helper.computeFeeFromConfig(
-        {
-          ...c,
-          minDeliveryFee: Number(c.minDeliveryFee),
-          perKmRate: Number(c.perKmRate),
-          distanceBands: c.distanceBands.map((band) => ({
-            minDistanceKm: band.fromKm,
-            maxDistanceKm: band.toKm,
-            fee: Number(band.flatFee),
-          })),
-        },
-        distanceKm,
-      ),
-      deliveryRadiusKm: c.deliveryRadiusKm,
-    }));
-  }
+  //   return configs.map((c) => ({
+  //     id: c.id,
+  //     name: c.name,
+  //     deliveryType: c.deliveryType,
+  //     icon: c.icon,
+  //     location: c.location,
+  //     distanceKm: Number(distanceKm.toFixed(2)),
+  //     deliveryFee: Helper.computeFeeFromConfig(
+  //       {
+  //         ...c,
+  //         minDeliveryFee: Number(c.minDeliveryFee),
+  //         perKmRate: Number(c.perKmRate),
+  //         distanceBands: c.distanceBands.map((band) => ({
+  //           minDistanceKm: band.fromKm,
+  //           maxDistanceKm: band.toKm,
+  //           fee: Number(band.flatFee),
+  //         })),
+  //       },
+  //       distanceKm,
+  //     ),
+  //     deliveryRadiusKm: c.deliveryRadiusKm,
+  //   }));
+  // }
 
 
 
