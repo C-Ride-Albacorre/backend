@@ -23,6 +23,7 @@ export interface DeliveryOptionDto {
   distanceKm: number;
   deliveryFee: number;
   deliveryRadiusKm: number;
+  isOutOfRange: boolean; 
 }
 
 @Injectable()
@@ -32,7 +33,55 @@ export class CartService {
   constructor(private prisma: PrismaService) { }
 
 
-
+// Small helper — keeps the mapping consistent between in-range and fallback
+private toDeliveryOptionDto(
+  config: {
+    id: string;
+    name: string;
+    deliveryType: string;
+    icon: string | null;
+    location: string;
+    deliveryRadiusKm: number;
+    minDeliveryFee: Prisma.Decimal | number;
+    perKmRate: Prisma.Decimal | number;
+    distanceBands?: Array<{
+      minDistanceKm: number;
+      maxDistanceKm: number;
+      fee?: Prisma.Decimal | number | null;
+      ratePerKm?: Prisma.Decimal | number | null;
+    }>;
+  },
+  distanceKm: number,
+  isOutOfRange: boolean,
+): DeliveryOptionDto {
+  return {
+    id: config.id,
+    name: config.name,
+    deliveryType: config.deliveryType,
+    icon: config.icon,
+    location: config.location,
+    distanceKm: Number(distanceKm.toFixed(2)),
+    deliveryFee: Number(
+      Helper.computeFeeFromConfig(
+        {
+          minDeliveryFee: Number(config.minDeliveryFee),
+          perKmRate: Number(config.perKmRate),
+          distanceBands: config.distanceBands?.map((band) => ({
+            minDistanceKm: band.minDistanceKm,
+            maxDistanceKm: band.maxDistanceKm,
+            ...(band.fee != null ? { fee: Number(band.fee) } : {}),
+            ...(band.ratePerKm != null
+              ? { ratePerKm: Number(band.ratePerKm) }
+              : {}),
+          })),
+        },
+        distanceKm,
+      ).toFixed(2),
+    ),
+    deliveryRadiusKm: config.deliveryRadiusKm,
+    isOutOfRange,
+  };
+}
   /**
    * Get or create user's cart
    */
@@ -2088,7 +2137,109 @@ async getOrCreateCart(
     return package_item;
   }
 
+
   async getDeliveryOptions(
+  cartId: string,
+  dropoffAddress: string,
+): Promise<DeliveryOptionDto[]> {
+  // ── 1. Geocode ────────────────────────────────────────────────────────
+  const coordinates = await Helper.geocodeAddress(dropoffAddress);
+  if (!coordinates) {
+    throw new BadRequestException(
+      'Invalid dropoff address. Unable to determine location.',
+    );
+  }
+
+  // ── 2. Cart + vendor store ────────────────────────────────────────────
+  const cart = await this.prisma.cart.findUnique({
+    where: { id: cartId },
+    include: {
+      items: {
+        include: {
+          product: { include: { store: true } },
+          package: { include: { store: true } },
+        },
+      },
+    },
+  });
+  if (!cart) throw new NotFoundException('Cart not found');
+  if (cart.items.length === 0) throw new BadRequestException('Cart is empty');
+
+  const firstItem = cart.items[0];
+  const store = firstItem?.product?.store ?? firstItem?.package?.store;
+  if (!store) throw new BadRequestException('No vendor store found for cart');
+  if (store.latitude == null || store.longitude == null) {
+    throw new BadRequestException('Store coordinates are not configured');
+  }
+
+  // ── 3. Distance ───────────────────────────────────────────────────────
+  const distanceKm = Helper.haversineDistanceKm(
+    store.latitude,
+    store.longitude,
+    coordinates.lat,
+    coordinates.lng,
+  );
+
+  // ── 4. Options within radius ──────────────────────────────────────────
+  const inRange = await this.prisma.vehicleTypeConfig.findMany({
+    where: {
+      isActive: true,
+      deliveryRadiusKm: { gte: distanceKm },
+    },
+    include: { distanceBands: true },
+    orderBy: { displayOrder: 'asc' },
+  });
+
+  if (inRange.length > 0) {
+    return inRange.map((c) =>
+      this.toDeliveryOptionDto(
+        {
+          ...c,
+          distanceBands: c.distanceBands.map((band) => ({
+            minDistanceKm: band.fromKm,
+            maxDistanceKm: band.toKm,
+            fee: band.flatFee,
+          })),
+        },
+        distanceKm,
+        false,
+      ),
+    );
+  }
+
+  // ── 5. Fallback — nothing in range ────────────────────────────────────
+  // Per business rule: resolve to the minimumDeliveryFee option.
+  const fallback = await this.prisma.vehicleTypeConfig.findFirst({
+    where: { isActive: true },
+    orderBy: { minDeliveryFee: 'asc' },
+    include: { distanceBands: true },
+  });
+
+  if (!fallback) {
+    // No active configs at all — the vendor's delivery is misconfigured.
+    throw new BadRequestException(
+      'Delivery is not configured for this vendor',
+    );
+  }
+
+  // Price the fallback using the flat minimum, ignoring distance bands,
+  // since the distance is out of range anyway.
+  return [
+    {
+      id: fallback.id,
+      name: fallback.name,
+      deliveryType: fallback.deliveryType,
+      icon: fallback.icon,
+      location: fallback.location,
+      distanceKm: Number(distanceKm.toFixed(2)),
+      deliveryFee: Number(Number(fallback.minDeliveryFee).toFixed(2)),
+      deliveryRadiusKm: fallback.deliveryRadiusKm,
+      isOutOfRange: true,
+    },
+  ];
+}
+
+  async getDeliveryOptionsWithoutFallback(
     cartId: string,
     dropoffAddress: string,
   ): Promise<DeliveryOptionDto[]> {
@@ -2292,7 +2443,7 @@ async getOrCreateCart(
       dropoffLocation.latitude,
       dropoffLocation.longitude,
     );
-
+    this.logger.log(`Calculated distance: ${distanceKm.toFixed(2)} km`);
     // ── (a) Customer already chose a vehicle type → price with it ────────────
     if (selectedVehicleTypeConfigId) {
       const config = await prisma.vehicleTypeConfig.findUnique({
