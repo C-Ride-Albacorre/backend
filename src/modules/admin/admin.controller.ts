@@ -12,6 +12,7 @@ import {
   HttpStatus,
   Put,
   Delete,
+  Res,
   UseInterceptors,
   UploadedFile,
   UploadedFiles,
@@ -29,6 +30,7 @@ import {
   ApiOkResponse,
   ApiNotFoundResponse,
   ApiConsumes,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { Roles } from '../../common/decorators/role.decorator';
@@ -50,10 +52,14 @@ import {
   FileFieldsInterceptor,
   FileInterceptor,
 } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { DispatcherFilterDto } from './dto/dispatcher-filter.dto';
 import { ApproveDispatcherDto } from './dto/approve-dispatcher.dto';
 import { CustomerFilterDto } from './dto/customer.dto';
 import { UpdateCustomerStatusDto } from './dto/update-customer-status.dto';
+import { UpdateSettlementStatusDto } from './dto/settlement/update-settlement-status.dto';
+import { VendorSettlementFilterDto } from './dto/settlement/vendor-settlement-filter.dto';
+import { PaginatedSettlementResponseDto } from './dto/settlement/settlement-response.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -106,6 +112,69 @@ export class AdminController {
     return this.adminService.approveVendor(user.id, vendorId, dto);
   }
 
+  //////vENDOR sETTLEMENT///////////
+
+
+@Get('settlements')
+  @ApiOperation({
+    summary: 'List vendor settlements (paginated, filterable)',
+    description:
+      'Returns one row per vendor by default. Pass `vendorId` to switch to per-store rows for that vendor.',
+  })
+  @ApiOkResponse({ type: PaginatedSettlementResponseDto })
+  async findAll(@Query() filter: VendorSettlementFilterDto) {
+    return this.adminService.findAll(filter);
+  }
+
+  @Get('settlements/stats')
+  @ApiOperation({ summary: 'Dashboard cards for vendor settlements' })
+  async stats() {
+    return this.adminService.getStats();
+  }
+
+  @Get('settlements/vendors/list')
+  @ApiOperation({
+    summary: 'Vendors for the dropdown filter',
+    description: 'Returns id + name for vendors that have at least one settlement.',
+  })
+  async vendorsForFilter() {
+    return this.adminService.getVendorsForFilter();
+  }
+
+  @Get('/settlements/export')
+  @ApiOperation({ summary: 'Export settlements as CSV' })
+  @ApiQuery({ name: 'vendorId', required: false })
+  @ApiQuery({ name: 'status', required: false })
+  async exportCsv(
+    @Query() filter: VendorSettlementFilterDto,
+    @Res() res: Response,
+  ) {
+    const csv = await this.adminService.exportCsv(filter);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="vendor-settlements-${Date.now()}.csv"`,
+    );
+    res.send(csv);
+  }
+
+  @Get('/settlement/:id')
+  @ApiOperation({ summary: 'Get one settlement by id' })
+  async findOne(@Param('id') id: string) {
+    return this.adminService.findOne(id);
+  }
+
+  @Patch('/settlement/:id/status')
+  @ApiOperation({ summary: 'Update settlement status (PENDING → PROCESSING → SETTLED)' })
+  async updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateSettlementStatusDto,
+  ) {
+    return this.adminService.updateStatus(id, dto);
+  }
+
+
+  ////////////////
   @Get('stores')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @HttpCode(HttpStatus.OK)
