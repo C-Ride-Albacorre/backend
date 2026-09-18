@@ -681,7 +681,7 @@ export class AdminService {
 
     const location =
       row.store?.storeAddress ?? // you may have a city/state field — use that instead
-      row.vendor?.businessInfo?.city ??
+      row.vendor?.businessInfo?.address ??
       '—';
 
     const period = this.formatPeriod(row.periodStart, row.periodEnd);
