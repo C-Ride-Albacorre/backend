@@ -449,6 +449,7 @@ export class AdminService {
                   businessEmail: true,
                   accountNumber: true,
                   address: true,
+                  bankName: true
                   // bankName / accountNumber fields if they live here
                 },
               },
