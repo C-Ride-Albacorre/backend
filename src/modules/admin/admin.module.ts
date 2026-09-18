@@ -7,10 +7,11 @@ import { UserService } from '../user/user.service';
 import { VerificationService } from '../verification/verification.service';
 import { VerificationModule } from '../verification/verification.module';
 import { AuthModule } from '../auth/auth.module';
+import { OrderModule } from '../order/order.module';
 
 @Module({
   controllers: [AdminController],
-  imports: [VerificationModule, AuthModule],
+  imports: [VerificationModule, AuthModule, OrderModule],
   providers: [
     AdminService,
     UserService,
