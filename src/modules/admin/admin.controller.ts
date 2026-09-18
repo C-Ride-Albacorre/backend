@@ -112,11 +112,11 @@ async approveVendor(
 async generate(
   @Body() dto: GenerateSettlementsDto, // { periodStart, periodEnd }
 ) {
-  await this.vendorSettlementService.generateForPeriod(
+  const result = await this.vendorSettlementService.generateForPeriod(
     new Date(dto.periodStart),
     new Date(dto.periodEnd),
   );
-  return { success: true };
+  return { success: true, ...result };
 }
 
 @Get('settlements')
