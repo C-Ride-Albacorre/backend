@@ -675,13 +675,53 @@ export class AdminService {
   // MAPPER
   // ----------------------------------------------------------------
   private toRowDto(row: any) {
+  const vendorName =
+    row.vendor?.businessInfo?.businessName ??
+    `${row.vendor?.firstName ?? ''} ${row.vendor?.lastName ?? ''}`.trim();
+
+  const businessInfo = row.vendor?.businessInfo;
+
+  const location =
+    row.store?.storeAddress ??
+    [businessInfo?.city, businessInfo?.state]
+      .filter(Boolean)
+      .join(', ') ??
+    businessInfo?.address ??
+    '—';
+
+  const period = this.formatPeriod(row.periodStart, row.periodEnd);
+
+  return {
+    id: row.id,
+    reference: row.reference,
+    vendorName: row.store?.storeName ?? vendorName,
+    location,
+    period,
+    dueDate: row.dueDate,
+    orders: row.totalOrders,
+    grossSales: Number(row.grossSales),
+    commission: -Math.abs(Number(row.commission)),
+    serviceCharge: -Math.abs(Number(row.serviceCharge)),
+    netSettlement: Number(row.netSettlement),
+    status: row.status,
+    bank: businessInfo?.bankName
+      ? {
+          bankName: businessInfo.bankName,
+          accountLast4:
+            businessInfo.accountNumber?.slice(-4) ?? '••••',
+        }
+      : undefined,
+  };
+}
+
+  private toRowDtoBk(row: any) {
     const vendorName =
       row.vendor?.businessInfo?.businessName ??
       `${row.vendor?.firstName ?? ''} ${row.vendor?.lastName ?? ''}`.trim();
 
     const location =
       row.store?.storeAddress ?? // you may have a city/state field — use that instead
-      row.vendor?.businessInfo?.city ??
+      row.vendor?.businessInfo?.address ??
       '—';
 
     const period = this.formatPeriod(row.periodStart, row.periodEnd);
