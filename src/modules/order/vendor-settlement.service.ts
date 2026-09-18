@@ -10,7 +10,7 @@ export class VendorSettlementService {
 
 
 
-  async generateForPeriodbk(periodStart: Date, periodEnd: Date) {
+  async generateForPeriodOld(periodStart: Date, periodEnd: Date) {
     const vendors = await this.prisma.user.findMany({
       where: {
         role: 'VENDOR',
