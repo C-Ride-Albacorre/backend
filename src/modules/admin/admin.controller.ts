@@ -16,6 +16,7 @@ import {
   UseInterceptors,
   UploadedFile,
   UploadedFiles,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -108,16 +109,54 @@ async approveVendor(
 
 //////vENDOR sETTLEMENT///////////
 @Post('settlements/generate')
-@ApiOperation({ summary: 'Manually generate settlements for a period (admin only)' })
-async generate(
-  @Body() dto: GenerateSettlementsDto, // { periodStart, periodEnd }
-) {
+@ApiOperation({
+  summary: 'Manually generate settlements for a period (admin only)',
+  description:
+    'Reads DELIVERED + PAID orders in [periodStart, periodEnd] and creates ' +
+    'VendorSettlement rows. Idempotent — orders already attached to a ' +
+    'settlement are skipped.',
+})
+@ApiOkResponse({ description: 'Batch summary' })
+async generate(@Body() dto: GenerateSettlementsDto) {
+  const periodStart = new Date(dto.periodStart);
+  const periodEnd = new Date(dto.periodEnd);
+
+  if (isNaN(periodStart.getTime()) || isNaN(periodEnd.getTime())) {
+    throw new BadRequestException('Invalid date format');
+  }
+  if (periodStart >= periodEnd) {
+    throw new BadRequestException('periodStart must be before periodEnd');
+  }
+
+  const rangeDays =
+    (periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24);
+
+  if (rangeDays > 31) {
+    throw new BadRequestException(
+      'Settlement period cannot exceed 31 days. Split the range.',
+    );
+  }
+
   const result = await this.vendorSettlementService.generateForPeriod(
-    new Date(dto.periodStart),
-    new Date(dto.periodEnd),
+    periodStart,
+    periodEnd,
   );
+
+  // No try/catch here — the service throws on hard failures, and NestJS's
+  // exception filter turns them into the correct HTTP status automatically.
   return { success: true, ...result };
 }
+// @Post('settlements/generate')
+// @ApiOperation({ summary: 'Manually generate settlements for a period (admin only)' })
+// async generate(
+//   @Body() dto: GenerateSettlementsDto, // { periodStart, periodEnd }
+// ) {
+//   const result = await this.vendorSettlementService.generateForPeriod(
+//     new Date(dto.periodStart),
+//     new Date(dto.periodEnd),
+//   );
+//   return { success: true, ...result };
+// }
 
 @Get('settlements')
 @ApiOperation({
