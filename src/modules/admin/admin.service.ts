@@ -384,7 +384,7 @@ export class AdminService {
   // ----------------------------------------------------------------
   // LIST
   // ----------------------------------------------------------------
-  async findAll(filter: VendorSettlementFilterDto) {
+  async findAllSettlements(filter: VendorSettlementFilterDto) {
     const { search, status, vendorId, periodStart, periodEnd, page = 1, limit = 10 } = filter;
     const skip = (page - 1) * limit;
 
@@ -447,6 +447,8 @@ export class AdminService {
                 select: {
                   businessName: true,
                   businessEmail: true,
+                  accountNumber: true,
+                  address: true,
                   // bankName / accountNumber fields if they live here
                 },
               },
@@ -563,7 +565,7 @@ export class AdminService {
   // ----------------------------------------------------------------
   // SINGLE
   // ----------------------------------------------------------------
-  async findOne(id: string) {
+  async findOneSettlement(id: string) {
     const row = await this.prisma.vendorSettlement.findUnique({
       where: { id },
       include: {
@@ -623,7 +625,7 @@ export class AdminService {
   // ----------------------------------------------------------------
   async exportCsv(filter: VendorSettlementFilterDto): Promise<string> {
     // Reuse the list query without pagination
-    const result = await this.findAll({ ...filter, page: 1, limit: 10000 });
+    const result = await this.findAllSettlements({ ...filter, page: 1, limit: 10000 });
 
     const headers = [
       'ID',

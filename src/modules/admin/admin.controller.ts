@@ -146,17 +146,6 @@ async generate(@Body() dto: GenerateSettlementsDto) {
   // exception filter turns them into the correct HTTP status automatically.
   return { success: true, ...result };
 }
-// @Post('settlements/generate')
-// @ApiOperation({ summary: 'Manually generate settlements for a period (admin only)' })
-// async generate(
-//   @Body() dto: GenerateSettlementsDto, // { periodStart, periodEnd }
-// ) {
-//   const result = await this.vendorSettlementService.generateForPeriod(
-//     new Date(dto.periodStart),
-//     new Date(dto.periodEnd),
-//   );
-//   return { success: true, ...result };
-// }
 
 @Get('settlements')
 @ApiOperation({
@@ -165,8 +154,8 @@ async generate(@Body() dto: GenerateSettlementsDto) {
     'Returns one row per vendor by default. Pass `vendorId` to switch to per-store rows for that vendor.',
 })
 @ApiOkResponse({ type: PaginatedSettlementResponseDto })
-async findAll(@Query() filter: VendorSettlementFilterDto) {
-  return this.adminService.findAll(filter);
+async findAllSettlements(@Query() filter: VendorSettlementFilterDto) {
+  return this.adminService.findAllSettlements(filter);
 }
 
 @Get('settlements/stats')
@@ -203,8 +192,8 @@ async exportCsv(
 
 @Get('/settlement/:id')
 @ApiOperation({ summary: 'Get one settlement by id' })
-async findOne(@Param('id') id: string) {
-  return this.adminService.findOne(id);
+async findOneSettlement(@Param('id') id: string) {
+  return this.adminService.findOneSettlement(id);
 }
 
 @Patch('/settlement/:id/status')
