@@ -9,6 +9,7 @@ import { VendorNotificationGateway } from 'src/common/map-gateway/vendor-notific
 import { DriverModule } from '../driver/driver.module';
 import { NotificationModule } from '../notification/notification.module';
 import { PaymentModule } from '../payment/payment.module';
+import { VendorSettlementService } from './vendor-settlement.service';
 
 @Module({
   imports: [
@@ -24,7 +25,7 @@ import { PaymentModule } from '../payment/payment.module';
     NotificationModule,
   ],
   controllers: [OrderController],
-  providers: [OrderService, VendorNotificationGateway],
-  exports: [OrderService],
+  providers: [OrderService, VendorNotificationGateway, VendorSettlementService],
+  exports: [OrderService, VendorSettlementService],
 })
 export class OrderModule { }
