@@ -130,7 +130,7 @@ model VendorDocument {
 }
 
 model Store {
-  id               String          @id @default(uuid())
+  id               String             @id @default(uuid())
   storeName        String
   storeDescription String?
   storeAddress     String
@@ -139,11 +139,11 @@ model Store {
   preparationTime  Int?
   deliveryFee      Float?
   storeLogo        String?
-  status           StoreStatus     @default(PENDING_APPROVAL)
+  status           StoreStatus        @default(PENDING_APPROVAL)
   userId           String
   metadata         Json?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
   approvedAt       DateTime?
   approvedBy       String?
   rejectionReason  String?
@@ -155,8 +155,8 @@ model Store {
   orderItems       OrderItem[]
   packages         Package[]
   products         Product[]
-  category         Category        @relation(fields: [categoryId], references: [id])
-  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category         Category           @relation(fields: [categoryId], references: [id])
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   orders           Order[]
   settlements      VendorSettlement[]
 
@@ -468,6 +468,9 @@ model Order {
   store                Store?             @relation(fields: [storeId], references: [id])
   storeId              String?
   calls                Call[]
+  settledAt            DateTime?
+  settlementId         String?
+  settlement           VendorSettlement?  @relation(fields: [settlementId], references: [id])
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -1124,27 +1127,28 @@ model GlobalSetting {
 }
 
 model VendorSettlement {
-  id             String           @id @default(uuid())
-  reference      String           @unique                  // "vs1", "vs2" — display ID
-  vendorId       String
-  storeId        String?                                   // null = vendor-level aggregate
-  periodStart    DateTime
-  periodEnd      DateTime
-  dueDate        DateTime
-  totalOrders    Int              @default(0)
-  grossSales     Decimal          @db.Decimal(15, 2)
-  commission     Decimal          @db.Decimal(15, 2)
-  serviceCharge  Decimal          @db.Decimal(15, 2)
-  netSettlement  Decimal          @db.Decimal(15, 2)
-  status         SettlementStatus @default(PENDING)
-  settledAt      DateTime?
-  settledBy      String?
-  notes          String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  id            String           @id @default(uuid())
+  reference     String           @unique // "vs1", "vs2" — display ID
+  vendorId      String
+  storeId       String? // null = vendor-level aggregate
+  periodStart   DateTime
+  periodEnd     DateTime
+  dueDate       DateTime
+  totalOrders   Int              @default(0)
+  grossSales    Decimal          @db.Decimal(15, 2)
+  commission    Decimal          @db.Decimal(15, 2)
+  serviceCharge Decimal          @db.Decimal(15, 2)
+  netSettlement Decimal          @db.Decimal(15, 2)
+  status        SettlementStatus @default(PENDING)
+  settledAt     DateTime?
+  settledBy     String?
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
-  vendor User   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  store  Store? @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  vendor User    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  store  Store?  @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  orders Order[]
 
   @@index([vendorId])
   @@index([storeId])
