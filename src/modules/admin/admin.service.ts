@@ -680,12 +680,9 @@ export class AdminService {
     `${row.vendor?.firstName ?? ''} ${row.vendor?.lastName ?? ''}`.trim();
 
   const businessInfo = row.vendor?.businessInfo;
-
+ this.logger.log(`Business Info: ${JSON.stringify(businessInfo)}`); // Debugging line
   const location =
     row.store?.storeAddress ??
-    [businessInfo?.city, businessInfo?.state]
-      .filter(Boolean)
-      .join(', ') ??
     businessInfo?.address ??
     '—';
 
