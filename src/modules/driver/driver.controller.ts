@@ -664,8 +664,10 @@ async getDriverOrderHistory(
 
 @ApiTags('Driver — Earnings')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('driver/earnings')
 export class DriverEarningsController {
+
   constructor(private readonly service: DriverEarningsService) {}
 
   @Get('dashboard')
