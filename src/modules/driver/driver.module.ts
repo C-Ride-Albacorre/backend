@@ -1,6 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { DriverService } from './driver.service';
-import { DriverController } from './driver.controller';
+import { DriverController, DriverEarningsController, DriverWalletController } from './driver.controller';
 import { UserModule } from '../user/user.module';
 import { BullModule } from '@nestjs/bullmq';
 import { OrderModule } from '../order/order.module';
@@ -13,6 +13,9 @@ import { DriverAssignmentProcessor } from './processor/driver-assignment.process
 import { RatingModule } from '../rating/rating.module';
 import { DriverNotificationProcessor } from './processor/driver-notification.processor';
 import { DriverOnlineHoursService } from './driver-online-hours-service';
+import { WalletService } from '../wallet/wallet.service';
+import { DriverEarningsService } from './driver-earnings-service';
+import { PaymentModule } from '../payment/payment.module';
 
 @Module({
   imports: [
@@ -26,9 +29,13 @@ import { DriverOnlineHoursService } from './driver-online-hours-service';
     forwardRef(() => NotificationModule),
     forwardRef(() => AuthModule),
     forwardRef(() => RatingModule),
+    PaymentModule
   ],
-  controllers: [DriverController],
-  providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService, DriverAssignmentProcessor, DriverNotificationProcessor],
-  exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService],
+  controllers: [DriverController, DriverEarningsController,
+    DriverWalletController,],
+  providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService, DriverAssignmentProcessor, DriverNotificationProcessor, DriverEarningsService,
+    WalletService],
+  exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService, DriverEarningsService,
+    WalletService],
 })
-export class DriverModule {}
+export class DriverModule { }
