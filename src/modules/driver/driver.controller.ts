@@ -49,6 +49,11 @@ import { CurrentSessionResponseDto } from './dto/current-session-response.dto';
 import { DriverHoursResponseDto } from './dto/driver-hours-response.dto';
 import { GetDriverHoursQueryDto } from './dto/get-driver-hours-query.dto';
 import { DriverOnlineHoursService } from './driver-online-hours-service';
+import { DriverEarningsService } from './driver-earnings-service';
+import { WalletService } from '../wallet/wallet.service';
+import { DriverEarningsQueryDto } from './dto/driver-earnings-query.dto';
+import { RequestPayoutDto } from './dto/request-payout.dto';
+import { PaginationDto } from './dto/pagination.dto';
 
 @ApiTags('Dispatcher')
 @Controller('driver')
@@ -655,5 +660,48 @@ async getDriverOrderHistory(
     return this.hoursService.getCurrentSessionInfo(driverId);
   }
 
+}
 
+@ApiTags('Driver — Earnings')
+@ApiBearerAuth()
+@Controller('driver/earnings')
+export class DriverEarningsController {
+  constructor(private readonly service: DriverEarningsService) {}
+
+  @Get('dashboard')
+  @ApiOperation({ summary: 'Wallet + earnings cards + day breakdown' })
+  async dashboard(@Req() req, @Query() q: DriverEarningsQueryDto) {
+    const from = q.from ? new Date(q.from) : undefined;
+    const to   = q.to   ? new Date(q.to)   : undefined;
+    return this.service.getDashboard(req.user.id, q.period, from, to);
+  }
+}
+
+@ApiTags('Driver — Wallet')
+@ApiBearerAuth()
+@Controller('driver/wallet')
+export class DriverWalletController {
+  constructor(
+    private readonly earnings: DriverEarningsService,
+    private readonly walletService: WalletService,
+  ) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Wallet snapshot for the driver' })
+  async wallet(@Req() req) {
+    // Reuse earnings.getDashboard or expose a small method — the shape is the same
+    return this.earnings.getDashboard(req.user.id, 'TODAY').then(d => d.wallet);
+  }
+
+  @Post('payouts')
+  @ApiOperation({ summary: 'Request a payout' })
+  async requestPayout(@Req() req, @Body() dto: RequestPayoutDto) {
+    return this.earnings.requestPayout(req.user.id, dto.amount);
+  }
+
+  @Get('transactions')
+  @ApiOperation({ summary: 'Wallet transaction history (uses existing service)' })
+  async transactions(@Req() req, @Query() q: PaginationDto) {
+    return this.walletService.getTransactions(req.user.id, q.page, q.limit);
+  }
 }

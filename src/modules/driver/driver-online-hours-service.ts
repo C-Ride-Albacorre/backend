@@ -18,61 +18,61 @@ export class DriverOnlineHoursService implements OnModuleDestroy {
         @Inject(REDIS_CLIENT) public redis: Redis,
     ) { }
 
-    
-  /**
-   * Get active hours for a driver on a specific date.
-   * @param driverId - Driver ID
-   * @param dateStr - ISO date string (YYYY-MM-DD); defaults to today
-   * @returns DTO with hours, seconds, and date
-   */
-  async getDriverHoursForDate(
-    driverId: string,
-    dateStr?: string,
-  ): Promise<DriverHoursResponseDto> {
-    const effectiveDateStr = dateStr || new Date().toISOString().split('T')[0];
-    const date = new Date(effectiveDateStr);
-    date.setHours(0, 0, 0, 0);
 
-    const hours = await this.getActiveHours(driverId, date);
-    const seconds = Math.round(hours * 3600);
+    /**
+     * Get active hours for a driver on a specific date.
+     * @param driverId - Driver ID
+     * @param dateStr - ISO date string (YYYY-MM-DD); defaults to today
+     * @returns DTO with hours, seconds, and date
+     */
+    async getDriverHoursForDate(
+        driverId: string,
+        dateStr?: string,
+    ): Promise<DriverHoursResponseDto> {
+        const effectiveDateStr = dateStr || new Date().toISOString().split('T')[0];
+        const date = new Date(effectiveDateStr);
+        date.setHours(0, 0, 0, 0);
 
-    return {
-      driverId,
-      date: effectiveDateStr,
-      hours,
-      seconds,
-    };
-  }
+        const hours = await this.getActiveHours(driverId, date);
+        const seconds = Math.round(hours * 3600);
 
-  /**
-   * Get current active session duration and start time.
-   * @param driverId - Driver ID
-   * @returns DTO with duration (seconds) and startedAt (ISO string or null)
-   */
-  async getCurrentSessionInfo(
-    driverId: string,
-  ): Promise<CurrentSessionResponseDto> {
-    const key = this.SESSION_KEY_PREFIX + driverId;
-    const startTimeStr = await this.redis.get(key);
-
-    if (!startTimeStr) {
-      return {
-        driverId,
-        durationSeconds: null,
-        startedAt: null,
-      };
+        return {
+            driverId,
+            date: effectiveDateStr,
+            hours,
+            seconds,
+        };
     }
 
-    const startTime = parseInt(startTimeStr, 10);
-    const now = Date.now();
-    const durationSeconds = (now - startTime) / 1000;
+    /**
+     * Get current active session duration and start time.
+     * @param driverId - Driver ID
+     * @returns DTO with duration (seconds) and startedAt (ISO string or null)
+     */
+    async getCurrentSessionInfo(
+        driverId: string,
+    ): Promise<CurrentSessionResponseDto> {
+        const key = this.SESSION_KEY_PREFIX + driverId;
+        const startTimeStr = await this.redis.get(key);
 
-    return {
-      driverId,
-      durationSeconds,
-      startedAt: new Date(startTime).toISOString(),
-    };
-  }
+        if (!startTimeStr) {
+            return {
+                driverId,
+                durationSeconds: null,
+                startedAt: null,
+            };
+        }
+
+        const startTime = parseInt(startTimeStr, 10);
+        const now = Date.now();
+        const durationSeconds = (now - startTime) / 1000;
+
+        return {
+            driverId,
+            durationSeconds,
+            startedAt: new Date(startTime).toISOString(),
+        };
+    }
 
     /**
      * Called whenever a driver's status changes.
@@ -163,14 +163,14 @@ export class DriverOnlineHoursService implements OnModuleDestroy {
 
             // Optionally update session record
             const session = await tx.driverSession.findFirst({
-              where: { driverId, endedAt: null },
-              orderBy: { startedAt: 'desc' },
+                where: { driverId, endedAt: null },
+                orderBy: { startedAt: 'desc' },
             });
             if (session) {
-              await tx.driverSession.update({
-                where: { id: session.id },
-                data: { endedAt: new Date(now), duration: durationSeconds },
-              });
+                await tx.driverSession.update({
+                    where: { id: session.id },
+                    data: { endedAt: new Date(now), duration: durationSeconds },
+                });
             }
         });
 
@@ -205,6 +205,44 @@ export class DriverOnlineHoursService implements OnModuleDestroy {
         const startTime = parseInt(startTimeStr, 10);
         const now = Date.now();
         return (now - startTime) / 1000; // seconds
+    }
+
+
+    /**
+ * Total active seconds for a driver within [start, end] inclusive.
+ * Combines DriverDailyStats rows with any currently-open Redis session.
+ */
+    async getActiveSecondsForRange(
+        driverId: string,
+        start: Date,
+        end: Date,
+    ): Promise<number> {
+        // Normalize to day boundaries
+        const rangeStart = new Date(start); rangeStart.setHours(0, 0, 0, 0);
+        const rangeEnd = new Date(end); rangeEnd.setHours(23, 59, 59, 999);
+
+        // 1. Sum persisted daily stats in the range
+        const rows = await this.prisma.driverDailyStats.findMany({
+            where: {
+                driverId,
+                date: { gte: rangeStart, lte: rangeEnd },
+            },
+            select: { date: true, activeSeconds: true },
+        });
+
+        let totalSeconds = rows.reduce((s, r) => s + r.activeSeconds, 0);
+
+        // 2. If the range includes today and a session is currently open,
+        //    add the live duration — the daily stat row won't include it yet.
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        if (today >= rangeStart && today <= rangeEnd) {
+            const liveSeconds = await this.getCurrentActiveDuration(driverId);
+            if (liveSeconds && liveSeconds > 0) {
+                totalSeconds += Math.floor(liveSeconds);
+            }
+        }
+
+        return totalSeconds;
     }
 
     /**

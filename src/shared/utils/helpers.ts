@@ -1067,6 +1067,8 @@ static async getRouteDetails(
   }
 }
 
-
+static round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 }

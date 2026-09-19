@@ -681,7 +681,7 @@ export class AdminService {
     `${row.vendor?.firstName ?? ''} ${row.vendor?.lastName ?? ''}`.trim();
 
   const businessInfo = row.vendor?.businessInfo;
- this.logger.log(`Business Info: ${JSON.stringify(businessInfo)}`); // Debugging line
+ //this.logger.log(`Business Info: ${JSON.stringify(businessInfo)}`); // Debugging line
   const location =
     row.store?.storeAddress ??
     businessInfo?.address ??
@@ -712,40 +712,6 @@ export class AdminService {
   };
 }
 
-  private toRowDtoBk(row: any) {
-    const vendorName =
-      row.vendor?.businessInfo?.businessName ??
-      `${row.vendor?.firstName ?? ''} ${row.vendor?.lastName ?? ''}`.trim();
-
-    const location =
-      row.store?.storeAddress ?? // you may have a city/state field — use that instead
-      row.vendor?.businessInfo?.address ??
-      '—';
-
-    const period = this.formatPeriod(row.periodStart, row.periodEnd);
-
-    return {
-      id: row.id,
-      reference: row.reference,
-      vendorName: row.store?.storeName ?? vendorName,
-      location,
-      period,
-      dueDate: row.dueDate,
-      orders: row.totalOrders,
-      grossSales: Number(row.grossSales),
-      commission: -Math.abs(Number(row.commission)),
-      serviceCharge: -Math.abs(Number(row.serviceCharge)),
-      netSettlement: Number(row.netSettlement),
-      status: row.status,
-      bank: row.vendor?.businessInfo?.bankName
-        ? {
-            bankName: row.vendor.businessInfo.bankName,
-            accountLast4:
-              row.vendor.businessInfo.accountNumber?.slice(-4) ?? '••••',
-          }
-        : undefined,
-    };
-  }
 
   private formatPeriod(start: Date, end: Date): string {
     const fmt = (d: Date) =>

@@ -241,4 +241,80 @@ export class WalletService {
 //     // ...
 //   }
 
+/**
+ * Create a PENDING credit. Balance is NOT incremented — the money is
+ * "pending" until clearPendingCredit is called by the cron.
+ * Used by driver earnings so the driver sees the amount in Pending
+ * immediately but cannot spend it until the hold window passes.
+ */
+async creditWalletPending(
+  userId: string,
+  amount: number,
+  reference: string,
+  description: string,
+  metadata?: Record<string, any>,
+) {
+  if (amount <= 0) throw new BadRequestException('Amount must be positive');
+  const wallet = await this.getOrCreateWallet(userId);
+
+  return this.prisma.walletTransaction.create({
+    data: {
+      walletId: wallet.id,
+      amount,
+      type: WalletTxType.CREDIT,
+      reference,
+      description,
+      status: TxStatus.PENDING,
+      metadata: metadata ?? {},
+    },
+  });
+}
+
+/**
+ * Promote a PENDING credit to COMPLETED and increment the wallet balance.
+ * Idempotent — re-running on an already-completed tx is a no-op.
+ */
+async clearPendingCredit(walletTxId: string) {
+  return this.prisma.$transaction(async (prisma) => {
+    const tx = await prisma.walletTransaction.findUnique({
+      where: { id: walletTxId },
+      include: { wallet: true },
+    });
+    if (!tx) throw new NotFoundException('Wallet transaction not found');
+    if (tx.status !== TxStatus.PENDING) return tx;   // already processed
+
+    // Lock wallet row, then increment
+    await prisma.$queryRaw`SELECT 1 FROM "Wallet" WHERE id = ${tx.walletId} FOR UPDATE`;
+    await prisma.wallet.update({
+      where: { id: tx.walletId },
+      data: { balance: { increment: tx.amount } },
+    });
+    return prisma.walletTransaction.update({
+      where: { id: tx.id },
+      data: { status: TxStatus.COMPLETED },
+    });
+  });
+}
+
+/**
+ * Cancel a PENDING credit (used when an earning is reversed before clearing).
+ */
+async cancelPendingCredit(walletTxId: string, reason: string) {
+  return this.prisma.walletTransaction.update({
+    where: { id: walletTxId },
+    data: {
+      status: TxStatus.FAILED,
+      metadata: { ...(await this.getTxMetadata(walletTxId)), cancelReason: reason },
+    },
+  });
+}
+
+private async getTxMetadata(id: string): Promise<Record<string, any>> {
+  const tx = await this.prisma.walletTransaction.findUnique({
+    where: { id },
+    select: { metadata: true },
+  });
+  return (tx?.metadata as Record<string, any>) ?? {};
+}
+
 }
