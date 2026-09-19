@@ -54,7 +54,8 @@ model User {
   wallet                Wallet?
   commissions           Commission[]
   vendorSettlements     VendorSettlement[]
-
+  driverEarnings        DriverEarning[]
+  driverPayouts         DriverPayout[]
   @@index([email])
   @@index([phoneNumber])
 }
@@ -346,7 +347,7 @@ model DeliveryOption {
   displayOrder  Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  orders        Order[]
+  //orders        Order[]
 
   @@index([isActive])
 }
@@ -433,7 +434,6 @@ model Order {
   serviceFee           Float
   taxAmount            Float
   totalAmount          Float
-  deliveryOptionId     String?
   dropoffLocation      Json?              @db.Json
   recipientName        String
   recipientPhone       String
@@ -458,7 +458,9 @@ model Order {
   vendorAcceptedAt     DateTime?
   vendorDeclinedAt     DateTime?
   chatMessages         ChatMessage[]
-  deliveryOption       DeliveryOption?    @relation(fields: [deliveryOptionId], references: [id])
+  // deliveryOption       DeliveryOption?    @relation(fields: [deliveryOptionId], references: [id])
+  deliveryOptionId     String?
+  deliveryOption       VehicleTypeConfig? @relation(fields: [deliveryOptionId], references: [id])
   user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   items                OrderItem[]
   vendorOrderAction    VendorOrderAction?
@@ -471,6 +473,7 @@ model Order {
   settledAt            DateTime?
   settlementId         String?
   settlement           VendorSettlement?  @relation(fields: [settlementId], references: [id])
+  driverEarning        DriverEarning?
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -549,6 +552,10 @@ model DriverProfile {
   updatedAt         DateTime         @updatedAt
   documents         DriverDocument[]
   user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankName          String?
+  bankCode          String?
+  accountNumber     String?
+  accountName       String?
 
   @@index([userId])
   @@index([status])
@@ -670,12 +677,6 @@ model Rating {
   @@index([expiresAt])
 }
 
-// enum DriverStatus {
-//   OFFLINE
-//   ONLINE
-//   BUSY
-//   // other states ...
-// }
 
 model DriverDailyStats {
   id            String   @id @default(cuid())
@@ -1048,6 +1049,7 @@ model VehicleTypeConfig {
   perKmRate             Decimal        @db.Decimal(10, 2)
   deliveryCommissionPct Decimal        @db.Decimal(5, 2) // C-Ride share (e.g., 20.00 for 20%)
   distanceBands         DistanceBand[]
+  orders                Order[]
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
 
@@ -1161,4 +1163,69 @@ enum SettlementStatus {
   PENDING
   PROCESSING
   SETTLED
+}
+
+
+model DriverEarning {
+  id                String         @id @default(uuid())
+  driverId          String
+  orderId           String         @unique
+  walletTxId        String         @unique          // links to the WalletTransaction that moves the money
+  grossAmount       Float                            // deliveryFee paid by customer
+  commissionPct     Float                            // snapshot of VehicleTypeConfig.deliveryCommissionPct
+  commissionAmount  Float                            // c-ride's cut
+  netAmount         Float                            // driver's share
+  tips              Float          @default(0)
+  bonuses           Float          @default(0)
+  totalAmount       Float                            // netAmount + tips + bonuses
+  status            EarningStatus  @default(EARNED)
+  reversalReason    String?
+  clearedAt         DateTime?
+  earnedAt          DateTime                         // = order.deliveredAt
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  driver            User           @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  order             Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([driverId, earnedAt])
+  @@index([driverId, status])
+  @@map("driver_earnings")
+}
+
+enum EarningStatus {
+  EARNED     // hold window running
+  CLEARED    // withdrawable
+  HOLD       // frozen (dispute)
+  REVERSED   // clawed back
+}
+
+model DriverPayout {
+  id            String        @id @default(uuid())
+  reference     String        @unique
+  driverId      String
+  amount        Float
+  status        PayoutStatus  @default(PENDING)
+  bankSnapshot  Json
+  walletTxId    String?       @unique               // debit tx created on PAID
+  requestedAt   DateTime      @default(now())
+  processedAt   DateTime?
+  processedBy   String?
+  failureReason String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  driver        User          @relation(fields: [driverId], references: [id])
+
+  @@index([driverId, status])
+  @@index([status, requestedAt])
+  @@map("driver_payouts")
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
 }

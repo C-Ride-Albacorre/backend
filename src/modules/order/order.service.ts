@@ -1164,9 +1164,13 @@ export class OrderService {
         ? {
           deliveryOptionId: order.deliveryOption.id,
           name: order.deliveryOption.name,
-          baseFee: order.deliveryOption.baseFee,
-          estimatedDays: order.deliveryOption.estimatedDays,
-          description: order.deliveryOption.description,
+          // baseFee: order.deliveryOption.baseFee,
+          // estimatedDays: order.deliveryOption.estimatedDays,
+          // description: order.deliveryOption.description,
+          // minDeliveryFee: order.deliveryOption.minDeliveryFee,
+          // perKmRate: order.deliveryOption.perKmRate,
+          // deliveryType: order.deliveryOption.deliveryType,
+          // iconUrl: order.deliveryOption.icon,
         }
         : null,
     };
