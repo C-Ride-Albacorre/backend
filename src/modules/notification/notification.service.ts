@@ -286,4 +286,5 @@ private async getCustomerEmail(customerId: string): Promise<string> {
       // Non-critical – do not throw
     }
   }
+
 }

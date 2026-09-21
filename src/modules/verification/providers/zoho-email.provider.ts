@@ -354,4 +354,474 @@ private generateOrderConfirmationEmail(orderNumber: string): string {
     </html>
   `;
 }
+
+
+
+  async sendVendorApprovalNotification(
+  to: string,
+  vendorName?: string,
+): Promise<any> {
+  const subject = 'Your Vendor Account Has Been Approved';
+
+  const html = this.generateVendorApprovalEmail(vendorName);
+
+  this.logger.log(`Sending vendor approval email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    'Your vendor account has been approved. You can now access your vendor dashboard.',
+    html,
+  );
+}
+
+private generateVendorApprovalEmail(vendorName?: string): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Vendor Account Approved</title>
+      </head>
+
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Vendor Account Approved 🎉
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Hello ${vendorName || 'Vendor'},
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Great news! Your vendor account has been reviewed and approved.
+          </p>
+
+          <div style="background: #f0fdf4; padding: 20px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #166534; font-size: 18px; font-weight: bold;">
+              Your account is now approved.
+            </p>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            You can now log in to your vendor dashboard and start managing your store, products, and orders.
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Thank you for joining our marketplace. We look forward to having you on board.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+async sendVendorRejectionNotification(
+  to: string,
+  vendorName?: string,
+  rejectionReason?: string,
+): Promise<any> {
+  const subject = 'Your Vendor Application Has Been Rejected';
+  const html = this.generateVendorRejectionEmail(
+    vendorName,
+    rejectionReason,
+  );
+
+  this.logger.log(`Sending vendor rejection email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    'Your vendor application has been rejected.',
+    html,
+  );
+}
+
+private generateVendorRejectionEmail(
+  vendorName?: string,
+  rejectionReason?: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Vendor Application Rejected</title>
+      </head>
+
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Vendor Application Update
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Hello ${vendorName || 'Vendor'},
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Unfortunately, your vendor application has been rejected after review.
+          </p>
+
+          ${
+            rejectionReason
+              ? `
+                <div style="background: #fef2f2; padding: 20px; border-radius: 6px; margin: 20px 0;">
+                  <p style="margin: 0 0 8px; color: #991b1b; font-weight: bold;">
+                    Reason for rejection:
+                  </p>
+
+                  <p style="margin: 0; color: #555555;">
+                    ${rejectionReason}
+                  </p>
+                </div>
+              `
+              : ''
+          }
+
+          <p style="font-size: 16px; color: #555555;">
+            Please review the feedback and make the necessary changes before submitting your application again.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+async sendVendorSuspensionNotification(
+  to: string,
+  vendorName?: string,
+  reason?: string,
+): Promise<any> {
+  const subject = 'Your Vendor Account Has Been Suspended';
+  const html = this.generateVendorSuspensionEmail(vendorName, reason);
+
+  this.logger.log(`Sending vendor suspension email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    'Your vendor account has been suspended.',
+    html,
+  );
+}
+
+private generateVendorSuspensionEmail(
+  vendorName?: string,
+  reason?: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Vendor Account Suspended</title>
+      </head>
+
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Vendor Account Suspended
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Hello ${vendorName || 'Vendor'},
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Your vendor account has been suspended by our administration team.
+          </p>
+
+          <div style="background: #fff7ed; padding: 20px; border-radius: 6px; margin: 20px 0;">
+            <p style="margin: 0; color: #9a3412; font-weight: bold;">
+              Your account is currently suspended.
+            </p>
+
+            ${
+              reason
+                ? `
+                  <p style="margin: 12px 0 0; color: #555555;">
+                    <strong>Reason:</strong> ${reason}
+                  </p>
+                `
+                : ''
+            }
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            While your account is suspended, you may not be able to access certain vendor features or process orders.
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            If you believe this suspension was made in error, please contact our support team for assistance.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+
+  async sendStoreApprovalNotification(
+  to: string,
+  storeName?: string,
+): Promise<any> {
+  const subject = 'Your Store Has Been Approved';
+  const html = this.generateStoreApprovalEmail(storeName);
+
+  this.logger.log(`Sending store approval email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    'Your store has been approved and is now active.',
+    html,
+  );
+}
+
+private generateStoreApprovalEmail(storeName?: string): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Store Approved</title>
+      </head>
+
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Your Store Has Been Approved 🎉
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Hello,
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Great news! Your store
+            <strong>${storeName || 'store'}</strong>
+            has been reviewed and approved.
+          </p>
+
+          <div style="background: #f0fdf4; padding: 20px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #166534; font-size: 18px; font-weight: bold;">
+              Your store is now active.
+            </p>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            You can now access your vendor dashboard and manage your store, products, and orders.
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Thank you for being part of our marketplace.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+async sendStoreRejectionNotification(
+  to: string,
+  storeName?: string,
+  rejectionReason?: string,
+): Promise<any> {
+  const subject = 'Your Store Has Been Rejected';
+  const html = this.generateStoreRejectionEmail(
+    storeName,
+    rejectionReason,
+  );
+
+  this.logger.log(`Sending store rejection email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    'Your store has been rejected.',
+    html,
+  );
+}
+
+private generateStoreRejectionEmail(
+  storeName?: string,
+  rejectionReason?: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Store Rejected</title>
+      </head>
+
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Store Application Update
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Hello,
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Unfortunately, your store
+            <strong>${storeName || 'store'}</strong>
+            has been rejected after review.
+          </p>
+
+          ${
+            rejectionReason
+              ? `
+                <div style="background: #fef2f2; padding: 20px; border-radius: 6px; margin: 20px 0;">
+                  <p style="margin: 0 0 8px; color: #991b1b; font-weight: bold;">
+                    Reason for rejection:
+                  </p>
+
+                  <p style="margin: 0; color: #555555;">
+                    ${rejectionReason}
+                  </p>
+                </div>
+              `
+              : ''
+          }
+
+          <p style="font-size: 16px; color: #555555;">
+            Please review the feedback and make the necessary changes before submitting your store again.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+async sendStoreSuspensionNotification(
+  to: string,
+  storeName?: string,
+  reason?: string,
+): Promise<any> {
+  const subject = 'Your Store Has Been Suspended';
+  const html = this.generateStoreSuspensionEmail(storeName, reason);
+
+  this.logger.log(`Sending store suspension email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    'Your store has been suspended.',
+    html,
+  );
+}
+
+private generateStoreSuspensionEmail(
+  storeName?: string,
+  reason?: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Store Suspended</title>
+      </head>
+
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Store Suspended
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Hello,
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Your store
+            <strong>${storeName || 'store'}</strong>
+            has been suspended by our administration team.
+          </p>
+
+          <div style="background: #fff7ed; padding: 20px; border-radius: 6px; margin: 20px 0;">
+
+            <p style="margin: 0; color: #9a3412; font-weight: bold;">
+              Your store is currently suspended.
+            </p>
+
+            ${
+              reason
+                ? `
+                  <p style="margin: 12px 0 0; color: #555555;">
+                    <strong>Reason:</strong> ${reason}
+                  </p>
+                `
+                : ''
+            }
+
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            While your store is suspended, it may not be visible to customers and you may not be able to process new orders.
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            If you believe this suspension was made in error, please contact our support team for assistance.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+
 }
