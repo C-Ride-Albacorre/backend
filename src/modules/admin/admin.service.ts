@@ -30,6 +30,7 @@ import { CustomerFilterDto } from './dto/customer.dto';
 import { UpdateCustomerStatusDto } from './dto/update-customer-status.dto';
 import { UpdateSettlementStatusDto } from './dto/settlement/update-settlement-status.dto';
 import { VendorSettlementFilterDto } from './dto/settlement/vendor-settlement-filter.dto';
+import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
 
 @Injectable()
 export class AdminService {
@@ -39,6 +40,8 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly userRepository: AbstractUserRepository,
     private readonly cloudinaryService: CloudinaryService,
+    private zohoEmailProvider: ZohoEmailProvider,
+
   ) { }
 
 
@@ -256,12 +259,12 @@ export class AdminService {
     };
   }
 
- 
+
 
   /**
    * Approve or reject a vendor
    */
- 
+
   async approveVendor(
     adminId: string,
     vendorId: string,
@@ -325,6 +328,19 @@ export class AdminService {
           userUpdateData,
         );
 
+        try {
+          await this.zohoEmailProvider.sendVendorApprovalNotification(
+            vendor.email,
+            vendor.businessInfo?.businessName,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Vendor ${vendorId} was approved, but approval email could not be sent`,
+            error,
+          );
+        }
+
+
         this.logger.log(`Vendor ${vendorId} approved`);
         break;
 
@@ -344,6 +360,20 @@ export class AdminService {
           vendor.id,
           userUpdateData,
         );
+
+
+        try {
+          await this.zohoEmailProvider.sendVendorRejectionNotification(
+            vendor.email,
+            vendor.businessInfo?.businessName,
+            dto.rejectionReason,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Vendor ${vendorId} was rejected, but rejection email could not be sent`,
+            error,
+          );
+        }
 
         this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
         break;
@@ -365,6 +395,19 @@ export class AdminService {
           where: { userId: vendorId },
           data: { status: StoreStatus.SUSPENDED },
         });
+
+        try {
+          await this.zohoEmailProvider.sendVendorSuspensionNotification(
+            vendor.email,
+            vendor.businessInfo?.businessName,
+            dto.rejectionReason,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Vendor ${vendorId} was suspended, but suspension email could not be sent`,
+            error,
+          );
+        }
 
         this.logger.log(`Vendor ${vendorId} suspended`);
         break;
@@ -497,10 +540,10 @@ export class AdminService {
 
     const cycleWhere: Prisma.VendorSettlementWhereInput = latest
       ? {
-          ...baseWhere,
-          periodStart: { gte: latest.periodStart },
-          periodEnd: { lte: latest.periodEnd },
-        }
+        ...baseWhere,
+        periodStart: { gte: latest.periodStart },
+        periodEnd: { lte: latest.periodEnd },
+      }
       : baseWhere;
 
     const [awaiting, processing, settled, pendingAgg, allAgg] =
@@ -676,41 +719,41 @@ export class AdminService {
   // MAPPER
   // ----------------------------------------------------------------
   private toRowDto(row: any) {
-  const vendorName =
-    row.vendor?.businessInfo?.businessName ??
-    `${row.vendor?.firstName ?? ''} ${row.vendor?.lastName ?? ''}`.trim();
+    const vendorName =
+      row.vendor?.businessInfo?.businessName ??
+      `${row.vendor?.firstName ?? ''} ${row.vendor?.lastName ?? ''}`.trim();
 
-  const businessInfo = row.vendor?.businessInfo;
- //this.logger.log(`Business Info: ${JSON.stringify(businessInfo)}`); // Debugging line
-  const location =
-    row.store?.storeAddress ??
-    businessInfo?.address ??
-    '—';
+    const businessInfo = row.vendor?.businessInfo;
+    //this.logger.log(`Business Info: ${JSON.stringify(businessInfo)}`); // Debugging line
+    const location =
+      row.store?.storeAddress ??
+      businessInfo?.address ??
+      '—';
 
-  const period = this.formatPeriod(row.periodStart, row.periodEnd);
+    const period = this.formatPeriod(row.periodStart, row.periodEnd);
 
-  return {
-    id: row.id,
-    reference: row.reference,
-    vendorName: row.store?.storeName ?? vendorName,
-    location,
-    period,
-    dueDate: row.dueDate,
-    orders: row.totalOrders,
-    grossSales: Number(row.grossSales),
-    commission: -Math.abs(Number(row.commission)),
-    serviceCharge: -Math.abs(Number(row.serviceCharge)),
-    netSettlement: Number(row.netSettlement),
-    status: row.status,
-    bank: businessInfo?.bankName
-      ? {
+    return {
+      id: row.id,
+      reference: row.reference,
+      vendorName: row.store?.storeName ?? vendorName,
+      location,
+      period,
+      dueDate: row.dueDate,
+      orders: row.totalOrders,
+      grossSales: Number(row.grossSales),
+      commission: -Math.abs(Number(row.commission)),
+      serviceCharge: -Math.abs(Number(row.serviceCharge)),
+      netSettlement: Number(row.netSettlement),
+      status: row.status,
+      bank: businessInfo?.bankName
+        ? {
           bankName: businessInfo.bankName,
           accountLast4:
             businessInfo.accountNumber?.slice(-4) ?? '••••',
         }
-      : undefined,
-  };
-}
+        : undefined,
+    };
+  }
 
 
   private formatPeriod(start: Date, end: Date): string {
@@ -869,6 +912,18 @@ export class AdminService {
             // commissionRate: dto.commissionRate || store.commissionRate,
           },
         });
+
+            try {
+        await this.zohoEmailProvider.sendStoreApprovalNotification(
+          store.user.email,
+          store.storeName,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Store ${storeId} was approved, but approval email could not be sent`,
+          error,
+        );
+      }
         this.logger.log(`Store ${storeId} approved`);
         break;
 
@@ -885,6 +940,18 @@ export class AdminService {
             rejectionReason: dto.rejectionReason,
           },
         });
+         try {
+        await this.zohoEmailProvider.sendStoreRejectionNotification(
+          store.user.email,
+          store.storeName,
+          dto.rejectionReason,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Store ${storeId} was rejected, but rejection email could not be sent`,
+          error,
+        );
+      }
         this.logger.log(`Store ${storeId} rejected: ${dto.rejectionReason}`);
         break;
 
@@ -898,6 +965,18 @@ export class AdminService {
             rejectionReason: dto.rejectionReason,
           },
         });
+         try {
+        await this.zohoEmailProvider.sendStoreSuspensionNotification(
+          store.user.email,
+          store.storeName,
+          dto.rejectionReason,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Store ${storeId} was suspended, but suspension email could not be sent`,
+          error,
+        );
+      }
         this.logger.log(`Store ${storeId} suspended`);
         break;
 
@@ -1282,145 +1361,145 @@ export class AdminService {
   }
 
   async getAllCustomers(filterDto: CustomerFilterDto) {
-  const {
-    search,
-    status,
-    page = 1,
-    limit = 10,
-  } = filterDto;
+    const {
+      search,
+      status,
+      page = 1,
+      limit = 10,
+    } = filterDto;
 
-  const skip = (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
-  const baseWhere: Prisma.UserWhereInput = {
-    role: Role.CUSTOMER,
-  };
+    const baseWhere: Prisma.UserWhereInput = {
+      role: Role.CUSTOMER,
+    };
 
-  const where: Prisma.UserWhereInput = {
-    ...baseWhere,
-  };
+    const where: Prisma.UserWhereInput = {
+      ...baseWhere,
+    };
 
-  if (status) {
-    where.status = status;
-  }
+    if (status) {
+      where.status = status;
+    }
 
-  if (search) {
-    where.OR = [
-      {
-        firstName: {
-          contains: search,
-          mode: 'insensitive',
-        },
-      },
-      {
-        lastName: {
-          contains: search,
-          mode: 'insensitive',
-        },
-      },
-      {
-        email: {
-          contains: search,
-          mode: 'insensitive',
-        },
-      },
-      {
-        phoneNumber: {
-          contains: search,
-          mode: 'insensitive',
-        },
-      },
-    ];
-  }
-
-  const [
-    customers,
-    total,
-    active,
-    suspended,
-  ] = await Promise.all([
-    this.prisma.user.findMany({
-      where,
-      skip,
-      take: limit,
-
-      include: {
-        customerLocations: true,
-
-        _count: {
-          select: {
-            orders: true,
+    if (search) {
+      where.OR = [
+        {
+          firstName: {
+            contains: search,
+            mode: 'insensitive',
           },
         },
-
-        orders: {
-          select: {
-            totalAmount: true,
+        {
+          lastName: {
+            contains: search,
+            mode: 'insensitive',
           },
         },
-      },
+        {
+          email: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+        {
+          phoneNumber: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
 
-      orderBy: {
-        createdAt: 'desc',
-      },
-    }),
-
-    this.prisma.user.count({
-      where,
-    }),
-
-    this.prisma.user.count({
-      where: {
-        ...baseWhere,
-        status: UserStatus.ACTIVE,
-      },
-    }),
-
-    this.prisma.user.count({
-      where: {
-        ...baseWhere,
-        status: UserStatus.SUSPENDED,
-      },
-    }),
-  ]);
-
-  const formatted = customers.map((customer) => ({
-    id: customer.id,
-    name: `${customer.firstName} ${customer.lastName}`,
-    email: customer.email,
-    phoneNumber: customer.phoneNumber,
-
-    location: customer.customerLocations?.[0]?.address || null,
-
-    status: customer.status,
-    createdAt: customer.createdAt,
-
-    orders: customer._count.orders,
-
-    spending: customer.orders.reduce(
-      (total, order) => total + order.totalAmount,
-      0,
-    ),
-  }));
-
-  return {
-    success: true,
-
-    data: formatted,
-
-    summary: {
+    const [
+      customers,
       total,
       active,
       suspended,
-    },
+    ] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
 
-    meta: {
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    },
-  };
-}
+        include: {
+          customerLocations: true,
+
+          _count: {
+            select: {
+              orders: true,
+            },
+          },
+
+          orders: {
+            select: {
+              totalAmount: true,
+            },
+          },
+        },
+
+        orderBy: {
+          createdAt: 'desc',
+        },
+      }),
+
+      this.prisma.user.count({
+        where,
+      }),
+
+      this.prisma.user.count({
+        where: {
+          ...baseWhere,
+          status: UserStatus.ACTIVE,
+        },
+      }),
+
+      this.prisma.user.count({
+        where: {
+          ...baseWhere,
+          status: UserStatus.SUSPENDED,
+        },
+      }),
+    ]);
+
+    const formatted = customers.map((customer) => ({
+      id: customer.id,
+      name: `${customer.firstName} ${customer.lastName}`,
+      email: customer.email,
+      phoneNumber: customer.phoneNumber,
+
+      location: customer.customerLocations?.[0]?.address || null,
+
+      status: customer.status,
+      createdAt: customer.createdAt,
+
+      orders: customer._count.orders,
+
+      spending: customer.orders.reduce(
+        (total, order) => total + order.totalAmount,
+        0,
+      ),
+    }));
+
+    return {
+      success: true,
+
+      data: formatted,
+
+      summary: {
+        total,
+        active,
+        suspended,
+      },
+
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
 
 
   async getCustomerDetailsbk(customerId: string) {
@@ -1454,133 +1533,133 @@ export class AdminService {
   }
 
   async getCustomerDetails(customerId: string) {
-  const customer = await this.prisma.user.findFirst({
-    where: {
-      id: customerId,
-      role: Role.CUSTOMER,
-    },
-
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      phoneNumber: true,
-      status: true,
-      createdAt: true,
-      updatedAt: true,
-
-      customerLocations: {
-        select: {
-          id: true,
-          address: true,
-          city: true,
-          state: true,
-          country: true,
-          latitude: true,
-          longitude: true,
-        },
+    const customer = await this.prisma.user.findFirst({
+      where: {
+        id: customerId,
+        role: Role.CUSTOMER,
       },
 
-      // Latest 10 orders for display
-      orders: {
-        where: {
-          paymentStatus: PaymentStatus.PAID,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phoneNumber: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+
+        customerLocations: {
+          select: {
+            id: true,
+            address: true,
+            city: true,
+            state: true,
+            country: true,
+            latitude: true,
+            longitude: true,
+          },
         },
-        take: 10,
-        orderBy: {
-          createdAt: 'desc',
+
+        // Latest 10 orders for display
+        orders: {
+          where: {
+            paymentStatus: PaymentStatus.PAID,
+          },
+          take: 10,
+          orderBy: {
+            createdAt: 'desc',
+          },
+          select: {
+            id: true,
+            orderNumber: true,
+            orderCode: true,
+            orderType: true,
+            subtotal: true,
+            deliveryFee: true,
+            serviceFee: true,
+            taxAmount: true,
+            totalAmount: true,
+            paymentStatus: true,
+            paymentMethod: true,
+            orderStatus: true,
+            recipientName: true,
+            recipientPhone: true,
+            createdAt: true,
+            deliveredAt: true,
+            canceledAt: true,
+          },
         },
-        select: {
-          id: true,
-          orderNumber: true,
-          orderCode: true,
-          orderType: true,
-          subtotal: true,
-          deliveryFee: true,
-          serviceFee: true,
-          taxAmount: true,
-          totalAmount: true,
-          paymentStatus: true,
-          paymentMethod: true,
-          orderStatus: true,
-          recipientName: true,
-          recipientPhone: true,
-          createdAt: true,
-          deliveredAt: true,
-          canceledAt: true,
+
+        wallet: {
+          select: {
+            id: true,
+            balance: true,
+            currency: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+
+        // Aggregate order statistics
+        _count: {
+          select: {
+            orders: true,
+          },
         },
       },
+    });
 
-      wallet: {
-        select: {
-          id: true,
-          balance: true,
-          currency: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+    if (!customer) {
+      throw new NotFoundException('Customer not found');
+    }
+
+    // Get total spending separately so we don't load every order
+    const spending = await this.prisma.order.aggregate({
+      where: {
+        userId: customerId,
+        paymentStatus: PaymentStatus.PAID,
       },
-
-      // Aggregate order statistics
-      _count: {
-        select: {
-          orders: true,
-        },
+      _sum: {
+        totalAmount: true,
       },
-    },
-  });
+    });
 
-  if (!customer) {
-    throw new NotFoundException('Customer not found');
-  }
+    return {
+      success: true,
 
-  // Get total spending separately so we don't load every order
-  const spending = await this.prisma.order.aggregate({
-    where: {
-      userId: customerId,
-      paymentStatus: PaymentStatus.PAID,
-    },
-    _sum: {
-      totalAmount: true,
-    },
-  });
+      data: {
+        id: customer.id,
 
-  return {
-    success: true,
+        name: `${customer.firstName} ${customer.lastName}`,
 
-    data: {
-      id: customer.id,
+        email: customer.email,
 
-      name: `${customer.firstName} ${customer.lastName}`,
+        phoneNumber: customer.phoneNumber,
 
-      email: customer.email,
+        status: customer.status,
 
-      phoneNumber: customer.phoneNumber,
+        createdAt: customer.createdAt,
 
-      status: customer.status,
+        updatedAt: customer.updatedAt,
 
-      createdAt: customer.createdAt,
+        locations: customer.customerLocations,
 
-      updatedAt: customer.updatedAt,
+        orders: customer.orders,
 
-      locations: customer.customerLocations,
+        orderCount: customer._count.orders,
 
-      orders: customer.orders,
+        spending: spending._sum.totalAmount ?? 0,
 
-      orderCount: customer._count.orders,
-
-      spending: spending._sum.totalAmount ?? 0,
-
-      wallet: customer.wallet
-        ? {
+        wallet: customer.wallet
+          ? {
             balance: customer.wallet.balance,
             currency: customer.wallet.currency,
           }
-        : null,
-    },
-  };
-}
+          : null,
+      },
+    };
+  }
 
 
   async deleteCustomer(customerId: string) {
@@ -1663,8 +1742,8 @@ export class AdminService {
     return {
       success: true,
       message: `Customer ${statusDto.status === UserStatus.ACTIVE
-          ? 'activated'
-          : 'suspended'
+        ? 'activated'
+        : 'suspended'
         } successfully`,
       data: {
         id: updatedCustomer.id,

@@ -29,6 +29,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { JwtOptionalGuard } from 'src/common/guards/jwt-optional.guard';
 import { PrismaService } from 'src/shared/services/prisma.service';
 import { GetDeliveryOptionsQueryDto } from './dto/get-delivery-options.query';
+import { GetCartQueryDto } from './dto/get-cart-query.dto';
 
 @Public()
 @ApiTags('Cart')
@@ -42,6 +43,66 @@ export class CartController {
   ) {}
 
   // ==================== CART ====================
+ @Get('')
+@ApiOperation({ summary: 'Get current cart' })
+@ApiHeader({ name: 'x-session-id', required: false })
+@ApiQuery({
+  name: 'address',
+  required: false,
+  description: 'Dropoff address — when provided, delivery fee is computed',
+})
+@ApiQuery({
+  name: 'deliveryOptionId',
+  required: false,
+  description: 'Chosen VehicleTypeConfig.id — when provided, its fee is used',
+})
+async getCart(
+  @Request() req,
+  @Headers('x-session-id') sessionId: string,
+  @Query() query: GetCartQueryDto,
+) {
+  const userId = req.user?.id || null;
+  const safeSessionId = sessionId?.trim() || null;
+
+  // Logged-in user
+  if (userId) {
+    const userCart = await this.prisma.cart.findUnique({
+      where: { userId },
+      include: { items: true },
+    });
+    if (!userCart) {
+      throw new NotFoundException('No cart found for this user');
+    }
+    return this.cartService.getCartSummary(
+      userCart.id,
+      userId,
+      undefined,           // sessionId
+      query.address,       // ← new
+      query.deliveryOptionId, // ← new
+    );
+  }
+
+  // Guest flow
+  if (!safeSessionId) {
+    throw new BadRequestException('sessionId required for guest');
+  }
+
+  const guestCart = await this.prisma.cart.findUnique({
+    where: { sessionId: safeSessionId },
+    include: { items: true },
+  });
+  if (!guestCart) {
+    throw new NotFoundException('No cart found for this session');
+  }
+
+  return this.cartService.getCartSummary(
+    guestCart.id,
+    undefined,             // userId
+    safeSessionId,         // sessionId
+    query.address,         // ← new
+    query.deliveryOptionId,// ← new
+  );
+}
 
   // @Get('')
   // @ApiOperation({ summary: 'Get current cart' })
@@ -52,52 +113,38 @@ export class CartController {
   // })
   // async getCart(@Request() req, @Headers('x-session-id') sessionId: string) {
   //   const userId = req.user?.id || null;
+  //   const safeSessionId = sessionId?.trim() || null;
 
-  //   const cart = await this.cartService.getOrCreateCart(userId, sessionId);
-  //   return this.cartService.getCartSummary(cart.id, userId, sessionId);
+  //   // Logged-in user → always return user cart (do NOT create)
+  //   if (userId) {
+  //     const userCart = await this.prisma.cart.findUnique({
+  //       where: { userId },
+  //       include: { items: true },
+  //     });
+  //     if (!userCart) {
+  //       // Optionally create one, but better to return 404 or empty structure
+  //       throw new NotFoundException('No cart found for this user');
+  //     }
+  //     return this.cartService.getCartSummary(userCart.id, userId, null);
+  //   }
+
+  //   // Guest flow
+  //   if (!safeSessionId) {
+  //     throw new BadRequestException('sessionId required for guest');
+  //   }
+
+  //   const guestCart = await this.prisma.cart.findUnique({
+  //     where: { sessionId: safeSessionId },
+  //     include: { items: true },
+  //   });
+
+  //   if (!guestCart) {
+  //     // Do NOT auto-create – the sessionId is invalid or was merged
+  //     throw new NotFoundException('No cart found for this session');
+  //   }
+
+  //   return this.cartService.getCartSummary(guestCart.id, null, safeSessionId);
   // }
-
-  @Get('')
-  @ApiOperation({ summary: 'Get current cart' })
-  @ApiHeader({
-    name: 'x-session-id',
-    required: false, // ✅ this is key
-    description: 'Guest session ID',
-  })
-  async getCart(@Request() req, @Headers('x-session-id') sessionId: string) {
-    const userId = req.user?.id || null;
-    const safeSessionId = sessionId?.trim() || null;
-
-    // Logged-in user → always return user cart (do NOT create)
-    if (userId) {
-      const userCart = await this.prisma.cart.findUnique({
-        where: { userId },
-        include: { items: true },
-      });
-      if (!userCart) {
-        // Optionally create one, but better to return 404 or empty structure
-        throw new NotFoundException('No cart found for this user');
-      }
-      return this.cartService.getCartSummary(userCart.id, userId, null);
-    }
-
-    // Guest flow
-    if (!safeSessionId) {
-      throw new BadRequestException('sessionId required for guest');
-    }
-
-    const guestCart = await this.prisma.cart.findUnique({
-      where: { sessionId: safeSessionId },
-      include: { items: true },
-    });
-
-    if (!guestCart) {
-      // Do NOT auto-create – the sessionId is invalid or was merged
-      throw new NotFoundException('No cart found for this session');
-    }
-
-    return this.cartService.getCartSummary(guestCart.id, null, safeSessionId);
-  }
 
   @Post('/add')
   @ApiOperation({ summary: 'Add item to cart' })
