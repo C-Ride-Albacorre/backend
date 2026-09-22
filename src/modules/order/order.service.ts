@@ -217,7 +217,7 @@ export class OrderService {
     return updatedOrder;
   }
 
-  buildFullAddress(location: DropoffLocationDto): string {
+  buildFullAddressOld(location: DropoffLocationDto): string {
     return [
       location.address,
       location.country,
@@ -229,6 +229,26 @@ export class OrderService {
       .filter(Boolean)
       .join(', ');
   }
+
+   buildFullAddress(loc: any): string {
+  const parts = [
+    loc.street,
+    loc.city,
+    loc.state,
+    loc.postalCode,
+    loc.country,
+  ]
+    .map((p) => (typeof p === 'string' ? p.trim() : ''))
+    .filter((p) => p.length > 0);
+
+  // Dedup consecutive-equal-ish tokens; drop the trailing country if
+  // it already appeared earlier in the string.
+  const deduped: string[] = [];
+  for (const part of parts) {
+    if (!deduped.includes(part)) deduped.push(part);
+  }
+  return deduped.join(', ');
+}
 
   /**
    * Create an order from a cart.
@@ -653,7 +673,9 @@ export class OrderService {
     } | null = null;
 
     if (dto.dropoffLocation) {
-      const address = this.buildFullAddress(dto.dropoffLocation);
+     // const address = this.buildFullAddress(dto.dropoffLocation);
+        const address = dto.dropoffLocation.address; // Use the address field directly
+
       this.logger.log(
         `[${requestId}] Checking customer's address ${address}`,
       );
