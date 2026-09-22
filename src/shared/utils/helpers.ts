@@ -15,6 +15,18 @@ import { JsonObject, JsonArray } from '@prisma/client/runtime/library';
 const chance = new Chance();
 const logger = new Logger('Helper');
 //const prisma = new PrismaClient();
+export interface LatLng {
+  latitude: number;
+  longitude: number;
+}
+
+export interface ResolvedDistance {
+  distanceKm: number;
+  durationSeconds: number | null;
+  distanceSource: 'google_routes' | 'haversine';
+  /** True when Google Routes failed and we fell back to straight-line. */
+  fellBack: boolean;
+}
 
 export default class Helper {
   static generateStoreLink(
@@ -667,8 +679,8 @@ export default class Helper {
   }
 
   static normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
+    return email.trim().toLowerCase();
+  }
 
   static getEnvironment() {
     const env = process.env.NODE_ENV;
@@ -741,51 +753,51 @@ export default class Helper {
     }
   }
 
-static isStoreOpen(operatingHours: any[]): boolean {
-  const DAYS = [
-    'SUNDAY',
-    'MONDAY',
-    'TUESDAY',
-    'WEDNESDAY',
-    'THURSDAY',
-    'FRIDAY',
-    'SATURDAY',
-  ];
+  static isStoreOpen(operatingHours: any[]): boolean {
+    const DAYS = [
+      'SUNDAY',
+      'MONDAY',
+      'TUESDAY',
+      'WEDNESDAY',
+      'THURSDAY',
+      'FRIDAY',
+      'SATURDAY',
+    ];
 
-  const now = new Date();
+    const now = new Date();
 
-  console.log('Server date:', now);
- // console.log('getDay():', now.getDay());
+    console.log('Server date:', now);
+    // console.log('getDay():', now.getDay());
 
-  const today = DAYS[now.getDay()];
-  const currentTime = now.toTimeString().slice(0, 5);
+    const today = DAYS[now.getDay()];
+    const currentTime = now.toTimeString().slice(0, 5);
 
-  // console.log({
-  //   today,
-  //   currentTime,
-  //   operatingHours,
-  // });
+    // console.log({
+    //   today,
+    //   currentTime,
+    //   operatingHours,
+    // });
 
-  const todayHours = operatingHours.find(
-    (h) => h.dayOfWeek === today,
-  );
+    const todayHours = operatingHours.find(
+      (h) => h.dayOfWeek === today,
+    );
 
-  console.log('todayHours:', todayHours);
+    console.log('todayHours:', todayHours);
 
-  if (!todayHours) return false;
+    if (!todayHours) return false;
 
-  console.log({
-    opening: todayHours.openingTime,
-    closing: todayHours.closingTime,
-    isOpen: todayHours.isOpen,
-  });
+    console.log({
+      opening: todayHours.openingTime,
+      closing: todayHours.closingTime,
+      isOpen: todayHours.isOpen,
+    });
 
-  return (
-    todayHours.isOpen &&
-    currentTime >= todayHours.openingTime &&
-    currentTime <= todayHours.closingTime
-  );
-}
+    return (
+      todayHours.isOpen &&
+      currentTime >= todayHours.openingTime &&
+      currentTime <= todayHours.closingTime
+    );
+  }
 
   static isStoreOpenbk(operatingHours: any[]): boolean {
     const now = new Date();
@@ -849,8 +861,8 @@ static isStoreOpen(operatingHours: any[]): boolean {
     const a =
       Math.sin(dLat / 2) ** 2 +
       Math.cos(this.toRad(origin.lat)) *
-        Math.cos(this.toRad(destination.lat)) *
-        Math.sin(dLng / 2) ** 2;
+      Math.cos(this.toRad(destination.lat)) *
+      Math.sin(dLng / 2) ** 2;
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
@@ -897,178 +909,242 @@ static isStoreOpen(operatingHours: any[]): boolean {
     if (!pickupLocation || typeof pickupLocation !== 'object' || !('lat' in pickupLocation) || !('lng' in pickupLocation)) {
       return 0;
     }
-  
+
     const pickup = pickupLocation as { lat: number; lng: number };
-  
+
     const R = 6371000; // Earth radius in meters
     const φ1 = vendorLocation.lat * Math.PI / 180;
     const φ2 = pickup.lat * Math.PI / 180;
     const Δφ = (pickup.lat - vendorLocation.lat) * Math.PI / 180;
     const Δλ = (pickup.lng - vendorLocation.lng) * Math.PI / 180;
-  
+
     const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
       Math.cos(φ1) * Math.cos(φ2) *
       Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  
+
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     const distanceMeters = R * c;
-  
+
     return Math.round(distanceMeters);
   }
-  
 
-/**
- * Great-circle distance between two points in km (Haversine).
- * Good enough for city-scale delivery radius checks.
- * Swap for Google Distance Matrix if you need road distance.
- */
-static haversineDistanceKm(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const R = 6371;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
-/**
- * Resolve the fee for a single VehicleTypeConfig given a distance.
- * Prefers distance band pricing when a matching band exists,
- * otherwise falls back to minDeliveryFee + perKmRate * distanceKm.
- */
-static computeFeeFromConfig(config, distanceKm): number {
-  const band = config.distanceBands?.find(
-    (b) => distanceKm >= b.minDistanceKm && distanceKm <= b.maxDistanceKm,
-  );
+  /**
+   * Great-circle distance between two points in km (Haversine).
+   * Good enough for city-scale delivery radius checks.
+   * Swap for Google Distance Matrix if you need road distance.
+   */
+  static haversineDistanceKm(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
+    const R = 6371;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
 
-  let fee: number;
+  /**
+   * Resolve the fee for a single VehicleTypeConfig given a distance.
+   * Prefers distance band pricing when a matching band exists,
+   * otherwise falls back to minDeliveryFee + perKmRate * distanceKm.
+   */
+  static computeFeeFromConfig(config, distanceKm): number {
+    const band = config.distanceBands?.find(
+      (b) => distanceKm >= b.minDistanceKm && distanceKm <= b.maxDistanceKm,
+    );
 
-  if (band) {
-    if (band.fee != null) {
-      fee = Number(band.fee);
-    } else if (band.ratePerKm != null) {
-      fee = Number(band.ratePerKm) * distanceKm;
+    let fee: number;
+
+    if (band) {
+      if (band.fee != null) {
+        fee = Number(band.fee);
+      } else if (band.ratePerKm != null) {
+        fee = Number(band.ratePerKm) * distanceKm;
+      } else {
+        fee = Number(config.minDeliveryFee) + Number(config.perKmRate) * distanceKm;
+      }
     } else {
       fee = Number(config.minDeliveryFee) + Number(config.perKmRate) * distanceKm;
     }
-  } else {
-    fee = Number(config.minDeliveryFee) + Number(config.perKmRate) * distanceKm;
+
+    return Math.round(fee * 100) / 100;   // kobo-exact
   }
 
-  return Math.round(fee * 100) / 100;   // kobo-exact
-}
 
 
+  static computeFeeFromConfigbk(
+    config: {
+      minDeliveryFee: number;
+      perKmRate: number;
+      distanceBands?: Array<{
+        minDistanceKm: number;
+        maxDistanceKm: number;
+        fee?: number | null;
+        ratePerKm?: number | null;
+      }>;
+    },
+    distanceKm: number,
+  ): number {
+    const band = config.distanceBands?.find(
+      (b) => distanceKm >= b.minDistanceKm && distanceKm <= b.maxDistanceKm,
+    );
 
-static computeFeeFromConfigbk(
-  config: {
-    minDeliveryFee: number;
-    perKmRate: number;
-    distanceBands?: Array<{
-      minDistanceKm: number;
-      maxDistanceKm: number;
-      fee?: number | null;
-      ratePerKm?: number | null;
-    }>;
-  },
-  distanceKm: number,
-): number {
-  const band = config.distanceBands?.find(
-    (b) => distanceKm >= b.minDistanceKm && distanceKm <= b.maxDistanceKm,
-  );
+    if (band) {
+      if (band.fee != null) {
+        return band.fee;
+      }
 
-  if (band) {
-    if (band.fee != null) {
-      return band.fee;
+      if (band.ratePerKm != null) {
+        return band.ratePerKm * distanceKm;
+      }
     }
 
-    if (band.ratePerKm != null) {
-      return band.ratePerKm * distanceKm;
-    }
+    return config.minDeliveryFee + config.perKmRate * distanceKm;
   }
 
-  return config.minDeliveryFee + config.perKmRate * distanceKm;
-}
 
 
+  // In your Helper class or a dedicated service
+  static async getRouteDetails(
+    origin: { latitude: number; longitude: number },
+    destination: { latitude: number; longitude: number },
+  ): Promise<{ distanceMeters: number; durationSeconds: number } | null> {
+    try {
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        throw new Error('GOOGLE_MAPS_API_KEY is not set.');
+      }
 
-// In your Helper class or a dedicated service
-static async getRouteDetails(
-  origin: { latitude: number; longitude: number },
-  destination: { latitude: number; longitude: number },
-): Promise<{ distanceMeters: number; durationSeconds: number } | null> {
-  try {
-    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-    if (!apiKey) {
-      throw new Error('GOOGLE_MAPS_API_KEY is not set.');
-    }
+      const url = 'https://routes.googleapis.com/directions/v2:computeRoutes';
 
-    const url = 'https://routes.googleapis.com/directions/v2:computeRoutes';
-    
-    const requestBody = {
-      origin: {
-        location: {
-          latLng: {
-            latitude: origin.latitude,
-            longitude: origin.longitude,
+      const requestBody = {
+        origin: {
+          location: {
+            latLng: {
+              latitude: origin.latitude,
+              longitude: origin.longitude,
+            },
           },
         },
-      },
-      destination: {
-        location: {
-          latLng: {
-            latitude: destination.latitude,
-            longitude: destination.longitude,
+        destination: {
+          location: {
+            latLng: {
+              latitude: destination.latitude,
+              longitude: destination.longitude,
+            },
           },
         },
-      },
-      travelMode: 'DRIVE',
-      // 'routingPreference' is used for traffic-aware routing. Valid only for DRIVE.
-      routingPreference: 'TRAFFIC_AWARE', 
-    };
+        travelMode: 'DRIVE',
+        // 'routingPreference' is used for traffic-aware routing. Valid only for DRIVE.
+        routingPreference: 'TRAFFIC_AWARE',
+      };
 
-    const response = await axios.post(url, requestBody, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': apiKey,
-        // The field mask is REQUIRED. This tells Google exactly what data to return.
-        'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration',
-      },
-    });
+      const response = await axios.post(url, requestBody, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': apiKey,
+          // The field mask is REQUIRED. This tells Google exactly what data to return.
+          'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration',
+        },
+      });
 
-    const route = response.data.routes?.[0];
-    if (!route) {
-      console.error('No route found in Google Routes API response.');
+      const route = response.data.routes?.[0];
+      if (!route) {
+        console.error('No route found in Google Routes API response.');
+        return null;
+      }
+
+      // The duration is returned as a string like "1234s". Convert it to a number.
+      const durationSeconds = parseInt(route.duration.replace('s', ''), 10);
+
+      return {
+        distanceMeters: route.distanceMeters, // This is already a number
+        durationSeconds: durationSeconds,
+      };
+    } catch (error) {
+      // Implement robust error handling (e.g., logging, retries, fallback)
+      if (axios.isAxiosError(error)) {
+        console.error('Google Routes API request failed:', error.response?.data || error.message);
+      } else {
+        console.error('An unexpected error occurred:', error);
+      }
       return null;
     }
+  }
 
-    // The duration is returned as a string like "1234s". Convert it to a number.
-    const durationSeconds = parseInt(route.duration.replace('s', ''), 10);
+  static round2(n: number): number {
+    return Math.round(n * 100) / 100;
+  }
+
+
+// src/common/helpers/helper.ts
+
+
+
+  // ... existing methods (geocodeAddress, getRouteDetails, haversineDistanceKm, computeFeeFromConfig, etc.)
+
+    /**
+   * Single source of truth for "how far is it from A to B" across every
+   * pricing path (delivery options, cart summary, checkout).
+   *
+   * Order of preference:
+   *   1. Google Routes road distance (traffic-aware, matches what the driver sees)
+   *   2. Haversine straight-line (graceful degradation if Google is down)
+   *
+   * Never throws — the customer must not be blocked on Google's uptime.
+   */
+  static async resolveDistanceKm(
+    origin: LatLng,
+    destination: LatLng,
+    logger?: { log: (m: string) => void; warn: (m: string) => void },
+  ): Promise<ResolvedDistance> {
+    try {
+      const route = await Helper.getRouteDetails(origin, destination);
+
+      if (route) {
+        const distanceKm = route.distanceMeters / 1000;
+        logger?.log(
+          `Distance resolved via Google Routes | ` +
+            `distance=${distanceKm.toFixed(2)}km | ` +
+            `duration=${route.durationSeconds}s`,
+        );
+        return {
+          distanceKm,
+          durationSeconds: route.durationSeconds,
+          distanceSource: 'google_routes',
+          fellBack: false,
+        };
+      }
+    } catch (err: any) {
+      logger?.warn(
+        `Google Routes threw, falling back to Haversine | error=${err?.message ?? err}`,
+      );
+    }
+
+    const distanceKm = Helper.haversineDistanceKm(
+      origin.latitude,
+      origin.longitude,
+      destination.latitude,
+      destination.longitude,
+    );
+
+    logger?.warn(
+      `Distance resolved via Haversine fallback | distance=${distanceKm.toFixed(2)}km`,
+    );
 
     return {
-      distanceMeters: route.distanceMeters, // This is already a number
-      durationSeconds: durationSeconds,
+      distanceKm,
+      durationSeconds: null,
+      distanceSource: 'haversine',
+      fellBack: true,
     };
-  } catch (error) {
-    // Implement robust error handling (e.g., logging, retries, fallback)
-    if (axios.isAxiosError(error)) {
-      console.error('Google Routes API request failed:', error.response?.data || error.message);
-    } else {
-      console.error('An unexpected error occurred:', error);
-    }
-    return null;
   }
-}
-
-static round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 }

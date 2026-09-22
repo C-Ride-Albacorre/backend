@@ -2354,108 +2354,214 @@ async declineOrder(
    * Confirm delivery: transition order to DELIVERED, update driver stats,
    * and trigger customer rating request.
    */
+  /* =================================================================
+  // CONFIRM DELIVERY
+  // Post-transition side effects now wrapped in a single transaction,
+  // and the driver's earning is credited atomically with them.
+  // ================================================================= */
   async confirmDelivery(orderId: string, driverId: string, orderCode: string) {
-  // ── Validations (unchanged) ──────────────────────────────────────
-  const assignment = await this.prisma.driverAssignment.findUnique({
-    where: { orderId },
-    select: { driverId: true, assignmentStatus: true },
-  });
-
-  if (!assignment || assignment.driverId !== driverId) {
-    throw new BadRequestException('You are not assigned to this order');
-  }
-  if (assignment.assignmentStatus !== AssignmentStatus.ASSIGNED) {
-    throw new BadRequestException('Order not in assigned state');
-  }
-
-  const order = await this.prisma.order.findUnique({
-    where: { id: orderId },
-    select: {
-      userId: true,
-      orderNumber: true,
-      orderCode: true,
-      items: {
-        select: { storeId: true },
-        where: { storeId: { not: null } },
-      },
-    },
-  });
-  if (!order) throw new BadRequestException('Order not found');
-  if (order.orderCode !== orderCode) {
-    throw new BadRequestException('Invalid order confirmation code');
-  }
-
-  // ── 1. Transition the order FIRST (source of truth) ──────────────
-  //    If this fails, nothing else runs — no partial state.
-  await this.orderService.transition(orderId, OrderStatus.DELIVERED, {
-    actorId: driverId,
-    actorRole: Role.DISPATCHER,
-    respondedAt: new Date(),
-  });
-
-  // ── 2. Post-delivery side effects — all-or-nothing ───────────────
-  //    Every mutation here is in ONE transaction. If any fails, the
-  //    whole block rolls back and we throw so the caller retries.
-  await this.prisma.$transaction(async (tx) => {
-    // 2a. Driver profile: back to ONLINE, bump totalDeliveries
-    await tx.driverProfile.update({
-      where: { userId: driverId },
-      data: {
-        status: DriverStatus.ONLINE,
-        totalDeliveries: { increment: 1 },
-      },
-    });
-
-    // 2b. Expire the assignment
-    await tx.driverAssignment.update({
+    // ── Validations ─────────────────────────────────────────────────
+    const assignment = await this.prisma.driverAssignment.findUnique({
       where: { orderId },
-      data: {
-        deliveryConfirmedAt: new Date(),
-        assignmentStatus: AssignmentStatus.EXPIRED,
+      select: { driverId: true, assignmentStatus: true },
+    });
+
+    if (!assignment || assignment.driverId !== driverId) {
+      throw new BadRequestException('You are not assigned to this order');
+    }
+    if (assignment.assignmentStatus !== AssignmentStatus.ASSIGNED) {
+      throw new BadRequestException('Order not in assigned state');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        userId: true,
+        orderNumber: true,
+        orderCode: true,
+        items: {
+          select: { storeId: true },
+          where: { storeId: { not: null } },
+        },
       },
     });
-
-    // 2c. Credit the driver's earning (NEW)
-    await this.creditDriverEarningOnDelivery(tx, orderId);
-  });
-
-  // ── 3. Remove ETA scheduler (idempotent, safe outside tx) ────────
-  await this.assignmentQueue
-    .removeJobScheduler(`eta-${orderId}`)
-    .catch(() => null);
-
-  // ── 4. Rating requests (best-effort, not in tx) ──────────────────
-  await this.ratingService
-    .createRatingRequest(orderId, order.userId, Role.CUSTOMER, driverId)
-    .catch((err) =>
-      this.logger.error(`Customer rating request failed for order ${orderId}`, err),
-    );
-
-  const storeIds = [...new Set(order.items.map((i) => i.storeId).filter(Boolean))];
-  for (const storeId of storeIds) {
-    const store = await this.prisma.store.findUnique({
-      where: { id: storeId! },
-      select: { userId: true },
-    });
-    if (store?.userId) {
-      await this.ratingService
-        .createRatingRequest(orderId, store.userId, Role.VENDOR, driverId)
-        .catch((err) =>
-          this.logger.error(
-            `Vendor rating request failed for order ${orderId}, store ${storeId}`,
-            err,
-          ),
-        );
-    } else {
-      this.logger.warn(
-        `Store ${storeId} not found or has no vendor; skipping vendor rating for order ${orderId}`,
-      );
+    if (!order) throw new BadRequestException('Order not found');
+    if (order.orderCode !== orderCode) {
+      throw new BadRequestException('Invalid order confirmation code');
     }
+
+    // ── 1. Transition order FIRST (source of truth) ─────────────────
+    await this.orderService.transition(orderId, OrderStatus.DELIVERED, {
+      actorId: driverId,
+      actorRole: Role.DISPATCHER,
+      respondedAt: new Date(),
+    });
+
+    // ── 2. Atomic side effects ──────────────────────────────────────
+    await this.prisma.$transaction(async (tx) => {
+      // 2a. Driver profile
+      await tx.driverProfile.update({
+        where: { userId: driverId },
+        data: {
+          status: DriverStatus.ONLINE,
+          totalDeliveries: { increment: 1 },
+        },
+      });
+
+      // 2b. Expire the assignment
+      await tx.driverAssignment.update({
+        where: { orderId },
+        data: {
+          deliveryConfirmedAt: new Date(),
+          assignmentStatus: AssignmentStatus.EXPIRED,
+        },
+      });
+
+      // 2c. Credit the driver's earning
+      await this.creditDriverEarningOnDelivery(tx, orderId, driverId);
+    });
+
+    // ── 3. Remove ETA scheduler (idempotent) ────────────────────────
+    await this.assignmentQueue
+      .removeJobScheduler(`eta-${orderId}`)
+      .catch(() => null);
+
+    // ── 4. Rating requests (best-effort) ────────────────────────────
+    await this.ratingService
+      .createRatingRequest(orderId, order.userId, Role.CUSTOMER, driverId)
+      .catch((err) =>
+        this.logger.error(
+          `Customer rating request failed for order ${orderId}`,
+          err,
+        ),
+      );
+
+    const storeIds = [
+      ...new Set(order.items.map((i) => i.storeId).filter(Boolean)),
+    ];
+    for (const storeId of storeIds) {
+      const store = await this.prisma.store.findUnique({
+        where: { id: storeId! },
+        select: { userId: true },
+      });
+      if (store?.userId) {
+        await this.ratingService
+          .createRatingRequest(orderId, store.userId, Role.VENDOR, driverId)
+          .catch((err) =>
+            this.logger.error(
+              `Vendor rating request failed for order ${orderId}, store ${storeId}`,
+              err,
+            ),
+          );
+      }
+    }
+
+    this.logger.log(`Order ${orderId} delivered by driver ${driverId}`);
+    return { success: true, message: 'Order delivered successfully' };
   }
 
-  this.logger.log(`Order ${orderId} delivered by driver ${driverId}`);
-  return { success: true, message: 'Order delivered successfully' };
-}
+//   async confirmDeliveryold2(orderId: string, driverId: string, orderCode: string) {
+//   // ── Validations (unchanged) ──────────────────────────────────────
+//   const assignment = await this.prisma.driverAssignment.findUnique({
+//     where: { orderId },
+//     select: { driverId: true, assignmentStatus: true },
+//   });
+
+//   if (!assignment || assignment.driverId !== driverId) {
+//     throw new BadRequestException('You are not assigned to this order');
+//   }
+//   if (assignment.assignmentStatus !== AssignmentStatus.ASSIGNED) {
+//     throw new BadRequestException('Order not in assigned state');
+//   }
+
+//   const order = await this.prisma.order.findUnique({
+//     where: { id: orderId },
+//     select: {
+//       userId: true,
+//       orderNumber: true,
+//       orderCode: true,
+//       items: {
+//         select: { storeId: true },
+//         where: { storeId: { not: null } },
+//       },
+//     },
+//   });
+//   if (!order) throw new BadRequestException('Order not found');
+//   if (order.orderCode !== orderCode) {
+//     throw new BadRequestException('Invalid order confirmation code');
+//   }
+
+//   // ── 1. Transition the order FIRST (source of truth) ──────────────
+//   //    If this fails, nothing else runs — no partial state.
+//   await this.orderService.transition(orderId, OrderStatus.DELIVERED, {
+//     actorId: driverId,
+//     actorRole: Role.DISPATCHER,
+//     respondedAt: new Date(),
+//   });
+
+//   // ── 2. Post-delivery side effects — all-or-nothing ───────────────
+//   //    Every mutation here is in ONE transaction. If any fails, the
+//   //    whole block rolls back and we throw so the caller retries.
+//   await this.prisma.$transaction(async (tx) => {
+//     // 2a. Driver profile: back to ONLINE, bump totalDeliveries
+//     await tx.driverProfile.update({
+//       where: { userId: driverId },
+//       data: {
+//         status: DriverStatus.ONLINE,
+//         totalDeliveries: { increment: 1 },
+//       },
+//     });
+
+//     // 2b. Expire the assignment
+//     await tx.driverAssignment.update({
+//       where: { orderId },
+//       data: {
+//         deliveryConfirmedAt: new Date(),
+//         assignmentStatus: AssignmentStatus.EXPIRED,
+//       },
+//     });
+
+//     // 2c. Credit the driver's earning (NEW)
+//     await this.creditDriverEarningOnDelivery(tx, orderId);
+//   });
+
+//   // ── 3. Remove ETA scheduler (idempotent, safe outside tx) ────────
+//   await this.assignmentQueue
+//     .removeJobScheduler(`eta-${orderId}`)
+//     .catch(() => null);
+
+//   // ── 4. Rating requests (best-effort, not in tx) ──────────────────
+//   await this.ratingService
+//     .createRatingRequest(orderId, order.userId, Role.CUSTOMER, driverId)
+//     .catch((err) =>
+//       this.logger.error(`Customer rating request failed for order ${orderId}`, err),
+//     );
+
+//   const storeIds = [...new Set(order.items.map((i) => i.storeId).filter(Boolean))];
+//   for (const storeId of storeIds) {
+//     const store = await this.prisma.store.findUnique({
+//       where: { id: storeId! },
+//       select: { userId: true },
+//     });
+//     if (store?.userId) {
+//       await this.ratingService
+//         .createRatingRequest(orderId, store.userId, Role.VENDOR, driverId)
+//         .catch((err) =>
+//           this.logger.error(
+//             `Vendor rating request failed for order ${orderId}, store ${storeId}`,
+//             err,
+//           ),
+//         );
+//     } else {
+//       this.logger.warn(
+//         `Store ${storeId} not found or has no vendor; skipping vendor rating for order ${orderId}`,
+//       );
+//     }
+//   }
+
+//   this.logger.log(`Order ${orderId} delivered by driver ${driverId}`);
+//   return { success: true, message: 'Order delivered successfully' };
+// }
 
   async confirmDeliveryold(orderId: string, driverId: string, orderCode: string) {
     // Verify that the driver is assigned to this order
@@ -2750,7 +2856,7 @@ async declineOrder(
     // await this.pushService.sendToCustomer(order.userId, { title: 'Rate your ride', ... });
   }
 
- async creditDriverEarningOnDelivery(
+ async creditDriverEarningOnDeliveryold(
   tx: Prisma.TransactionClient,
   orderId: string,
 ) {
@@ -2818,4 +2924,122 @@ async declineOrder(
 
   return earning;
 }
+
+// =================================================================
+  // CREDIT DRIVER EARNING — idempotent, called inside confirmDelivery tx
+  // Commission % is sourced from VehicleTypeConfig (via deliveryOptionId)
+  // and snapshotted onto the earning row.
+  // =================================================================
+  private async creditDriverEarningOnDelivery(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    driverId: string,
+  ) {
+    // 1. Idempotency guard
+    const existing = await tx.driverEarning.findUnique({ where: { orderId } });
+    if (existing) {
+      this.logger.debug(
+        `Driver earning already exists for order ${orderId}, skipping`,
+      );
+      return existing;
+    }
+
+    // 2. Load order scalars only
+    const order = await tx.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        orderNumber: true,
+        deliveryFee: true,
+        deliveredAt: true,
+        deliveryOptionId: true,
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found for earning');
+
+    // 3. Skip if nothing to credit
+    if (order.deliveryFee <= 0) {
+      this.logger.warn(
+        `Skipping earning for order ${orderId}: deliveryFee=${order.deliveryFee}`,
+      );
+      return null;
+    }
+
+    // 4. Commission % from VehicleTypeConfig
+    let commissionPct = 0;
+    if (order.deliveryOptionId) {
+      const config = await tx.vehicleTypeConfig.findUnique({
+        where: { id: order.deliveryOptionId },
+        select: { deliveryCommissionPct: true },
+      });
+      if (config) {
+        commissionPct = Number(config.deliveryCommissionPct);
+      } else {
+        this.logger.warn(
+          `No VehicleTypeConfig found for deliveryOptionId=` +
+            `${order.deliveryOptionId} on order ${orderId} — using 0% commission`,
+        );
+      }
+    }
+
+    // 5. Split
+    const grossAmount = Number(order.deliveryFee);
+    const commissionAmount = Helper.round2((grossAmount * commissionPct) / 100);
+    const netAmount = Helper.round2(grossAmount - commissionAmount);
+    const earnedAt = order.deliveredAt ?? new Date();
+
+    // 6. Wallet
+    const wallet = await tx.wallet.upsert({
+      where: { userId: driverId },
+      create: { userId: driverId, balance: 0, currency: 'NGN' },
+      update: {},
+      select: { id: true },
+    });
+
+    // 7. PENDING wallet credit
+    const walletTx = await tx.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        amount: netAmount,
+        type: 'CREDIT',
+        reference: `EARN-${orderId}`,
+        description: `Earning for order ${order.orderNumber}`,
+        status: 'PENDING',
+        metadata: {
+          orderId,
+          driverId,
+          grossAmount,
+          commissionPct,
+          commissionAmount,
+        },
+      },
+    });
+
+    // 8. Earning detail row
+    const earning = await tx.driverEarning.create({
+      data: {
+        driverId,
+        orderId,
+        walletTxId: walletTx.id,
+        grossAmount: Helper.round2(grossAmount),
+        commissionPct,
+        commissionAmount,
+        netAmount,
+        tips: 0,
+        bonuses: 0,
+        totalAmount: netAmount,
+        status: 'EARNED',
+        earnedAt,
+      },
+    });
+
+    this.logger.log(
+      `Driver earning created: order=${orderId} driver=${driverId} ` +
+        `gross=${grossAmount} pct=${commissionPct} ` +
+        `commission=${commissionAmount} net=${netAmount} ` +
+        `walletTx=${walletTx.id}`,
+    );
+
+    return earning;
+  }
 }

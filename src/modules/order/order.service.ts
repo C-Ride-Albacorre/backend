@@ -599,7 +599,7 @@ export class OrderService {
   //   throw lastError;
   // }
 
-  async createOrder(
+async createOrder(
   userId: string,
   dto: CreateOrderDto,
 ): Promise<OrderSummaryDto> {
@@ -608,7 +608,7 @@ export class OrderService {
     `[${requestId}] ORDER_CREATE_STARTED user=${userId} cart=${dto.cartId}`,
   );
 
-  // ----- Pre-transaction fast validations (no lock) -----
+  // ── Pre-transaction fast validations (no lock) ──────────────────────────
   const existingCart = await this.prisma.cart.findUnique({
     where: { id: dto.cartId },
     select: { id: true, userId: true, status: true },
@@ -619,7 +619,7 @@ export class OrderService {
   if (existingCart.status !== CartStatus.ACTIVE)
     throw new BadRequestException(`Cart is ${existingCart.status}`);
 
-  // ----- Idempotency check (if key provided) -----
+  // ── Idempotency check (if key provided) ─────────────────────────────────
   if (dto.idempotencyKey) {
     const existing = await this.prisma.idempotencyRecord.findUnique({
       where: { key: dto.idempotencyKey },
@@ -632,7 +632,7 @@ export class OrderService {
     }
   }
 
-  // ----- Precompute time-based values (constant across retries) -----
+  // ── Precompute time-based values (constant across retries) ──────────────
   const timezone = 'Africa/Lagos';
   const now = DateTime.now().setZone(timezone);
   const currentMinutes = now.hour * 60 + now.minute;
@@ -645,7 +645,7 @@ export class OrderService {
   const MAX_RETRIES = 3;
   let lastError: any;
 
-  // ----- Enrich dropoff location with coordinates (before transaction) -----
+  // ── Enrich dropoff location with coordinates (before transaction) ───────
   let enrichedDropoffLocation: {
     latitude: number;
     longitude: number;
@@ -654,7 +654,9 @@ export class OrderService {
 
   if (dto.dropoffLocation) {
     const address = this.buildFullAddress(dto.dropoffLocation);
-    this.logger.log(`[${requestId}] Checking customer's address ${address}`);
+    this.logger.log(
+      `[${requestId}] Checking customer's address ${address}`,
+    );
 
     const coordinates = await Helper.geocodeAddress(address);
 
@@ -678,9 +680,9 @@ export class OrderService {
     try {
       const order = await this.prisma.$transaction(
         async (tx) => {
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 1. Lock the cart row (SELECT FOR UPDATE)
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           const lockedCart = await tx.$queryRaw<
             Array<{ id: string; userId: string; status: string }>
           >`
@@ -694,9 +696,9 @@ export class OrderService {
             throw new BadRequestException(`Cart is ${lockedCart[0].status}`);
           }
 
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 2. Fetch full cart with items (row is locked)
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           const cartWithItems = await tx.cart.findUnique({
             where: { id: dto.cartId },
             include: {
@@ -724,9 +726,9 @@ export class OrderService {
             throw new BadRequestException('Cart is empty');
           }
 
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 3. Build cart summary items from fetched data
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           const items = cartWithItems.items.map((item) => {
             if (item.itemType === 'PRODUCT') {
               const product = item.product;
@@ -771,10 +773,9 @@ export class OrderService {
 
           const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
 
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 4. Resolve the single vendor store for this cart
-          //    (cart is guaranteed single-store by the add-to-cart flow)
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           const storeIds = [
             ...new Set(items.map((i) => i.storeId).filter(Boolean)),
           ] as string[];
@@ -783,8 +784,6 @@ export class OrderService {
             throw new BadRequestException('No vendor found for cart');
           }
           if (storeIds.length > 1) {
-            // Should never happen given the single-store add-to-cart rule.
-            // Fail loudly rather than silently pick one.
             throw new BadRequestException(
               'Cart contains items from multiple stores',
             );
@@ -803,22 +802,29 @@ export class OrderService {
           });
           if (!store) throw new NotFoundException('Vendor store not found');
 
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 5. Calculate fees
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
 
-          // 5a. Delivery — distance-based, vehicle-type-config driven
-          const deliveryFee = await this.cartService.calculateDeliveryFee(
-            dto.cartId,
-            enrichedDropoffLocation
-              ? {
-                  latitude: enrichedDropoffLocation.latitude,
-                  longitude: enrichedDropoffLocation.longitude,
-                }
-              : null,
-            dto.deliveryOptionId, // chosen VehicleTypeConfig.id (may be undefined)
-            tx,
-          );
+          // 5a. Delivery — distance-based, vehicle-type-config driven.
+          //     calculateDeliveryFeeWithMeta uses the SAME resolver as
+          //     getDeliveryOptions and returns distance provenance so we
+          //     can persist it on the order.
+          const deliveryQuote =
+            await this.cartService.calculateDeliveryFeeWithMeta(
+              dto.cartId,
+              enrichedDropoffLocation
+                ? {
+                    latitude: enrichedDropoffLocation.latitude,
+                    longitude: enrichedDropoffLocation.longitude,
+                  }
+                : null,
+              dto.deliveryOptionId, // chosen VehicleTypeConfig.id (may be undefined)
+              tx,
+              requestId,
+            );
+
+          const deliveryFee = deliveryQuote.fee;
 
           // 5b. Service fee — single vendor, single commission lookup
           const serviceFee = await this.cartService.calculateServiceFee(
@@ -840,18 +846,18 @@ export class OrderService {
             totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
           };
 
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 6. Idempotency record creation (if key provided)
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           if (dto.idempotencyKey) {
             await tx.idempotencyRecord.create({
               data: { key: dto.idempotencyKey, status: 'PROCESSING' },
             });
           }
 
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 7. Mark cart as CHECKED_OUT (now safe)
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           await tx.cart.update({
             where: { id: dto.cartId },
             data: {
@@ -860,9 +866,9 @@ export class OrderService {
             },
           });
 
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 8. Store validation with atomic daily limits
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           await this.validateStoreWithAtomicCounter(
             tx,
             store.id,
@@ -872,9 +878,9 @@ export class OrderService {
             endOfDay,
           );
 
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 9. Create order
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           const newOrder = await tx.order.create({
             data: {
               orderNumber,
@@ -887,6 +893,14 @@ export class OrderService {
               taxAmount: cartSummary.taxAmount,
               totalAmount: cartSummary.totalAmount,
               deliveryOptionId: dto.deliveryOptionId,
+
+              // ── Distance provenance (persisted once, matches the fee) ──
+              deliveryDistanceKm:
+                deliveryQuote.distanceKm != null
+                  ? new Prisma.Decimal(deliveryQuote.distanceKm.toFixed(3))
+                  : null,
+              deliveryDistanceSource: deliveryQuote.distanceSource ?? null,
+
               pickupLocation: {
                 storeId: store.id,
                 storeName: store.storeName,
@@ -912,9 +926,9 @@ export class OrderService {
             },
           });
 
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 10. Create order items
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           await tx.orderItem.createMany({
             data: cartSummary.items.map((item) => ({
               orderId: newOrder.id,
@@ -935,15 +949,22 @@ export class OrderService {
             })),
           });
 
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           // 11. Update idempotency record to COMPLETED
-          // ------------------------------------------------------------
+          // ────────────────────────────────────────────────────────────
           if (dto.idempotencyKey) {
             await tx.idempotencyRecord.update({
               where: { key: dto.idempotencyKey },
               data: { status: 'COMPLETED', orderId: newOrder.id },
             });
           }
+
+          this.logger.log(
+            `[${requestId}] ORDER_CREATE_TX_COMMITTED order=${newOrder.id} | ` +
+              `deliveryFee=${cartSummary.deliveryFee} | ` +
+              `distanceKm=${deliveryQuote.distanceKm?.toFixed(2) ?? 'n/a'} | ` +
+              `distanceSource=${deliveryQuote.distanceSource ?? 'n/a'}`,
+          );
 
           return newOrder;
         },
@@ -977,7 +998,6 @@ export class OrderService {
   }
   throw lastError;
 }
-
 
 
   // ================================
