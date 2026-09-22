@@ -934,21 +934,30 @@ export default class Helper {
    * Good enough for city-scale delivery radius checks.
    * Swap for Google Distance Matrix if you need road distance.
    */
-  static haversineDistanceKm(
-    lat1: number,
-    lon1: number,
-    lat2: number,
-    lon2: number,
-  ): number {
-    const R = 6371;
-    const toRad = (d: number) => (d * Math.PI) / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+static haversineDistanceKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const a1 = Number(lat1);
+  const o1 = Number(lon1);
+  const a2 = Number(lat2);
+  const o2 = Number(lon2);
+
+  if (![a1, o1, a2, o2].every(Number.isFinite)) {
+    return NaN; // caller (resolveDistanceKm) turns this into a clear error
   }
+
+  const R = 6371; // km
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(a2 - a1);
+  const dLon = toRad(o2 - o1);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a1)) * Math.cos(toRad(a2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}
 
   /**
    * Resolve the fee for a single VehicleTypeConfig given a distance.
@@ -1105,35 +1114,70 @@ export default class Helper {
     destination: LatLng,
     logger?: { log: (m: string) => void; warn: (m: string) => void },
   ): Promise<ResolvedDistance> {
-    try {
-      const route = await Helper.getRouteDetails(origin, destination);
+    // ── 0. Validate inputs up front. This is where NaN usually enters. ──
+    const oLat = Number(origin?.latitude);
+    const oLng = Number(origin?.longitude);
+    const dLat = Number(destination?.latitude);
+    const dLng = Number(destination?.longitude);
 
-      if (route) {
-        const distanceKm = route.distanceMeters / 1000;
+    if (![oLat, oLng, dLat, dLng].every(Number.isFinite)) {
+      logger?.warn(
+        `resolveDistanceKm received non-finite coordinates | ` +
+          `origin=(${origin?.latitude},${origin?.longitude}) | ` +
+          `destination=(${destination?.latitude},${destination?.longitude})`,
+      );
+      throw new BadRequestException(
+        'Unable to determine delivery distance (invalid coordinates)',
+      );
+    }
+
+    // ── 1. Prefer Google Routes ──
+    try {
+      const route = await Helper.getRouteDetails(
+        { latitude: oLat, longitude: oLng },
+        { latitude: dLat, longitude: dLng },
+      );
+
+      const meters = Number(route?.distanceMeters);
+      const seconds = Number(route?.durationSeconds);
+
+      if (Number.isFinite(meters) && meters > 0) {
+        const distanceKm = meters / 1000;
         logger?.log(
           `Distance resolved via Google Routes | ` +
             `distance=${distanceKm.toFixed(2)}km | ` +
-            `duration=${route.durationSeconds}s`,
+            `duration=${Number.isFinite(seconds) ? seconds : 'n/a'}s`,
         );
         return {
           distanceKm,
-          durationSeconds: route.durationSeconds,
+          durationSeconds: Number.isFinite(seconds) ? seconds : null,
           distanceSource: 'google_routes',
           fellBack: false,
         };
       }
+
+      logger?.warn(
+        `Google Routes returned non-finite distanceMeters | ` +
+          `raw=${JSON.stringify(route?.distanceMeters)} — falling back to Haversine`,
+      );
     } catch (err: any) {
       logger?.warn(
         `Google Routes threw, falling back to Haversine | error=${err?.message ?? err}`,
       );
     }
 
-    const distanceKm = Helper.haversineDistanceKm(
-      origin.latitude,
-      origin.longitude,
-      destination.latitude,
-      destination.longitude,
-    );
+    // ── 2. Haversine fallback ──
+    const distanceKm = Helper.haversineDistanceKm(oLat, oLng, dLat, dLng);
+
+    if (!Number.isFinite(distanceKm)) {
+      // Should be impossible after the input validation above, but never
+      // let NaN reach Prisma as a Decimal.
+      logger?.warn(
+        `Haversine produced non-finite distance | ` +
+          `origin=(${oLat},${oLng}) | destination=(${dLat},${dLng})`,
+      );
+      throw new BadRequestException('Unable to determine delivery distance');
+    }
 
     logger?.warn(
       `Distance resolved via Haversine fallback | distance=${distanceKm.toFixed(2)}km`,
