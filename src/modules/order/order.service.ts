@@ -1125,37 +1125,37 @@ private async validateStoreWithAtomicCounter(
   if (!store) throw new NotFoundException(`Store ${storeId} not found`);
 
   // ── 2. Operating-hours gate ──────────────────────────────────────────
-  const today = store.operatingHours.find(
-    (h) => h.dayOfWeek === (todayWeekday as any),
-  );
+  // const today = store.operatingHours.find(
+  //   (h) => h.dayOfWeek === (todayWeekday as any),
+  // );
 
-  if (!today || !today.isOpen) {
-    throw new BadRequestException(
-      `${store.storeName} is not open today`,
-    );
-  }
+  // if (!today || !today.isOpen) {
+  //   throw new BadRequestException(
+  //     `${store.storeName} is not open today`,
+  //   );
+  // }
 
-  if (today.openingTime && today.closingTime) {
-    const openMin = this.hhmmToMinutes(today.openingTime);
-    const closeMin = this.hhmmToMinutes(today.closingTime);
+  // if (today.openingTime && today.closingTime) {
+  //   const openMin = this.hhmmToMinutes(today.openingTime);
+  //   const closeMin = this.hhmmToMinutes(today.closingTime);
 
-    const withinHours =
-      // normal hours (e.g. 09:00 – 21:00)
-      openMin <= closeMin
-        ? currentMinutes >= openMin && currentMinutes < closeMin
-        // overnight window (e.g. 22:00 – 02:00)
-        : currentMinutes >= openMin || currentMinutes < closeMin;
+  //   const withinHours =
+  //     // normal hours (e.g. 09:00 – 21:00)
+  //     openMin <= closeMin
+  //       ? currentMinutes >= openMin && currentMinutes < closeMin
+  //       // overnight window (e.g. 22:00 – 02:00)
+  //       : currentMinutes >= openMin || currentMinutes < closeMin;
 
-    if (!withinHours) {
-      throw new BadRequestException(
-        `${store.storeName} is closed right now ` +
-          `(opens ${today.openingTime}, closes ${today.closingTime})`,
-      );
-    }
+  //   if (!withinHours) {
+  //     throw new BadRequestException(
+  //       `${store.storeName} is closed right now ` +
+  //         `(opens ${today.openingTime}, closes ${today.closingTime})`,
+  //     );
+  //   }
 
-    // Optional: block during break if your business rule says so.
-    // if (today.breakStart && today.breakEnd) { ... }
-  }
+  //   // Optional: block during break if your business rule says so.
+  //   // if (today.breakStart && today.breakEnd) { ... }
+  // }
 
   // ── 3. Atomic daily counter ──────────────────────────────────────────
   if (!store.dailyOrderLimit || store.dailyOrderLimit <= 0) {
