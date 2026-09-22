@@ -2217,8 +2217,258 @@ export class CartService {
     return { min, max, label: `${min} – ${max} min` };
   }
 
+    async getDeliveryOptions(
+    cartId: string,
+    dropoffAddress: string,
+    requestId?: string,           // ← pass through for correlated logs
+  ): Promise<DeliveryOptionDto[]> {
+      const logCtx = requestId ? `[${requestId}] ` : '';
+      
 
-  async getDeliveryOptions(
+    this.logger.log(
+      `Getting delivery options | cartId=${cartId} | dropoffAddress="${dropoffAddress}"`,
+    );
+
+    // ── 1. Geocode dropoff ─────────────────────────────────────────────────
+    this.logger.debug(
+      `Geocoding dropoff address | cartId=${cartId}`,
+    );
+
+    const coords = await Helper.geocodeAddress(dropoffAddress);
+
+    if (!coords) {
+      this.logger.warn(
+        `Unable to geocode dropoff address | cartId=${cartId} | ` +
+        `dropoffAddress="${dropoffAddress}"`,
+      );
+
+      throw new BadRequestException(
+        'Invalid dropoff address. Unable to determine location.',
+      );
+    }
+
+    this.logger.debug(
+      `Dropoff address geocoded | cartId=${cartId} | ` +
+      `latitude=${coords.lat} | longitude=${coords.lng}`,
+    );
+
+    // ── 2. Load cart + vendor store ────────────────────────────────────────
+    this.logger.debug(
+      `Loading cart and vendor store | cartId=${cartId}`,
+    );
+
+    const cart = await this.prisma.cart.findUnique({
+      where: { id: cartId },
+      include: {
+        items: {
+          include: {
+            product: { include: { store: true } },
+            package: { include: { store: true } },
+          },
+        },
+      },
+    });
+
+    if (!cart) {
+      this.logger.warn(`Cart not found | cartId=${cartId}`);
+      throw new NotFoundException('Cart not found');
+    }
+
+    if (cart.items.length === 0) {
+      this.logger.warn(`Cart is empty | cartId=${cartId}`);
+      throw new BadRequestException('Cart is empty');
+    }
+
+    this.logger.debug(
+      `Cart loaded | cartId=${cartId} | itemCount=${cart.items.length}`,
+    );
+
+    const firstItem = cart.items[0];
+    const store = firstItem?.product?.store ?? firstItem?.package?.store;
+
+    if (!store) {
+      this.logger.warn(
+        `No vendor store found for cart | cartId=${cartId}`,
+      );
+
+      throw new BadRequestException('No vendor store found for cart');
+    }
+
+    if (store.latitude == null || store.longitude == null) {
+      this.logger.warn(
+        `Store coordinates are not configured | cartId=${cartId} | ` +
+        `storeId=${store.id} | vendorId=${store.userId}`,
+      );
+
+      throw new BadRequestException('Store coordinates are not configured');
+    }
+
+    this.logger.debug(
+      `Vendor store resolved | cartId=${cartId} | ` +
+      `storeId=${store.id} | vendorId=${store.userId} | ` +
+      `latitude=${store.latitude} | longitude=${store.longitude}`,
+    );
+
+    const origin = {
+      latitude: store.latitude,
+      longitude: store.longitude,
+    };
+
+    const destination = {
+      latitude: coords.lat,
+      longitude: coords.lng,
+    };
+
+    // ── 3. One routing call for the whole request ──────────────────────────
+    this.logger.debug(
+      `Requesting route details | cartId=${cartId} | ` +
+      `storeId=${store.id}`,
+    );
+
+    const route = await Helper.getRouteDetails(origin, destination);
+
+    let distanceKm: number;
+    let distanceSource: 'google_routes' | 'haversine';
+    let durationSeconds: number | null = null;
+
+    if (route) {
+      distanceKm = route.distanceMeters / 1000;
+      durationSeconds = route.durationSeconds;
+      distanceSource = 'google_routes';
+
+      this.logger.log(
+        `Route calculated using Google Routes | cartId=${cartId} | ` +
+        `distance=${distanceKm.toFixed(2)}km | ` +
+        `duration=${durationSeconds}s`,
+      );
+    } else {
+      // Graceful fallback — never block the customer on Google being down
+      distanceKm = Helper.haversineDistanceKm(
+        origin.latitude,
+        origin.longitude,
+        destination.latitude,
+        destination.longitude,
+      );
+
+      distanceSource = 'haversine';
+
+      this.logger.warn(
+        `Google Routes unavailable, using Haversine distance | cartId=${cartId} | ` +
+        `distance=${distanceKm.toFixed(2)}km`,
+      );
+    }
+
+    // ── 4. Options within radius (road km basis when Routes succeeded) ─────
+    this.logger.debug(
+      `Finding delivery options within radius | cartId=${cartId} | ` +
+      `distance=${distanceKm.toFixed(2)}km | ` +
+      `distanceSource=${distanceSource}`,
+    );
+
+    const inRange = await this.prisma.vehicleTypeConfig.findMany({
+      where: {
+        isActive: true,
+        deliveryRadiusKm: { gte: distanceKm },
+      },
+      include: { distanceBands: true },
+      orderBy: { displayOrder: 'asc' },
+    });
+
+    if (inRange.length > 0) {
+      this.logger.log(
+        `Delivery options found | cartId=${cartId} | ` +
+        `optionCount=${inRange.length} | ` +
+        `distance=${distanceKm.toFixed(2)}km`,
+      );
+
+      const options = inRange.map((config) =>
+        this.toDeliveryOptionDto(
+          {
+            ...config,
+            distanceBands: config.distanceBands.map((band) => ({
+              minDistanceKm: band.fromKm,
+              maxDistanceKm: band.toKm,
+              fee: band.flatFee,
+            })),
+          },
+          distanceKm,
+          durationSeconds,
+          distanceSource,
+          false,
+        ),
+      );
+
+      this.logger.debug(
+        `Delivery options prepared | cartId=${cartId} | ` +
+        `optionCount=${options.length}`,
+      );
+
+      return options;
+    }
+
+    // ── 5. Fallback — nothing in range ────────────────────────────────────
+    this.logger.warn(
+      `No delivery option covers the distance | cartId=${cartId} | ` +
+      `distance=${distanceKm.toFixed(2)}km | ` +
+      `attempting fallback configuration`,
+    );
+
+    const fallback = await this.prisma.vehicleTypeConfig.findFirst({
+      where: { isActive: true },
+      orderBy: { minDeliveryFee: 'asc' },
+      include: { distanceBands: true },
+    });
+
+    if (!fallback) {
+      this.logger.error(
+        `No active delivery configuration found | cartId=${cartId} | ` +
+        `storeId=${store.id} | vendorId=${store.userId}`,
+      );
+
+      throw new BadRequestException(
+        'Delivery is not configured for this vendor',
+      );
+    }
+
+    this.logger.warn(
+      `Using fallback delivery option | cartId=${cartId} | ` +
+      `configId=${fallback.id} | ` +
+      `distance=${distanceKm.toFixed(2)}km | ` +
+      `minDeliveryFee=${Number(fallback.minDeliveryFee)}`,
+    );
+
+    const fallbackDto = this.toDeliveryOptionDto(
+      {
+        ...fallback,
+        distanceBands: fallback.distanceBands.map((band) => ({
+          minDistanceKm: band.fromKm,
+          maxDistanceKm: band.toKm,
+          fee: band.flatFee,
+        })),
+      },
+      distanceKm,
+      durationSeconds,
+      distanceSource,
+      true,
+    );
+
+    // ETA is meaningless outside the vehicle's radius — override the label
+    const result = [
+      {
+        ...fallbackDto,
+        etaLabel: 'Subject to dispatcher confirmation',
+      },
+    ];
+
+    this.logger.log(
+      `Fallback delivery option prepared | cartId=${cartId} | ` +
+      `configId=${fallback.id} | etaLabel="Subject to dispatcher confirmation"`,
+    );
+
+    return result;
+  }
+
+  async getDeliveryOptionsold(
     cartId: string,
     dropoffAddress: string,
   ): Promise<DeliveryOptionDto[]> {
@@ -2741,7 +2991,165 @@ export class CartService {
     return 500;
   }
 
-  async calculateDeliveryFee(
+  // cart.service.ts
+async calculateDeliveryFee(
+  cartId: string,
+  dropoffLocation: { latitude: number; longitude: number } | null,
+  selectedVehicleTypeConfigId?: string,
+  tx?: Prisma.TransactionClient,
+  requestId?: string,
+): Promise<number> {
+  const meta = await this.calculateDeliveryFeeWithMeta(
+    cartId, dropoffLocation, selectedVehicleTypeConfigId, tx, requestId,
+  );
+  return meta.fee;
+}
+
+async calculateDeliveryFeeWithMeta(
+  cartId: string,
+  dropoffLocation: { latitude: number; longitude: number } | null,
+  selectedVehicleTypeConfigId?: string,
+  tx?: Prisma.TransactionClient,
+  requestId?: string,
+): Promise<{
+  fee: number;
+  distanceKm: number | null;
+  distanceSource: 'google_routes' | 'haversine' | null;
+}> {
+  // ── same body as above, but return the provenance too ──
+  // Every `return <number>` becomes `return { fee: <number>, distanceKm, distanceSource };`
+  // The early `return 0` (no dropoff) becomes:
+  //   return { fee: 0, distanceKm: null, distanceSource: null };
+// }
+
+//   async calculateDeliveryFee(
+//   cartId: string,
+//   dropoffLocation: { latitude: number; longitude: number } | null,
+//   selectedVehicleTypeConfigId?: string,
+//   tx?: Prisma.TransactionClient,
+//   requestId?: string,                    // ← new, optional to preserve callers
+// ): Promise<number> {
+  const prisma = tx ?? this.prisma;
+  const logCtx = requestId ? `[${requestId}] ` : '';
+
+  const cart = await prisma.cart.findUnique({
+    where: { id: cartId },
+    include: {
+      items: {
+        include: {
+          product: { include: { store: true } },
+          package: { include: { store: true } },
+        },
+      },
+    },
+  });
+  if (!cart) throw new NotFoundException('Cart not found');
+
+  const firstItem = cart.items[0];
+  const store = firstItem?.product?.store ?? firstItem?.package?.store;
+  if (!store) throw new BadRequestException('No vendor store found for cart');
+
+  // Delivery fee cannot be computed until the customer provides a dropoff
+  if (!dropoffLocation || store.latitude == null || store.longitude == null) {
+    return { fee: 0, distanceKm: null, distanceSource: null };
+  }
+
+  // ⬇️ Same resolver used by getDeliveryOptions — guarantees band parity
+  const { distanceKm, distanceSource } = await Helper.resolveDistanceKm(
+    { latitude: store.latitude, longitude: store.longitude },
+    { latitude: dropoffLocation.latitude, longitude: dropoffLocation.longitude },
+    {
+      log: (m) =>
+        this.logger.log(`${logCtx}${m} | cartId=${cartId} | storeId=${store.id}`),
+      warn: (m) =>
+        this.logger.warn(`${logCtx}${m} | cartId=${cartId} | storeId=${store.id}`),
+    },
+  );
+
+  this.logger.log(
+    `${logCtx}Calculated distance | cartId=${cartId} | storeId=${store.id} | ` +
+      `distance=${distanceKm.toFixed(2)}km | source=${distanceSource} | ` +
+      `selectedConfigId=${selectedVehicleTypeConfigId ?? 'none'}`,
+  );
+
+  // ── (a) Customer already chose a vehicle type → price with it ────────────
+  if (selectedVehicleTypeConfigId) {
+    const config = await prisma.vehicleTypeConfig.findUnique({
+      where: { id: selectedVehicleTypeConfigId },
+      include: { distanceBands: true },
+    });
+
+    if (!config || !config.isActive) {
+      throw new BadRequestException('Selected delivery option is unavailable');
+    }
+    if (distanceKm > config.deliveryRadiusKm) {
+      throw new BadRequestException(
+        `Selected vehicle cannot deliver ${distanceKm.toFixed(1)} km`,
+      );
+    }
+    return {
+      fee: Helper.computeFeeFromConfig(
+        {
+          minDeliveryFee: Number(config.minDeliveryFee),
+          perKmRate: Number(config.perKmRate),
+          distanceBands: config.distanceBands.map((band) => ({
+            minDistanceKm: band.fromKm,
+            maxDistanceKm: band.toKm,
+            fee: Number(band.flatFee),
+          })),
+        },
+        distanceKm,
+      ),
+      distanceKm,
+      distanceSource,
+    };
+  }
+
+  // ── (b) No selection → cheapest option within radius ─────────────────────
+  const inRange = await prisma.vehicleTypeConfig.findMany({
+    where: { isActive: true, deliveryRadiusKm: { gte: distanceKm } },
+    include: { distanceBands: true },
+  });
+
+  if (inRange.length > 0) {
+    return {
+      fee: Math.min(
+        ...inRange.map((c) =>
+          Helper.computeFeeFromConfig(
+            {
+              ...c,
+              minDeliveryFee: Number(c.minDeliveryFee),
+              perKmRate: Number(c.perKmRate),
+              distanceBands: c.distanceBands.map((band) => ({
+                minDistanceKm: band.fromKm,
+                maxDistanceKm: band.toKm,
+                fee: Number(band.flatFee),
+              })),
+            },
+            distanceKm,
+          ),
+        ),
+      ),
+      distanceKm,
+      distanceSource,
+    };
+  }
+
+  // ── (c) Fallback ─────────────────────────────────────────────────────────
+  const fallback = await prisma.vehicleTypeConfig.findFirst({
+    where: { isActive: true },
+    orderBy: { minDeliveryFee: 'asc' },
+    select: { minDeliveryFee: true },
+  });
+
+  return {
+    fee: fallback ? Number(fallback.minDeliveryFee) : 0,
+    distanceKm,
+    distanceSource,
+  };
+}
+
+  async calculateDeliveryFeeold1(
     cartId: string,
     dropoffLocation: { latitude: number; longitude: number } | null,
     selectedVehicleTypeConfigId?: string,

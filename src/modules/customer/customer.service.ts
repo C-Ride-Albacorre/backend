@@ -216,12 +216,12 @@ export class CustomerService {
   /**
    * Get delivery options
    */
-  async getDeliveryOptions() {
-    return this.prisma.deliveryOption.findMany({
-      where: { isActive: true },
-      orderBy: { displayOrder: 'asc' },
-    });
-  }
+  // async getDeliveryOptions() {
+  //   return this.prisma.deliveryOption.findMany({
+  //     where: { isActive: true },
+  //     orderBy: { displayOrder: 'asc' },
+  //   });
+  // }
 
   async getVendorAddressByStore(storeId: string) {
     const store = await this.prisma.store.findUnique({

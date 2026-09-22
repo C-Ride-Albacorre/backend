@@ -233,56 +233,6 @@ async getCart(
     return { success: true, message: 'Cart cleared' };
   }
 
-  // @Get('/delivery-options')
-  // @ApiOperation({ summary: 'Get delivery options for the cart' })
-  // @ApiHeader({
-  //   name: 'x-session-id',
-  //   required: false,
-  //   description: 'Guest session ID',
-  // })
-  // async getDeliveryOptions(
-  //   @Request() req,
-  //   @Headers('x-session-id') sessionId: string,
-  //   @Body('dropoffLocation') dropoffLocation: { latitude: number; longitude: number },
-  // ) {
-  //   const userId = req.user?.id || null;
-
-  //   const cart = await this.cartService.getOrCreateCart(userId, sessionId);
-  //   return this.cartService.getDeliveryOptions(cart.id, dropoffLocation);
-  // }
-// @Get('/delivery-options')
-// @ApiOperation({ summary: 'Get delivery options for the cart' })
-// @ApiHeader({
-//   name: 'x-session-id',
-//   required: false,
-//   description: 'Guest session ID',
-// })
-// @ApiQuery({ name: 'latitude', type: Number, required: true })
-// @ApiQuery({ name: 'longitude', type: Number, required: true })
-// async getDeliveryOptions(
-//   @Request() req,
-//   @Headers('x-session-id') sessionId: string,
-//   @Query() query: GetDeliveryOptionsQueryDto,
-// ) {
-//   const userId = req.user?.id ?? null;
-
-//   if (!userId && !sessionId) {
-//     throw new UnauthorizedException(
-//       'Either authentication or x-session-id is required',
-//     );
-//   }
-
-//   const cart = await this.cartService.getOrCreateCart(userId, sessionId);
-
-//   if (!cart?.id) {
-//     throw new BadRequestException('Cart is empty');
-//   }
-
-//   return this.cartService.getDeliveryOptions(cart.id, {
-//     latitude: query.latitude,
-//     longitude: query.longitude,
-//   });
-// }
 
 @Get('/delivery-options')
 @ApiOperation({ summary: 'Get delivery options for the cart' })
