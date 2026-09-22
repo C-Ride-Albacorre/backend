@@ -179,12 +179,12 @@ export class CustomerController {
     return this.customerService.getPackages(type);
   }
 
-  @Public()
-  @Get('delivery-options')
-  @ApiOperation({ summary: 'Get delivery options' })
-  async getDeliveryOptions() {
-    return this.customerService.getDeliveryOptions();
-  }
+  // @Public()
+  // @Get('delivery-options')
+  // @ApiOperation({ summary: 'Get delivery options' })
+  // async getDeliveryOptions() {
+  //   return this.customerService.getDeliveryOptions();
+  // }
 
   @Public()
   @Get('vendor-address/:storeId')
