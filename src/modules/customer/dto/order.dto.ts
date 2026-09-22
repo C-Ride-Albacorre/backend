@@ -71,8 +71,8 @@ export class CreateOrderDto {
   @IsUUID()
   deliveryOptionId?: string;
   
-    @IsString() @IsNotEmpty()
-  dropoffAddress: string;  
+  //   @IsString() @IsNotEmpty()
+  // dropoffAddress: string;  
   
   @ApiProperty({ type: DropoffLocationDto })
   @ValidateNested()
