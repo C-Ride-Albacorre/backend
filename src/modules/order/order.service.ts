@@ -696,10 +696,10 @@ export class OrderService {
     //   );
 
       this.logger.log(
-        `[${requestId}] Checking customer's address ${dto.dropoffAddress}`,
+        `[${requestId}] Checking customer's address ${address}`,
       );
 
-      const coordinates = await Helper.geocodeAddress(dto.dropoffAddress);
+      const coordinates = await Helper.geocodeAddress(address);
 
       if (!coordinates) {
         this.logger.log(
