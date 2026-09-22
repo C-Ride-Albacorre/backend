@@ -1107,63 +1107,107 @@ export class OrderService {
     }
   }
 
-  private async validateStoreWithAtomicCounter(
+private async validateStoreWithAtomicCounter(
   tx: Prisma.TransactionClient,
   storeId: string,
-  todayWeekday: string,
-  currentMinutes: number,
-  startOfDay: Date,
+  todayWeekday: string,     // e.g. 'MONDAY'
+  currentMinutes: number,   // minutes since midnight, Lagos time
+  startOfDay: Date,         // Lagos midnight as a JS Date
   endOfDay: Date,
 ): Promise<void> {
-  // ── 1. Atomic insert-or-increment ──────────────────────────────────────
-  //  One statement, no race window, no unique-violation on the second
-  //  order of the day. RETURNING gives us the post-increment value in
-  //  the same round-trip.
-  const rows = await tx.$queryRaw<Array<{ count: number }>>`
-    INSERT INTO "StoreDailyCounter" ("storeId", "date", "count", "createdAt", "updatedAt")
-    VALUES (${storeId}, ${startOfDay}::date, 1, NOW(), NOW())
-    ON CONFLICT ("storeId", "date")
-    DO UPDATE SET
-      "count"     = "StoreDailyCounter"."count" + 1,
-      "updatedAt" = NOW()
-    RETURNING "count"
-  `;
-
-  const newDailyCount = Number(rows[0]?.count ?? 0);
-
-  // ── 2. Load the store's limits + hours ─────────────────────────────────
+  // ── 1. Load store + operating hours ──────────────────────────────────
+  //  Note: operating hours live on OperatingHour, not on Store. There is
+  //  no openTime/closeTime column on Store.
   const store = await tx.store.findUnique({
     where: { id: storeId },
-    select: {
-      id: true,
-      dailyOrderLimit: true,      // rename to match your schema
-      openTime: true,
-      closeTime: true,
-    },
+    include: { operatingHours: true },
   });
-  if (!store) throw new NotFoundException('Store not found');
+  if (!store) throw new NotFoundException(`Store ${storeId} not found`);
 
-  // ── 3. Enforce daily limit ─────────────────────────────────────────────
-  if (
-    store.dailyOrderLimit != null &&
-    newDailyCount > store.dailyOrderLimit
-  ) {
-    // Transaction rollback undoes the increment — no compensation needed.
+  // ── 2. Operating-hours gate ──────────────────────────────────────────
+  const today = store.operatingHours.find(
+    (h) => h.dayOfWeek === (todayWeekday as any),
+  );
+
+  if (!today || !today.isOpen) {
     throw new BadRequestException(
-      `Store has reached its daily order limit (${store.dailyOrderLimit})`,
+      `${store.storeName} is not open today`,
     );
   }
 
-  // ── 4. Enforce operating hours ─────────────────────────────────────────
-  // ...whatever checks you already have for openTime / closeTime / weekday.
-  // Keep them AFTER the increment so a rejected order doesn't leave a stale
-  // counter row behind.
+  if (today.openingTime && today.closingTime) {
+    const openMin = this.hhmmToMinutes(today.openingTime);
+    const closeMin = this.hhmmToMinutes(today.closingTime);
+
+    const withinHours =
+      // normal hours (e.g. 09:00 – 21:00)
+      openMin <= closeMin
+        ? currentMinutes >= openMin && currentMinutes < closeMin
+        // overnight window (e.g. 22:00 – 02:00)
+        : currentMinutes >= openMin || currentMinutes < closeMin;
+
+    if (!withinHours) {
+      throw new BadRequestException(
+        `${store.storeName} is closed right now ` +
+          `(opens ${today.openingTime}, closes ${today.closingTime})`,
+      );
+    }
+
+    // Optional: block during break if your business rule says so.
+    // if (today.breakStart && today.breakEnd) { ... }
+  }
+
+  // ── 3. Atomic daily counter ──────────────────────────────────────────
+  if (!store.dailyOrderLimit || store.dailyOrderLimit <= 0) {
+    // No limit configured — nothing to increment or enforce.
+    return;
+  }
+
+  // Derive the store's local date (Lagos), not UTC.
+  const dateStr = DateTime.fromJSDate(startOfDay)
+    .setZone('Africa/Lagos')
+    .toISODate(); // YYYY-MM-DD
+
+  // Single-statement insert-or-increment. The WHERE on DO UPDATE means
+  // the row is only bumped if it would stay within the limit; RETURNING
+  // therefore yields a row on success and zero rows when the limit is hit.
+  const rows = await tx.$queryRaw<Array<{ order_count: number }>>`
+    INSERT INTO store_daily_counters (store_id, date, order_count)
+    VALUES (${storeId}, ${dateStr}::date, 1)
+    ON CONFLICT (store_id, date)
+    DO UPDATE
+      SET order_count = store_daily_counters.order_count + 1
+      WHERE store_daily_counters.order_count + 1 <= ${store.dailyOrderLimit}
+    RETURNING order_count
+  `;
+
+  if (rows.length === 0) {
+    // The row existed AND order_count + 1 would exceed the limit.
+    // Rolling back the transaction also undoes nothing here because the
+    // DO UPDATE's WHERE clause skipped the mutation entirely.
+    throw new BadRequestException(
+      `${store.storeName} has reached its daily order limit ` +
+        `(${store.dailyOrderLimit})`,
+    );
+  }
 
   this.logger.log(
-    `Store counter validated | storeId=${storeId} | ` +
-      `date=${startOfDay.toISOString().slice(0, 10)} | ` +
-      `dailyCount=${newDailyCount} | limit=${store.dailyOrderLimit ?? 'none'}`,
+    `Store counter | storeId=${storeId} | date=${dateStr} | ` +
+      `orderCount=${rows[0].order_count} | limit=${store.dailyOrderLimit}`,
   );
+}
+
+/** "HH:mm" or "HH:mm:ss" → minutes since midnight. */
+private hhmmToMinutes(value: string): number {
+  const [h, m] = value.split(':').map((s) => parseInt(s, 10));
+  return (h || 0) * 60 + (m || 0);
+}
+
+// Helper — put it wherever your helpers live.
+private timeStringToMinutes(t: string): number {
+  // Accepts "HH:mm" or "HH:mm:ss"
+  const [h, m] = t.split(':').map((n) => parseInt(n, 10));
+  return h * 60 + (isNaN(m) ? 0 : m);
 }
 
   /**
