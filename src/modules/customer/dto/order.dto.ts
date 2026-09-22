@@ -7,7 +7,6 @@ import {
   IsOptional,
   ValidateNested,
   IsNumber,
-  IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { OrderType } from '@prisma/client';
@@ -70,10 +69,7 @@ export class CreateOrderDto {
   @IsOptional()
   @IsUUID()
   deliveryOptionId?: string;
-  
-  //   @IsString() @IsNotEmpty()
-  // dropoffAddress: string;  
-  
+
   @ApiProperty({ type: DropoffLocationDto })
   @ValidateNested()
   @Type(() => DropoffLocationDto)
