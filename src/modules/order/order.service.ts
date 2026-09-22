@@ -863,7 +863,7 @@ export class OrderService {
               items,
               subtotal,
               deliveryFee,
-              serviceFee,
+              serviceFee: taxAmount  + serviceFee,
               taxAmount,
               totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
             };
@@ -1196,7 +1196,7 @@ export class OrderService {
       items,
       subtotal: order.subtotal,
       deliveryFee: order.deliveryFee,
-      serviceFee: order.serviceFee,
+      serviceFee: order.serviceFee + order.taxAmount, // combined service fee and tax
       taxAmount: order.taxAmount,
       totalAmount: order.totalAmount,
       dropoffLocation: order.dropoffLocation as any as DropoffLocationDto, // ensure type safety
@@ -2358,7 +2358,7 @@ export class OrderService {
 
         subtotal: order.subtotal,
         deliveryFee: order.deliveryFee,
-        serviceFee: order.serviceFee,
+        serviceFee: order.serviceFee + order.taxAmount,
         taxAmount: order.taxAmount,
         totalAmount: order.totalAmount,
 
