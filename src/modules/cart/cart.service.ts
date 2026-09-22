@@ -1734,6 +1734,8 @@ export class CartService {
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
+    const t = serviceFee + taxAmount;
+
     return {
       cartId: cart.id,
       storeId: store?.id ?? null,
@@ -1746,9 +1748,9 @@ export class CartService {
       // totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
       subtotal: round2(subtotal),
       deliveryFee: round2(deliveryFee),
-      serviceFee: round2(serviceFee) + round2(taxAmount),
+      serviceFee: round2(t),
       taxAmount: round2(taxAmount),
-      totalAmount: round2(subtotal + deliveryFee + serviceFee ),
+      totalAmount: round2(subtotal + deliveryFee + t),
     };
   }
 
