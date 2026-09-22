@@ -1746,9 +1746,9 @@ export class CartService {
       // totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
       subtotal: round2(subtotal),
       deliveryFee: round2(deliveryFee),
-      serviceFee: round2(serviceFee),
+      serviceFee: round2(serviceFee) + round2(taxAmount),
       taxAmount: round2(taxAmount),
-      totalAmount: round2(subtotal + deliveryFee + serviceFee + taxAmount),
+      totalAmount: round2(subtotal + deliveryFee + serviceFee ),
     };
   }
 
