@@ -77,8 +77,8 @@ export class CustomerService {
   return {
     success: true,
     message: dto.latitude && dto.longitude
-      ? 'Location saved with coordinates'
-      : 'Location saved (coordinates unavailable)',
+      ? 'Location saved' //with coordinates'
+      : 'Location saved', //(coordinates unavailable)',
     location,
   };
 }
