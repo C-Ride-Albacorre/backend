@@ -877,14 +877,16 @@ export class OrderService {
             // 5c. Tax — VAT from GlobalSetting.taxRate
             const taxAmount = await this.cartService.calculateTax(subtotal, tx);
 
+            const t = taxAmount + serviceFee;
+
             const cartSummary = {
               cartId: cartWithItems.id,
               items,
               subtotal,
               deliveryFee,
-              serviceFee: taxAmount + serviceFee,
+              serviceFee: t,
               taxAmount,
-              totalAmount: subtotal + deliveryFee + serviceFee,
+              totalAmount: subtotal + deliveryFee + t,
             };
 
             // ────────────────────────────────────────────────────────────
@@ -1052,7 +1054,7 @@ export class OrderService {
   // Atomic daily limit helper
   // ================================
 
-  private async validateStoreWithAtomicCounter(
+  private async validateStoreWithAtomicCounterold(
     tx: Prisma.TransactionClient,
     storeId: string,
     todayWeekday: string,
@@ -1105,6 +1107,64 @@ export class OrderService {
     }
   }
 
+  private async validateStoreWithAtomicCounter(
+  tx: Prisma.TransactionClient,
+  storeId: string,
+  todayWeekday: string,
+  currentMinutes: number,
+  startOfDay: Date,
+  endOfDay: Date,
+): Promise<void> {
+  // ── 1. Atomic insert-or-increment ──────────────────────────────────────
+  //  One statement, no race window, no unique-violation on the second
+  //  order of the day. RETURNING gives us the post-increment value in
+  //  the same round-trip.
+  const rows = await tx.$queryRaw<Array<{ count: number }>>`
+    INSERT INTO "StoreDailyCounter" ("storeId", "date", "count", "createdAt", "updatedAt")
+    VALUES (${storeId}, ${startOfDay}::date, 1, NOW(), NOW())
+    ON CONFLICT ("storeId", "date")
+    DO UPDATE SET
+      "count"     = "StoreDailyCounter"."count" + 1,
+      "updatedAt" = NOW()
+    RETURNING "count"
+  `;
+
+  const newDailyCount = Number(rows[0]?.count ?? 0);
+
+  // ── 2. Load the store's limits + hours ─────────────────────────────────
+  const store = await tx.store.findUnique({
+    where: { id: storeId },
+    select: {
+      id: true,
+      dailyOrderLimit: true,      // rename to match your schema
+      openTime: true,
+      closeTime: true,
+    },
+  });
+  if (!store) throw new NotFoundException('Store not found');
+
+  // ── 3. Enforce daily limit ─────────────────────────────────────────────
+  if (
+    store.dailyOrderLimit != null &&
+    newDailyCount > store.dailyOrderLimit
+  ) {
+    // Transaction rollback undoes the increment — no compensation needed.
+    throw new BadRequestException(
+      `Store has reached its daily order limit (${store.dailyOrderLimit})`,
+    );
+  }
+
+  // ── 4. Enforce operating hours ─────────────────────────────────────────
+  // ...whatever checks you already have for openTime / closeTime / weekday.
+  // Keep them AFTER the increment so a rejected order doesn't leave a stale
+  // counter row behind.
+
+  this.logger.log(
+    `Store counter validated | storeId=${storeId} | ` +
+      `date=${startOfDay.toISOString().slice(0, 10)} | ` +
+      `dailyCount=${newDailyCount} | limit=${store.dailyOrderLimit ?? 'none'}`,
+  );
+}
 
   /**
    * Get order summary
