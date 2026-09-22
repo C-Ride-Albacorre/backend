@@ -267,6 +267,16 @@ async approveDispatcher(
   return this.adminService.approveDispatcher(user.id, dispatcherId, dto);
 }
 
+@Delete('dispatchers/:dispatcherId')
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@HttpCode(HttpStatus.OK)
+@ApiOperation({ summary: 'Delete dispatcher by ID' })
+async deleteDispatcher(@Param('dispatcherId') dispatcherId: string) {
+  return this.adminService.deleteDispatcher(dispatcherId);
+}
+
+
+
 // =============CUSTOMER============= //
 @Get('customers')
 @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)

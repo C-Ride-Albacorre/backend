@@ -1077,6 +1077,29 @@ export class AdminService {
     };
   }
 
+  async deleteDispatcher(dispatcherId: string) {
+    const dispatcher = await this.prisma.user.findFirst({
+      where: {
+        id: dispatcherId,
+        role: Role.DISPATCHER,
+      },
+      select: { id: true },
+    });
+
+    if (!dispatcher) {
+      throw new NotFoundException('Dispatcher not found');
+    }
+
+    await this.prisma.user.delete({
+      where: { id: dispatcher.id },
+    });
+
+    return {
+      success: true,
+      message: 'Dispatcher deleted successfully',
+    };
+  }
+
   async approveDispatcher(
     adminId: string,
     dispatcherId: string,
@@ -1154,6 +1177,7 @@ export class AdminService {
     throw new BadRequestException('Invalid action');
   }
 
+  
 
 
   async getAllCustomersbk(filterDto: CustomerFilterDto) {
