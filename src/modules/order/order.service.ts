@@ -230,25 +230,39 @@ export class OrderService {
       .join(', ');
   }
 
-   buildFullAddress(loc: any): string {
+  buildFullAddressold1(loc: any): string {
+    const parts = [
+      loc.street,
+      loc.city,
+      loc.state,
+      loc.postalCode,
+      loc.country,
+    ]
+      .map((p) => (typeof p === 'string' ? p.trim() : ''))
+      .filter((p) => p.length > 0);
+
+    // Dedup consecutive-equal-ish tokens; drop the trailing country if
+    // it already appeared earlier in the string.
+    const deduped: string[] = [];
+    for (const part of parts) {
+      if (!deduped.includes(part)) deduped.push(part);
+    }
+    return deduped.join(', ');
+  }
+
+  buildFullAddress(loc: any): string {
   const parts = [
-    loc.street,
+    loc.address,
     loc.city,
     loc.state,
-    loc.postalCode,
     loc.country,
   ]
     .map((p) => (typeof p === 'string' ? p.trim() : ''))
     .filter((p) => p.length > 0);
 
-  // Dedup consecutive-equal-ish tokens; drop the trailing country if
-  // it already appeared earlier in the string.
-  const deduped: string[] = [];
-  for (const part of parts) {
-    if (!deduped.includes(part)) deduped.push(part);
-  }
-  return deduped.join(', ');
+  return parts.join(', ');
 }
+
 
   /**
    * Create an order from a cart.
@@ -674,13 +688,18 @@ export class OrderService {
 
     if (dto.dropoffLocation) {
       const address = this.buildFullAddress(dto.dropoffLocation);
-        //const address = dto.dropoffLocation.address; // Use the address field directly
+    //const address = dto.dropoffLocation.address; // Use the address field directly
+    // if (dto.dropoffAddress) {
+    //   this.logger.log(
+    //     `[${requestId}] Geocoding dropoff address | ` +
+    //     `cartId=${dto.cartId} | dropoffAddress="${dto.dropoffAddress}"`,
+    //   );
 
       this.logger.log(
-        `[${requestId}] Checking customer's address ${address}`,
+        `[${requestId}] Checking customer's address ${dto.dropoffAddress}`,
       );
 
-      const coordinates = await Helper.geocodeAddress(address);
+      const coordinates = await Helper.geocodeAddress(dto.dropoffAddress);
 
       if (!coordinates) {
         this.logger.log(
@@ -863,9 +882,9 @@ export class OrderService {
               items,
               subtotal,
               deliveryFee,
-              serviceFee: taxAmount  + serviceFee,
+              serviceFee: taxAmount + serviceFee,
               taxAmount,
-              totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
+              totalAmount: subtotal + deliveryFee + serviceFee,
             };
 
             // ────────────────────────────────────────────────────────────
@@ -1196,7 +1215,7 @@ export class OrderService {
       items,
       subtotal: order.subtotal,
       deliveryFee: order.deliveryFee,
-      serviceFee: order.serviceFee + order.taxAmount, // combined service fee and tax
+      serviceFee: order.serviceFee, // combined service fee and tax
       taxAmount: order.taxAmount,
       totalAmount: order.totalAmount,
       dropoffLocation: order.dropoffLocation as any as DropoffLocationDto, // ensure type safety
@@ -2358,7 +2377,7 @@ export class OrderService {
 
         subtotal: order.subtotal,
         deliveryFee: order.deliveryFee,
-        serviceFee: order.serviceFee + order.taxAmount,
+        serviceFee: order.serviceFee,
         taxAmount: order.taxAmount,
         totalAmount: order.totalAmount,
 
