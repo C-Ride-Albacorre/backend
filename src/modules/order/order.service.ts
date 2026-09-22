@@ -673,8 +673,8 @@ export class OrderService {
     } | null = null;
 
     if (dto.dropoffLocation) {
-     // const address = this.buildFullAddress(dto.dropoffLocation);
-        const address = dto.dropoffLocation.address; // Use the address field directly
+      const address = this.buildFullAddress(dto.dropoffLocation);
+        //const address = dto.dropoffLocation.address; // Use the address field directly
 
       this.logger.log(
         `[${requestId}] Checking customer's address ${address}`,
