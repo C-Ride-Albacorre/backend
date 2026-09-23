@@ -28,6 +28,7 @@ import { VehicleTypesModule } from './modules/vehicle-types/vehicle-types.module
 import { LocationModule } from './modules/location/location.module';
 import { CommissionModule } from './modules/comission/comission.module';
 import { GlobalSettingsModule } from './modules/global-settings/global-settings.module';
+import { VendorModule } from './modules/vendor/vendor.module';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { GlobalSettingsModule } from './modules/global-settings/global-settings.
     LocationModule,
     CommissionModule,
     GlobalSettingsModule,
+    VendorModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],
