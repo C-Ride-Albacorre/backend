@@ -94,6 +94,16 @@ async getVendorDetails(@Param('vendorId') vendorId: string) {
   return this.adminService.getVendorDetails(vendorId);
 }
 
+@Delete('vendors/:vendorId')
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@HttpCode(HttpStatus.NO_CONTENT)
+@ApiOperation({ summary: 'Delete a vendor' })
+@ApiParam({ name: 'vendorId', description: 'Vendor ID' })
+@ApiResponse({ status: 204, description: 'Vendor deleted successfully' })
+async deleteVendor(@Param('vendorId') vendorId: string): Promise<void> {
+  await this.adminService.deleteVendor(vendorId);
+}
+
 @Patch('vendors/:vendorId/approve')
 @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 @HttpCode(HttpStatus.OK)
@@ -106,6 +116,9 @@ async approveVendor(
 ) {
   return this.adminService.approveVendor(user.id, vendorId, dto);
 }
+
+
+
 
 //////vENDOR sETTLEMENT///////////
 @Post('settlements/generate')

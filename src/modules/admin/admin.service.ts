@@ -1986,6 +1986,41 @@ export class AdminService {
     };
   }
 
+  async deleteVendor(vendorId: string) {
+    const vendor = await this.prisma.user.findFirst({
+      where: {
+        id: vendorId,
+        role: UserRole.VENDOR,
+      },
+      select: { id: true },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    try {
+      await this.prisma.user.delete({
+        where: { id: vendor.id },
+      });
+    } catch (error) {
+      if (error?.code === 'P2003') {
+        throw new ConflictException(
+          'Vendor cannot be deleted because related records still exist',
+        );
+      }
+      throw error;
+    }
+
+    return {
+      success: true,
+      message: 'Vendor deleted successfully',
+    };
+  }
+
+
+  
+
   /**
    * Get store details by ID
    */
