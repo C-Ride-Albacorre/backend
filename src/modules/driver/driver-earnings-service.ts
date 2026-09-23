@@ -43,7 +43,7 @@ export class DriverEarningsService {
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly onlineHours: DriverOnlineHoursService,
-  ) {}
+  ) { }
 
   // ─────────────────────────────────────────────────────────────
   // Dashboard — cards + breakdown for the UI
@@ -51,12 +51,13 @@ export class DriverEarningsService {
   async getDashboard(driverId: string, period: EarningsPeriod, from?: Date, to?: Date) {
     const { start, end } = this.resolveRange(period, from, to);
 
-    const [wallet, agg, breakdown, activeSeconds] = await Promise.all([
+    // ✅ CORRECT — 5 items in, 5 names out
+    const [wallet, agg, breakdown, activeSeconds, performanceMetrics] = await Promise.all([
       this.getWalletSnapshot(driverId),
       this.aggregate(driverId, start, end),
       this.getDailyBreakdown(driverId, start, end),
       this.onlineHours.getActiveSecondsForRange(driverId, start, end),
-      this.getPerformanceMetrics(driverId),   // ← NEW, lifetime, ignores period
+      this.getPerformanceMetrics(driverId),   // ← was this missing?
     ]);
 
     const onlineHours = activeSeconds / 3600;
@@ -73,7 +74,7 @@ export class DriverEarningsService {
         onlineHours: Helper.round2(onlineHours),
         avgEarningsPerHour: Helper.round2(avgPerHour),
       },
-      performance,   
+      performance: performanceMetrics,
       breakdown,
     };
   }
@@ -183,102 +184,102 @@ export class DriverEarningsService {
  * Returns rates as percentages (0–100) or null when there isn't enough
  * data to compute a meaningful rate.
  */
-private async getPerformanceMetrics(driverId: string) {
-  // One pass over all assignments for this driver.
-  // Bounded by the driver's lifetime assignment count — typically a few
-  // thousand rows at most. If this ever becomes a hot path, cache it
-  // behind Redis keyed by driverId with a short TTL (60–120s).
-  const assignments = await this.prisma.driverAssignment.findMany({
-    where: { driverId },
-    select: {
-      assignmentStatus: true,
-      assignedAt: true,
-      etaSeconds: true,
-      deliveryConfirmedAt: true,
-    },
-  });
+  private async getPerformanceMetrics(driverId: string) {
+    // One pass over all assignments for this driver.
+    // Bounded by the driver's lifetime assignment count — typically a few
+    // thousand rows at most. If this ever becomes a hot path, cache it
+    // behind Redis keyed by driverId with a short TTL (60–120s).
+    const assignments = await this.prisma.driverAssignment.findMany({
+      where: { driverId },
+      select: {
+        assignmentStatus: true,
+        assignedAt: true,
+        etaSeconds: true,
+        deliveryConfirmedAt: true,
+      },
+    });
 
-  // ── Tally the raw counts ─────────────────────────────────────────
-  let offered = 0;
-  let accepted = 0;
-  let declined = 0;
-  let expired = 0;
-  let completed = 0;
-  let onTime = 0;
-  let completedWithEta = 0;
+    // ── Tally the raw counts ─────────────────────────────────────────
+    let offered = 0;
+    let accepted = 0;
+    let declined = 0;
+    let expired = 0;
+    let completed = 0;
+    let onTime = 0;
+    let completedWithEta = 0;
 
-  for (const a of assignments) {
-    offered += 1;
+    for (const a of assignments) {
+      offered += 1;
 
-    // "Accepted" is defined by the presence of assignedAt — that field
-    // is only set when the driver actually accepted the offer. Status
-    // alone isn't reliable because we flip EXPIRED after delivery.
-    const wasAccepted = a.assignedAt !== null;
+      // "Accepted" is defined by the presence of assignedAt — that field
+      // is only set when the driver actually accepted the offer. Status
+      // alone isn't reliable because we flip EXPIRED after delivery.
+      const wasAccepted = a.assignedAt !== null;
 
-    if (wasAccepted) {
-      accepted += 1;
-    } else if (a.assignmentStatus === 'DECLINED') {
-      declined += 1;
-    } else if (a.assignmentStatus === 'EXPIRED') {
-      expired += 1;
-    }
+      if (wasAccepted) {
+        accepted += 1;
+      } else if (a.assignmentStatus === 'DECLINED') {
+        declined += 1;
+      } else if (a.assignmentStatus === 'EXPIRED') {
+        expired += 1;
+      }
 
-    // "Completed" = delivery was confirmed on this assignment.
-    const wasCompleted = a.deliveryConfirmedAt !== null;
-    if (wasCompleted) {
-      completed += 1;
+      // "Completed" = delivery was confirmed on this assignment.
+      const wasCompleted = a.deliveryConfirmedAt !== null;
+      if (wasCompleted) {
+        completed += 1;
 
-      // Only count toward on-time if we have both the ETA and the
-      // assignment start — otherwise there's no baseline to compare to.
-      if (a.assignedAt && a.etaSeconds !== null) {
-        completedWithEta += 1;
+        // Only count toward on-time if we have both the ETA and the
+        // assignment start — otherwise there's no baseline to compare to.
+        if (a.assignedAt && a.etaSeconds !== null) {
+          completedWithEta += 1;
 
-        const expectedAt =
-          a.assignedAt.getTime() +
-          a.etaSeconds * 1000 +
-          PERFORMANCE_RULES.ON_TIME_BUFFER_MS;
-        const deliveredAt = a.deliveryConfirmedAt!.getTime();
+          const expectedAt =
+            a.assignedAt.getTime() +
+            a.etaSeconds * 1000 +
+            PERFORMANCE_RULES.ON_TIME_BUFFER_MS;
+          const deliveredAt = a.deliveryConfirmedAt!.getTime();
 
-        if (deliveredAt <= expectedAt) onTime += 1;
+          if (deliveredAt <= expectedAt) onTime += 1;
+        }
       }
     }
+
+    // ── Compute the rates ────────────────────────────────────────────
+    const acceptanceDenominator = PERFORMANCE_RULES.COUNT_EXPIRED_AS_MISS
+      ? accepted + declined + expired
+      : accepted + declined;
+
+    const acceptanceRate =
+      acceptanceDenominator >= PERFORMANCE_RULES.MIN_SAMPLE_FOR_RATE
+        ? Helper.round2((accepted / acceptanceDenominator) * 100)
+        : null;
+
+    const completionRate =
+      accepted >= PERFORMANCE_RULES.MIN_SAMPLE_FOR_RATE
+        ? Helper.round2((completed / accepted) * 100)
+        : null;
+
+    const onTimeRate =
+      completedWithEta >= PERFORMANCE_RULES.MIN_SAMPLE_FOR_RATE
+        ? Helper.round2((onTime / completedWithEta) * 100)
+        : null;
+
+    return {
+      scope: 'lifetime' as const,
+      acceptanceRate,
+      completionRate,
+      onTimeRate,
+      counts: {
+        offered,
+        accepted,
+        declined,
+        expired,
+        completed,
+        onTime,
+      },
+    };
   }
-
-  // ── Compute the rates ────────────────────────────────────────────
-  const acceptanceDenominator = PERFORMANCE_RULES.COUNT_EXPIRED_AS_MISS
-    ? accepted + declined + expired
-    : accepted + declined;
-
-  const acceptanceRate =
-    acceptanceDenominator >= PERFORMANCE_RULES.MIN_SAMPLE_FOR_RATE
-      ? Helper.round2((accepted / acceptanceDenominator) * 100)
-      : null;
-
-  const completionRate =
-    accepted >= PERFORMANCE_RULES.MIN_SAMPLE_FOR_RATE
-      ? Helper.round2((completed / accepted) * 100)
-      : null;
-
-  const onTimeRate =
-    completedWithEta >= PERFORMANCE_RULES.MIN_SAMPLE_FOR_RATE
-      ? Helper.round2((onTime / completedWithEta) * 100)
-      : null;
-
-  return {
-    scope: 'lifetime' as const,
-    acceptanceRate,
-    completionRate,
-    onTimeRate,
-    counts: {
-      offered,
-      accepted,
-      declined,
-      expired,
-      completed,
-      onTime,
-    },
-  };
-}
 
   // ─────────────────────────────────────────────────────────────
   // Payout request — reuses existing debitWallet
@@ -342,11 +343,11 @@ private async getPerformanceMetrics(driverId: string) {
       if (!payout) throw new NotFoundException('Payout not found');
 
       const allowed: Record<PayoutStatus, PayoutStatus[]> = {
-        PENDING:    ['PROCESSING', 'CANCELLED'],
+        PENDING: ['PROCESSING', 'CANCELLED'],
         PROCESSING: ['PAID', 'FAILED'],
-        PAID:       [],
-        FAILED:     [],
-        CANCELLED:  [],
+        PAID: [],
+        FAILED: [],
+        CANCELLED: [],
       };
       if (!allowed[payout.status].includes(status)) {
         throw new BadRequestException(`Cannot move from ${payout.status} to ${status}`);
