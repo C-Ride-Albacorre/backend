@@ -20,3 +20,23 @@ export const UserRole = {
   SUPER_ADMIN: 'SUPER_ADMIN' as UserRole,
 };
 
+/**
+ * Tunable business rules for driver performance metrics.
+ * Change here — never inline — so ops and product can adjust without
+ * hunting through query logic.
+ */
+const PERFORMANCE_RULES = {
+  /** Grace period after the ETA before a delivery counts as late. */
+  ON_TIME_BUFFER_MS: 5 * 60 * 1000,          // +5 minutes
+
+  /**
+   * Whether expired offers (driver never responded in time) should count
+   * against the acceptance rate.
+   *   false → exclude from denominator (default; expired ≠ declined)
+   *   true  → include in denominator (expired counts as a miss)
+   */
+  COUNT_EXPIRED_AS_MISS: false,
+
+  /** Minimum sample size before showing a rate. Below this → null. */
+  MIN_SAMPLE_FOR_RATE: 1,
+} as const;
