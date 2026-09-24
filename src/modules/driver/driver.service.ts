@@ -588,22 +588,6 @@ export class DriverService {
   }
 
 
-  private getRedirectUrl(
-    status: string,
-    onboardingStatus: OnBoardingStatus,
-  ): string {
-    if (status === 'ACTIVE') {
-      return '/driver/dashboard';
-    }
-    if (status === 'UNDER_REVIEW') {
-      return '/driver/onboarding/review-pending';
-    }
-    if (onboardingStatus === OnBoardingStatus.IN_PROGRESS) {
-      return '/driver/onboarding';
-    }
-    return '/driver/onboarding/start';
-  }
-
   //////////////DRIVER TRACKING////////////
 
   /**

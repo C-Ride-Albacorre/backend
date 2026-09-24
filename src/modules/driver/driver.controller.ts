@@ -634,9 +634,9 @@ export class DriverWalletController {
 
   @Get()
   @ApiOperation({ summary: 'Wallet snapshot for the driver' })
-  async wallet(@Req() req) {
+  async wallet(@Req() req, @Query() q: DriverEarningsQueryDto) {
     // Reuse earnings.getDashboard or expose a small method — the shape is the same
-    return this.earnings.getDashboard(req.user.id, 'TODAY').then(d => d.wallet);
+    return this.earnings.getDashboard(req.user.id, q.period).then(d => d.wallet);
   }
 
   @Post('payouts')
