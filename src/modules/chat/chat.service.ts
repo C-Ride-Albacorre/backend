@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestEx
 import { PrismaService } from '../../shared/services/prisma.service';
 import { PushNotificationService } from '../notification/push-notification.service';
 import { ChatMessage, MessageType, Role } from '@prisma/client';
-import { CloudinaryService } from 'src/shared/services/cloudinary.service';
+import { CloudinaryService } from '../../shared/services/cloudinary.service';
 
 @Injectable()
 export class ChatService {

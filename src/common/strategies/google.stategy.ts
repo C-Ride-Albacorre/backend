@@ -4,7 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { OAuthState } from '../interfaces/interface';
-import { UserRole } from 'src/shared/enums';
+import { UserRole } from '../../shared/enums';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {

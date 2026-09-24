@@ -30,7 +30,7 @@ import { InitializePaymentDto } from './dto/payment.dto';
 import { MonnifyService } from '../payment/monnify.service';
 import { OrderService } from '../order/order.service';
 import { Roles } from '../../common/decorators/role.decorator';
-import { UserRole } from 'src/shared/enums';
+import { UserRole } from '../../shared/enums';
 import { GetStoresQueryDto } from './dto/get-store.dto';
 import { StoreResponseDto } from './dto/store-response.dto';
 import { GetNearbyStoresQueryDto } from './dto/near-by-store.dto';

@@ -21,8 +21,8 @@ import { GetUser } from '../../common/decorators/get-user.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CreateBusinessProfileDto } from './dto/create-business-profile.dto';
-import { ApiResponseDto } from 'src/common/dto/api-response.dto';
-import { ApiErrorResponseDto } from 'src/common/dto/api-error-response.dto';
+import { ApiResponseDto } from '../../common/dto/api-response.dto';
+import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
 
 @ApiTags('User')
 @Controller('user')
