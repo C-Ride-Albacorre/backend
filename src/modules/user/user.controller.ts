@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Patch,
   UploadedFile,
   UseGuards,
@@ -26,7 +27,7 @@ import { ApiErrorResponseDto } from 'src/common/dto/api-error-response.dto';
 @ApiTags('User')
 @Controller('user')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(private readonly userService: UserService) { }
 
   // @Patch('business-profile')
   @ApiBearerAuth()
@@ -50,13 +51,7 @@ export class UserController {
     description: 'Unauthorized',
     type: ApiErrorResponseDto,
   })
-  // async createOrUpdateProfile(
-  //   @GetUser() user: any,
-  //   @Body() dto: CreateBusinessProfileDto,
-  //   @UploadedFile() file?: Express.Multer.File,
-  // ) {
-  //   return this.userService.createOrUpdateProfile(user.id, dto, file);
-  // }
+
   @Patch('change-password')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -75,4 +70,27 @@ export class UserController {
       newPassword,
     );
   }
+
+  @Delete('delete')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete user account' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['reason'],
+      properties: {
+        reason: { type: 'string', example: 'No longer need the account' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'User account deleted successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async deleteUser(@GetUser() user: any, @Body('reason') reason: string) {
+    return this.userService.deleteUser(user.id, reason);
+  }
+ 
+ 
+
+
 }
