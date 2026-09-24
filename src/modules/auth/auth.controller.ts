@@ -216,24 +216,6 @@ export class AuthController {
     return this.authService.resendVerificationToken(dto);
   }
 
-  // @Post('/customer/login')
-  // @ApiOperation({ summary: 'Login with email and password | phone number' })
-  // @ApiResponse({
-  //   status: 200,
-  //   description: 'User logged in successfully',
-  //   type: ApiResponseDto<AuthResponseDto>,
-  // })
-  // @ApiResponse({
-  //   status: 401,
-  //   description: 'Invalid credentials',
-  //   type: ApiErrorResponseDto,
-  // })
-  // @ApiResponse({ status: 403, description: 'Account deactivated' })
-  // //@UsePipes(new ValidationPipe({ transform: true }))
-  // async loginCustomer(@Body() dto: CustomerLoginDto) {
-  //   return this.authService.loginCustomer(dto);
-  // }
-
   @Post('/customer/login')
   @ApiOperation({ summary: 'Login with email/password or phone number' })
   @ApiHeader({
@@ -286,14 +268,6 @@ export class AuthController {
     return this.authService.registerUser(dto, UserRole.VENDOR);
   }
 
-  // @Post('/vendor/verify/email')
-  // @HttpCode(HttpStatus.OK)
-  // @ApiOperation({ summary: 'Verify vendor email' })
-  // @ApiResponse({ status: 200, description: 'Email verified successfully' })
-  // @ApiResponse({ status: 401, description: 'Invalid verification code' })
-  // async verifyVendorEmail(@Body() dto: VerifyEmailDto) {
-  //   return this.authService.verifyVendorEmail(dto);
-  // }
 
   @Post('/user/verify/email')
   @HttpCode(HttpStatus.OK)
@@ -304,28 +278,7 @@ export class AuthController {
     return this.authService.verifyUserEmail(dto);
   }
 
-  // @Post('/user/verify/email')
-  // @HttpCode(HttpStatus.OK)
-  // @UseGuards(JwtAuthGuard)
-  // @ApiBearerAuth()
-  // @ApiOperation({ summary: 'Verify user email' })
-  // @ApiResponse({ status: 200, description: 'Email verified successfully' })
-  // @ApiResponse({ status: 401, description: 'Invalid verification code' })
-  // async verifyUserEmail(@Req() req, @Body() dto: VerifyEmailDto) {
-  //   return this.authService.verifyUserEmail(req.user.id, dto);
-  // }
-
-  // @Post('/vendor/verify/phone')
-  // @HttpCode(HttpStatus.OK)
-  // @ApiOperation({ summary: 'Verify vendor phone' })
-  // @ApiResponse({ status: 200, description: 'Phone verified successfully' })
-  // @ApiResponse({ status: 401, description: 'Invalid verification code' })
-  // async verifyVendorPhone(@Body() dto: VerifyPhoneDto) {
-  //   return this.authService.verifyVendorPhone(dto);
-  // }
   @Post('/user/add/phone')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @ApiBearerAuth()
   @Roles(UserRole.VENDOR)
   @ApiOperation({ summary: 'Add phone number for authenticated user' })
   @ApiResponse({
@@ -344,17 +297,6 @@ export class AuthController {
     return this.authService.addPhoneNumber(dto);
   }
 
-  // @Post('/user/verify/phone')
-  // @HttpCode(HttpStatus.OK)
-  // @UseGuards(JwtAuthGuard)
-  // @ApiBearerAuth()
-  // @ApiOperation({ summary: 'Verify user phone' })
-  // @ApiResponse({ status: 200, description: 'Phone verified successfully' })
-  // @ApiResponse({ status: 401, description: 'Invalid verification code' })
-  // async verifyUserPhone(@Req() req, @Body() dto: VerifyPhoneDto) {
-  //   return this.authService.verifyUserPhone(req.user.id, dto);
-  // }
-
   @Post('/user/verify/phone')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify user phone' })
@@ -363,15 +305,6 @@ export class AuthController {
   async verifyUserPhone(@Body() dto: VerifyPhoneDto) {
     return this.authService.verifyUserPhone(dto);
   }
-
-  // @Post('/vendor/login')
-  // @HttpCode(HttpStatus.OK)
-  // @ApiOperation({ summary: 'Vendor login' })
-  // @ApiResponse({ status: 200, description: 'Login successful' })
-  // @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  // async loginVendor(@Body() loginDto: LoginDto) {
-  //   return this.authService.loginVendor(loginDto);
-  // }
 
   @Post('/vendor/login')
   @HttpCode(HttpStatus.OK)
@@ -575,120 +508,7 @@ STEP 4 – Bank Details
   async loginDriver(@Body() loginDto: LoginDto) {
     return this.authService.loginUser(loginDto, UserRole.DISPATCHER);
   }
-  //   async registerDriver(dto: CreateDriverDto) {
-  //     return this.userRegistrationService.registerUser(
-  //       {
-  //         email: dto.email,
-  //         phoneNumber: dto.phoneNumber,
-  //         password: dto.password,
-  //         firstName: dto.firstName,
-  //         lastName: dto.lastName,
-  //       },
-  //       this.registrationOptions,
-  //     );
-  //   }
 
-  //   async verifyDriverEmail(dto: VerifyEmailDto): Promise<VerificationResult> {
-  //     const result = await this.userRegistrationService.verifyEmail(
-  //       dto.email,
-  //       dto.otp,
-  //       {
-  //         role: UserRole.DRIVER,
-  //         verificationPurpose: 'driver_email_verification',
-  //         nextStatusAfterVerification: UserStatus.ACTIVE,
-  //       },
-  //     );
-
-  //     // If both verified, create driver profile
-  //     if (result.requiresOnboarding) {
-  //       const user = await this.userService.findByEmail(dto.email);
-  //       if (user) {
-  //         await this.createDriverProfile(user.id);
-  //       }
-  //     }
-
-  //     return result;
-  //   }
-
-  //   async verifyDriverPhone(dto: VerifyPhoneDto): Promise<VerificationResult> {
-  //     const result = await this.userRegistrationService.verifyPhone(
-  //       dto.phoneNumber,
-  //       dto.otp,
-  //       {
-  //         role: UserRole.DRIVER,
-  //         verificationPurpose: 'driver_phone_verification',
-  //         nextStatusAfterVerification: UserStatus.ACTIVE,
-  //       },
-  //     );
-
-  //     // If both verified, create driver profile
-  //     if (result.requiresOnboarding) {
-  //       const user = await this.userService.findByPhone(dto.phoneNumber);
-  //       if (user) {
-  //         await this.createDriverProfile(user.id);
-  //       }
-  //     }
-
-  //     return result;
-  //   }
-
-  //   async loginDriver(loginDto: LoginDto) {
-  //     const identifier = loginDto.email || loginDto.phoneNumber;
-  //     const user = await this.userRegistrationService.loginUser(
-  //       identifier,
-  //       loginDto.password,
-  //       UserRole.DRIVER,
-  //     );
-
-  //     return user;
-  //   }
-
-  //   private async createDriverProfile(userId: string) {
-  //     // Create driver profile logic
-  //     // This could include license verification, background check, etc.
-  //   }
-
-  //   @Post('refresh')
-  //   @ApiOperation({ summary: 'Refresh access token' })
-  //   @ApiResponse({
-  //     status: 200,
-  //     description: 'Token refreshed',
-  //     type: AuthResponseDto,
-  //   })
-  //   @ApiResponse({ status: 401, description: 'Invalid refresh token' })
-  //   async refreshTokens(@Body() refreshTokenDto: RefreshTokenDto) {
-  //     return this.authService.refreshTokens(refreshTokenDto);
-  //   }
-
-  //   //DRIVER
-  // // Driver endpoints
-  //   @Post('/driver/register')
-  //   @ApiOperation({ summary: 'Register a new driver' })
-  //   @ApiResponse({ status: 201, description: 'Driver registered successfully' })
-  //   async registerDriver(@Body() dto: CreateDriverDto) {
-  //     return this.authService.registerDriver(dto);
-  //   }
-
-  //   @Post('/driver/verify/email')
-  //   @HttpCode(HttpStatus.OK)
-  //   @ApiOperation({ summary: 'Verify driver email' })
-  //   async verifyDriverEmail(@Body() dto: VerifyEmailDto) {
-  //     return this.authService.verifyDriverEmail(dto);
-  //   }
-
-  //   @Post('/driver/verify/phone')
-  //   @HttpCode(HttpStatus.OK)
-  //   @ApiOperation({ summary: 'Verify driver phone' })
-  //   async verifyDriverPhone(@Body() dto: VerifyPhoneDto) {
-  //     return this.authService.verifyDriverPhone(dto);
-  //   }
-
-  //   @Post('/driver/login')
-  //   @HttpCode(HttpStatus.OK)
-  //   @ApiOperation({ summary: 'Driver login' })
-  //   async loginDriver(@Body() loginDto: LoginDto) {
-  //     return this.authService.loginDriver(loginDto);
-  //   }
   @Post('refresh')
   @ApiOperation({ summary: 'Refresh access token' })
   @ApiResponse({
@@ -778,31 +598,6 @@ STEP 4 – Bank Details
     return this.authService.resetPassword(dto);
   }
 
-  // @Post('reset-password/otp')
-  // @HttpCode(200)
-  // @ApiOperation({ summary: 'Reset password using OTP' })
-  // @ApiBody({ type: ResetPasswordWithOtpDto })
-  // @ApiResponse({
-  //   status: 200,
-  //   description: 'Password has been reset successfully',
-  //   schema: {
-  //     example: {
-  //       success: true,
-  //       message: 'Password has been reset successfully.',
-  //     },
-  //   },
-  // })
-  // @ApiResponse({
-  //   status: 401,
-  //   description: 'Invalid or expired OTP, or user not found/inactive',
-  // })
-  // async resetPasswordWithOtp(@Body() dto: ResetPasswordWithOtpDto) {
-  //   return this.authService.resetPasswordWithOtp({
-  //     identifier: dto.phoneNumber, // Map to identifier expected by the service
-  //     otp: dto.otp,
-  //     newPassword: dto.newPassword,
-  //   });
-  // }
 
   /**
    * Step 2: Verify OTP and get reset token
@@ -842,55 +637,6 @@ STEP 4 – Bank Details
     return this.authService.verifyResetOtp(dto);
     // return this.authService.verifyOtpAndGenerateToken(dto.identifier, dto.otp);
   }
-
-  /**
-   * Step 3: Reset password with token
-   */
-  // @Post('reset-password/token')
-  // @HttpCode(200)
-  // @ApiOperation({
-  //   summary: 'Reset password using verification token',
-  //   description:
-  //     'Resets the user\'s password using the temporary token obtained from OTP verification.',
-  // })
-  // @ApiBody({ type: ResetPasswordWithTokenDto })
-  // @ApiResponse({
-  //   status: 200,
-  //   description: 'Password has been reset successfully',
-  //   schema: {
-  //     example: {
-  //       success: true,
-  //       message: 'Password has been reset successfully.',
-  //     },
-  //   },
-  // })
-  // @ApiResponse({
-  //   status: 401,
-  //   description: 'Invalid or expired reset token',
-  //   schema: {
-  //     example: {
-  //       statusCode: 401,
-  //       message: 'Invalid or expired reset token',
-  //       error: 'Unauthorized',
-  //     },
-  //   },
-  // })
-  // @ApiResponse({
-  //   status: 400,
-  //   description: 'Password validation failed',
-  //   schema: {
-  //     example: {
-  //       statusCode: 400,
-  //       message: ['Password must contain at least 1 uppercase letter, 1 lowercase letter, and 1 number'],
-  //       error: 'Bad Request',
-  //     },
-  //   },
-  // })
-  // async resetPasswordWithToken(@Body() dto: ResetPasswordWithTokenDto) {
-  //  // return this.authService.resetPasswordWithToken(dto);
-  //     return this.authService.resetPasswordWithToken(dto.token, dto.newPassword);
-
-  // }
 
 
   @Get('profile')

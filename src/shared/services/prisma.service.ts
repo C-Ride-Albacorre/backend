@@ -62,31 +62,6 @@ export class PrismaService
   /**
    * Retry connection with exponential backoff
    */
-  // private async connectWithRetry(retries = this.MAX_RETRIES): Promise<void> {
-  //   while (retries > 0) {
-  //     try {
-  //       this.logger.log('🔗 Connecting to Prisma database...');
-  //       await this.$connect();
-  //       this.logger.log('✅ Prisma successfully connected');
-  //       return;
-  //     } catch (error) {
-  //       retries--;
-  //       this.logger.error(
-  //         `❌ Prisma connection failed (${this.MAX_RETRIES - retries}/${this.MAX_RETRIES}): ${error.message}`,
-  //       );
-  //       if (retries === 0) {
-  //         this.logger.error(
-  //           '🚨 Could not connect to the database after multiple attempts',
-  //         );
-  //         throw error;
-  //       }
-  //       this.logger.warn(`Retrying in ${this.RETRY_DELAY_MS / 1000}s...`);
-  //       await new Promise((resolve) =>
-  //         setTimeout(resolve, this.RETRY_DELAY_MS),
-  //       );
-  //     }
-  //   }
-  // }
 
   private isConnected = false;
 
@@ -103,7 +78,7 @@ export class PrismaService
       } catch (error) {
         retries--;
         this.logger.error(
-          `❌ Prisma connection failed (${this.MAX_RETRIES - retries}/${this.MAX_RETRIES}): ${error.message}`,
+          `❌ Prisma connection failed (${this.MAX_RETRIES - retries}/${this.MAX_RETRIES}): ${error}`,
         );
         if (retries === 0) {
           this.logger.error(

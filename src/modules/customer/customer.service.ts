@@ -182,7 +182,6 @@ export class CustomerService {
       },
     };
   }
-  ////////////////
 
   // Step 1: Add/Update delivery option to cart
   async addDeliveryOptionToCart(
