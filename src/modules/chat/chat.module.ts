@@ -3,7 +3,7 @@ import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
 import { ChatController } from './chat.controller';
 import { PushNotificationService } from '../notification/push-notification.service';
-import { WsJwtGuard } from 'src/common/guards/ws-jwt.guard';
+import { WsJwtGuard } from '../../common/guards/ws-jwt.guard';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({

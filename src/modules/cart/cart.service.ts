@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { AddToCartDto, CartItemDto, CartSummaryDto } from './dto/cart.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
-import Helper from 'src/shared/utils/helpers';
+import Helper from '../../shared/utils/helpers';
 import { CartStatus, CommissionStatus, Prisma } from '@prisma/client';
 import { JsonValue } from '@prisma/client/runtime/library';
 

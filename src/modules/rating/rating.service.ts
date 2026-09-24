@@ -4,7 +4,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Role, RatingStatus } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
-import { PrismaService } from 'src/shared/services/prisma.service';
+import { PrismaService } from '../../shared/services/prisma.service';
 import { PushNotificationService } from '../notification/push-notification.service';
 
 @Injectable()

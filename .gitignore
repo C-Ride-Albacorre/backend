@@ -29,6 +29,7 @@ coverage/
 .env.test
 .env.development
 .env.staging
+.env.docker
 .env.production
 .env.development.local
 .env.production.local
@@ -92,3 +93,4 @@ docker/data/
 *.bak
 *.old
 *.orig
+

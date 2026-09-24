@@ -718,7 +718,9 @@ export class AuthService {
         });
         this.logger.log(`JWT payload verified: ${JSON.stringify(payload)}`);
       } catch (err) {
-        this.logger.error(`JWT verification failed: ${err.message}`);
+        this.logger.error(
+          `JWT verification failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
         throw new UnauthorizedException('Invalid credentials');
       }
 
@@ -824,7 +826,9 @@ export class AuthService {
 
       return authResponse;
     } catch (error) {
-      this.logger.error(`Refresh failed: ${error.message}`);
+      this.logger.error(
+        `Refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
       throw new UnauthorizedException('Invalid credentials');
     }
   }
@@ -1046,7 +1050,9 @@ export class AuthService {
         requiresNewPassword: true,
       };
     } catch (error) {
-      this.logger.error(`Error verifying password reset OTP: ${error.message}`);
+      this.logger.error(
+        `Error verifying password reset OTP: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return { valid: false };
     }
   }
@@ -1069,7 +1075,7 @@ export class AuthService {
     try {
       user = await this.userService.findUserForPasswordReset(identifier);
     } catch (err) {
-      if (err.message === 'USER_NOT_VERIFIED') {
+      if (err instanceof Error && err.message === 'USER_NOT_VERIFIED') {
         return {
           success: false,
           message:
@@ -1121,7 +1127,7 @@ export class AuthService {
       };
     } catch (error) {
       this.logger.error(
-        `Failed to send password reset ${method}: ${error.message}`,
+        `Failed to send password reset ${method}: ${error instanceof Error ? error.message : String(error)}`,
       );
       return {
         success: false,
@@ -1225,7 +1231,9 @@ export class AuthService {
 
       return { valid: false };
     } catch (error) {
-      this.logger.error(`Reset token verification failed: ${error.message}`);
+      this.logger.error(
+        `Reset token verification failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return { valid: false };
     }
   }
@@ -1511,7 +1519,9 @@ export class AuthService {
         );
       }
     } catch (error) {
-      this.logger.error(`Failed to send reset confirmation: ${error.message}`);
+      this.logger.error(
+        `Failed to send reset confirmation: ${error instanceof Error ? error.message : String(error)}`,
+      );
       // Non-critical error
     }
   }
@@ -1851,9 +1861,10 @@ export class AuthService {
       const identifier = null;
       return this.generateAuthResponse(user, identifier, verificationMethod);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Failed to process OAuth callback: ${error.message}`,
-        error.stack,
+        `Failed to process OAuth callback: ${errorMessage}`,
+        error instanceof Error ? error.stack : undefined,
       );
       throw error;
     }
@@ -3278,7 +3289,9 @@ export class AuthService {
         `Verification OTPs sent to ${vendor.email} and ${vendor.phoneNumber}`,
       );
     } catch (error) {
-      this.logger.error(`Failed to send verification OTPs: ${error.message}`);
+      this.logger.error(
+        `Failed to send verification OTPs: ${error instanceof Error ? error.message : String(error)}`,
+      );
       // Don't fail registration, vendor can request resend later
     }
   }
@@ -3301,7 +3314,9 @@ export class AuthService {
         `Verification OTPs sent to ${user.email} and ${user.phoneNumber}`,
       );
     } catch (error) {
-      this.logger.error(`Failed to send verification OTPs: ${error.message}`);
+      this.logger.error(
+        `Failed to send verification OTPs: ${error instanceof Error ? error.message : String(error)}`,
+      );
       // Don't fail registration, vendor can request resend later
     }
   }
@@ -3720,12 +3735,12 @@ export class AuthService {
         })
         .catch((error) => {
           this.logger.error(
-            `Failed to upload document ${file.originalname}: ${error.message}`,
+            `Failed to upload document ${file.originalname}: ${error instanceof Error ? error.message : String(error)}`,
           );
 
           // ✅ FIX 3: don't reference metadata directly here
           throw new InternalServerErrorException(
-            `Failed to upload ${documentType}: ${error.message}`,
+            `Failed to upload ${documentType}: ${error instanceof Error ? error.message : String(error)}`,
           );
         });
 
@@ -3797,10 +3812,10 @@ export class AuthService {
         })
         .catch((error) => {
           this.logger.error(
-            `Failed to upload document ${file.originalname}: ${error.message}`,
+            `Failed to upload document ${file.originalname}: ${error instanceof Error ? error.message : String(error)}`,
           );
           throw new InternalServerErrorException(
-            `Failed to upload ${metadata.documentType}: ${error.message}`,
+            `Failed to upload ${metadata.documentType}: ${error instanceof Error ? error.message : String(error)}`,
           );
         });
 
@@ -3858,10 +3873,10 @@ export class AuthService {
         })
         .catch((error) => {
           this.logger.error(
-            `Failed to upload document ${file.originalname}: ${error.message}`,
+            `Failed to upload document ${file.originalname}: ${error instanceof Error ? error.message : String(error)}`,
           );
           throw new InternalServerErrorException(
-            `Failed to upload ${metadata.documentType}: ${error.message}`,
+            `Failed to upload ${metadata.documentType}: ${error instanceof Error ? error.message : String(error)}`,
           );
         });
 
@@ -4064,10 +4079,10 @@ export class AuthService {
         })
         .catch((error) => {
           this.logger.error(
-            `Failed to upload document ${file.originalname}: ${error.message}`,
+            `Failed to upload document ${file.originalname}: ${error instanceof Error ? error.message : String(error)}`,
           );
           throw new InternalServerErrorException(
-            `Failed to upload ${metadata.documentType}: ${error.message}`,
+            `Failed to upload ${metadata.documentType}: ${error instanceof Error ? error.message : String(error)}`,
           );
         });
 

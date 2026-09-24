@@ -26,7 +26,7 @@ import { OrderService } from '../order/order.service';
 import { RatingService } from '../rating/rating.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import Helper from 'src/shared/utils/helpers';
+import Helper from '../../shared/utils/helpers';
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',

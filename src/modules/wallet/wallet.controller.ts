@@ -3,7 +3,7 @@ import { Controller, Post, Get, Body, Request, Query, UseGuards, Res, Logger } f
 import { Response } from 'express';
 import { WalletService } from './wallet.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
-import { JwtOptionalGuard } from 'src/common/guards/jwt-optional.guard';
+import { JwtOptionalGuard } from '../../common/guards/jwt-optional.guard';
 import { FundWalletDto } from './dto/wallet.dto.';
 import { ConfigService } from '@nestjs/config';
 

@@ -913,17 +913,17 @@ export class AdminService {
           },
         });
 
-            try {
-        await this.zohoEmailProvider.sendStoreApprovalNotification(
-          store.user.email,
-          store.storeName,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Store ${storeId} was approved, but approval email could not be sent`,
-          error,
-        );
-      }
+        try {
+          await this.zohoEmailProvider.sendStoreApprovalNotification(
+            store.user.email,
+            store.storeName,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Store ${storeId} was approved, but approval email could not be sent`,
+            error,
+          );
+        }
         this.logger.log(`Store ${storeId} approved`);
         break;
 
@@ -940,18 +940,18 @@ export class AdminService {
             rejectionReason: dto.rejectionReason,
           },
         });
-         try {
-        await this.zohoEmailProvider.sendStoreRejectionNotification(
-          store.user.email,
-          store.storeName,
-          dto.rejectionReason,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Store ${storeId} was rejected, but rejection email could not be sent`,
-          error,
-        );
-      }
+        try {
+          await this.zohoEmailProvider.sendStoreRejectionNotification(
+            store.user.email,
+            store.storeName,
+            dto.rejectionReason,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Store ${storeId} was rejected, but rejection email could not be sent`,
+            error,
+          );
+        }
         this.logger.log(`Store ${storeId} rejected: ${dto.rejectionReason}`);
         break;
 
@@ -965,18 +965,18 @@ export class AdminService {
             rejectionReason: dto.rejectionReason,
           },
         });
-         try {
-        await this.zohoEmailProvider.sendStoreSuspensionNotification(
-          store.user.email,
-          store.storeName,
-          dto.rejectionReason,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Store ${storeId} was suspended, but suspension email could not be sent`,
-          error,
-        );
-      }
+        try {
+          await this.zohoEmailProvider.sendStoreSuspensionNotification(
+            store.user.email,
+            store.storeName,
+            dto.rejectionReason,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Store ${storeId} was suspended, but suspension email could not be sent`,
+            error,
+          );
+        }
         this.logger.log(`Store ${storeId} suspended`);
         break;
 
@@ -1177,7 +1177,7 @@ export class AdminService {
     throw new BadRequestException('Invalid action');
   }
 
-  
+
 
 
   async getAllCustomersbk(filterDto: CustomerFilterDto) {
@@ -2004,7 +2004,7 @@ export class AdminService {
         where: { id: vendor.id },
       });
     } catch (error) {
-      if (error?.code === 'P2003') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
         throw new ConflictException(
           'Vendor cannot be deleted because related records still exist',
         );
@@ -2019,7 +2019,7 @@ export class AdminService {
   }
 
 
-  
+
 
   /**
    * Get store details by ID
@@ -2092,7 +2092,7 @@ export class AdminService {
         },
       });
     } catch (error) {
-      if (error.code === 'P2002') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('Category with this name already exists');
       }
       throw error;
@@ -2115,7 +2115,7 @@ export class AdminService {
         },
       });
     } catch (error) {
-      if (error.code === 'P2002') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('Category with this name already exists');
       }
       throw error;
@@ -2234,10 +2234,10 @@ export class AdminService {
         },
       });
     } catch (error) {
-      if (error.code === 'P2002') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('Category with this name already exists');
       }
-      if (error.code === 'P2025') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         throw new NotFoundException('Category not found');
       }
       throw error;
@@ -2254,10 +2254,10 @@ export class AdminService {
         },
       });
     } catch (error) {
-      if (error.code === 'P2002') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('Category with this name already exists');
       }
-      if (error.code === 'P2025') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         throw new NotFoundException('Category not found');
       }
       throw error;
@@ -2270,7 +2270,7 @@ export class AdminService {
         where: { id },
       });
     } catch (error) {
-      if (error.code === 'P2025') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         throw new NotFoundException('Category not found');
       }
       throw error;
@@ -2285,7 +2285,7 @@ export class AdminService {
         data: { isActive: false },
       });
     } catch (error) {
-      if (error.code === 'P2025') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         throw new NotFoundException('Category not found');
       }
       throw error;
@@ -2409,7 +2409,7 @@ export class AdminService {
         },
       });
     } catch (error) {
-      if (error.code === 'P2002') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException(
           'Subcategory with this name already exists in this category',
         );
@@ -2571,13 +2571,13 @@ export class AdminService {
         },
       });
     } catch (error) {
-      if (error.code === 'P2002') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException(
           'Subcategory with this name already exists in this category',
         );
       }
 
-      if (error.code === 'P2025') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         throw new NotFoundException('Subcategory not found');
       }
 
@@ -2595,12 +2595,12 @@ export class AdminService {
         },
       });
     } catch (error) {
-      if (error.code === 'P2002') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException(
           'Subcategory with this name already exists in this category',
         );
       }
-      if (error.code === 'P2025') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         throw new NotFoundException('Subcategory not found');
       }
       throw error;
@@ -2613,7 +2613,7 @@ export class AdminService {
         where: { id },
       });
     } catch (error) {
-      if (error.code === 'P2025') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         throw new NotFoundException('Subcategory not found');
       }
       throw error;
@@ -2628,7 +2628,7 @@ export class AdminService {
         data: { isActive: false },
       });
     } catch (error) {
-      if (error.code === 'P2025') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         throw new NotFoundException('Subcategory not found');
       }
       throw error;

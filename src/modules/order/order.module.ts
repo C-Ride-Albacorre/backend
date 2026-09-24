@@ -5,7 +5,7 @@ import { OrderController } from './order.controller';
 import { CustomerModule } from '../customer/customer.module';
 import { BullModule } from '@nestjs/bullmq';
 import { RedisModule } from '../redis/redis.module';
-import { VendorNotificationGateway } from 'src/common/map-gateway/vendor-notification.gateway';
+import { VendorNotificationGateway } from '../../common/map-gateway/vendor-notification.gateway';
 import { DriverModule } from '../driver/driver.module';
 import { NotificationModule } from '../notification/notification.module';
 import { PaymentModule } from '../payment/payment.module';

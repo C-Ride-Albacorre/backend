@@ -26,8 +26,8 @@ import {
 import { CartService } from './cart.service';
 import { AddToCartDto } from './dto/cart.dto';
 import { Public } from '../../common/decorators/public.decorator';
-import { JwtOptionalGuard } from 'src/common/guards/jwt-optional.guard';
-import { PrismaService } from 'src/shared/services/prisma.service';
+import { JwtOptionalGuard } from '../../common/guards/jwt-optional.guard';
+import { PrismaService } from '../../shared/services/prisma.service';
 import { GetDeliveryOptionsQueryDto } from './dto/get-delivery-options.query';
 import { GetCartQueryDto } from './dto/get-cart-query.dto';
 

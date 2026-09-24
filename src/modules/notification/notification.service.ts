@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { NotificationType, Role } from '@prisma/client';
 import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
-import { VendorNotificationGateway } from 'src/common/map-gateway/vendor-notification.gateway';
+import { VendorNotificationGateway } from '../../common/map-gateway/vendor-notification.gateway';
 import { PushNotificationService } from './push-notification.service';
 
 @Injectable()
@@ -66,7 +66,7 @@ export class NotificationService {
     } catch (error) {
       this.logger.error(
         `Failed to notify vendors for order ${orderId}`,
-        error.stack,
+        error,
       );
       // Do not throw – this is a non‑critical side effect
     }
@@ -106,7 +106,7 @@ export class NotificationService {
   } catch (error) {
     this.logger.error(
       `Failed to notify customer for order ${orderId}`,
-      error.stack,
+      error,
     );
     // Non-critical side effect
   }
@@ -131,11 +131,7 @@ export class NotificationService {
       orderNumber,
     });
     this.logger.log(`Sending order confirmation email for order ${orderNumber} to vendor ${vendorId}`);
-    // await this.zohoEmailProvider.sendVendorOrderNotification()
-    //   await this.getVendorEmail(vendorId),
-    //   'New Order',
-    //   `Order ${orderNumber} has been placed. Please login to accept or decline.`,
-    // );
+ 
      await this.zohoEmailProvider.sendVendorOrderNotification(
       await this.getVendorEmail(vendorId),
       `${orderNumber}`
@@ -147,20 +143,6 @@ export class NotificationService {
   orderId: string,
   orderNumber: string,
 ) {
-  // await this.prisma.notification.create({
-  //   data: {
-  //     userId: customerId,
-  //     type: NotificationType.,
-  //     title: 'Order Confirmed',
-  //     body: `Your order #${orderNumber} has been successfully confirmed.`,
-  //     data: { orderId },
-  //   },
-  // });
-
-  // this.customerGateway.sendToCustomer(customerId, 'order-confirmed', {
-  //   orderId,
-  //   orderNumber,
-  // });
 
   this.logger.log(
     `Sending order confirmation email for order ${orderNumber} to customer ${customerId}`,
@@ -215,14 +197,6 @@ private async getCustomerEmail(customerId: string): Promise<string> {
     // Push notification (FCM/APNS) – integrate with Firebase or similar
     // Also create DB record
   }
-
-  // async sendOrderCancelled(
-  //   customerId: string,
-  //   orderNumber: string,
-  //   reason: string,
-  // ) {
-  //   // Notify customer
-  // }
 
   /**
    * Send order cancelled notification to customer (used in vendor decline flow).
@@ -281,7 +255,7 @@ private async getCustomerEmail(customerId: string): Promise<string> {
     } catch (error) {
       this.logger.error(
         `Failed to send order cancelled notification for order ${orderNumber}`,
-        error.stack,
+        error,
       );
       // Non-critical – do not throw
     }

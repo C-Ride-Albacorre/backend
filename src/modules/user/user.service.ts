@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { CreateCustomerDto } from '../auth/dto/create-customer.dto';
-import { OAuthProviderType } from '@prisma/client';
+import { OAuthProviderType, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import {
@@ -155,7 +155,9 @@ export class UserService {
 
       this.logger.log(`Verification OTP sent to ${identifier}`);
     } catch (error) {
-      this.logger.error(`Failed to send verification OTP: ${error.message}`);
+      this.logger.error(
+        `Failed to send verification OTP: ${error instanceof Error ? error.message : String(error)}`,
+      );
       // Don't fail registration if OTP sending fails
       // User can request resend later
     }
@@ -342,7 +344,9 @@ export class UserService {
         message: 'OTP sent successfully',
       };
     } catch (error) {
-      this.logger.error(`Failed to resend OTP: ${error.message}`);
+      this.logger.error(
+        `Failed to resend OTP: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return {
         success: false,
         message: 'Failed to send OTP. Please try again later.',
@@ -538,7 +542,9 @@ export class UserService {
         );
       }
     } catch (error) {
-      this.logger.error(`Failed to send welcome message: ${error.message}`);
+      this.logger.error(
+        `Failed to send welcome message: ${error instanceof Error ? error.message : String(error)}`,
+      );
       // Non-critical error, don't fail verification
     }
   }
@@ -551,15 +557,38 @@ export class UserService {
     const isEmail = identifier.includes('@');
 
     if (isEmail) {
-   
+
       return await this.findByEmail(identifier);
     } else {
- 
+
       return await this.findByPhoneNumber(identifier);
     }
   }
 
   async findUserForPasswordReset(identifier: string): Promise<User | null> {
+    const user = await this.findUserByIdentifier(identifier);
+
+    if (!user || !user.isActive) {
+      return null;
+    }
+
+    const isEmail = identifier.includes('@');
+
+    if (isEmail) {
+      if (!user.isEmailVerified) {
+        throw new Error('USER_NOT_VERIFIED');
+      }
+    } else {
+      if (!user.isPhoneVerified) {
+        throw new Error('USER_NOT_VERIFIED');
+      }
+    }
+
+    return user;
+  }
+
+
+  async findUserForPasswordResetOld(identifier: string): Promise<User | null> {
 
     const user = await this.findUserByIdentifier(identifier);
 
@@ -636,7 +665,7 @@ export class UserService {
       return { isFirstLogin };
     } catch (error) {
       this.logger.error(
-        `Failed to mark login for user ${userId}: ${error.message}`,
+        `Failed to mark login for user ${userId}: ${error instanceof Error ? error.message : String(error)}`,
       );
 
       return { isFirstLogin: false }; // safe fallback
@@ -649,11 +678,15 @@ export class UserService {
         lastLoginAt: new Date(),
       });
       this.logger.log(`User ${userId} logged in at ${new Date()}`);
-    } catch (error) {
+    }
+    catch (error) {
       this.logger.error(
-        `Failed to mark login for user ${userId}: ${error.message}`,
+        `Failed to mark login for user ${userId}`,
+        error instanceof Error ? error.stack : String(error),
       );
     }
+
+
   }
 
   ///////////////////////////
@@ -832,8 +865,9 @@ export class UserService {
       /**
        * Handle Prisma unique constraint
        */
-      if (error.code === 'P2002') {
-        if (error.meta?.target?.includes('email')) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const target = error.meta?.target;
+        if (Array.isArray(target) && target.includes('email')) {
           throw new ConflictException('User with this email already exists');
         }
       }
@@ -961,8 +995,11 @@ export class UserService {
         `createOrGetOAuthUser error: ${error.message}`,
         error.stack,
       );
-      if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
-        throw new ConflictException('User with this email already exists');
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const target = error.meta?.target;
+        if (Array.isArray(target) && target.includes('email')) {
+          throw new ConflictException('User with this email already exists');
+        }
       }
       throw error;
     }
@@ -993,14 +1030,14 @@ export class UserService {
       );
     } catch (error) {
       // If provider already exists, log and continue
-      if (error.code === 'P2002') {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         this.logger.warn(`OAuth provider already exists for user: ${userId}`);
         return;
       }
 
       this.logger.error(
-        `Failed to attach OAuth provider: ${error.message}`,
-        error.stack,
+        `Failed to attach OAuth provider: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
       );
       throw error;
     }
@@ -1130,7 +1167,7 @@ export class UserService {
     };
   }
 
-  
+
 
 
   private getDocumentName(documentType: DocumentType): string {

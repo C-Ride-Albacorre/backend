@@ -32,12 +32,12 @@ import {
 } from '@nestjs/swagger';
 import { RolesGuard } from '../../common/guards/role.guard';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
-import { Roles } from 'src/common/decorators/role.decorator';
-import { UserRole } from 'src/shared/enums';
+import { Roles } from '../../common/decorators/role.decorator';
+import { UserRole } from '../../shared/enums';
 import { DriverService } from './driver.service';
 import { DriverOnboardingDto } from './dto/driver-onboarding.dto';
 import { DriverDocumentMetadataDto } from './dto/driver-document-metadata.dto';
-import { GetUser } from 'src/common/decorators/get-user.decorator';
+import { GetUser } from '../../common/decorators/get-user.decorator';
 import { OrderStatus, User } from '@prisma/client';
 import { DriverOrderService } from './driver-order.service';
 import { DriverAssignmentService } from './driver-assignment.service';
