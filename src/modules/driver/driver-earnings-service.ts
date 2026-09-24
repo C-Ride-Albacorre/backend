@@ -109,7 +109,7 @@ export class DriverEarningsService {
   // ═════════════════════════════════════════════════════════════════
   // PUBLIC — Dashboard
   // ═════════════════════════════════════════════════════════════════
-  async getDashboard(
+  async getDashboardold(
     driverId: string,
     period: EarningsPeriod,
     from?: Date,
@@ -171,6 +171,85 @@ export class DriverEarningsService {
       ...(weeklyAggregation ? { weeklyAggregation } : {}),
     };
   }
+
+  async getDashboard(
+  driverId: string,
+  period: EarningsPeriod,
+  from?: Date,
+  to?: Date,
+): Promise<DriverEarningsDashboard> {
+  const { start, end } = this.resolveRange(period, from, to);
+
+  const [wallet, agg, activeSeconds, performanceMetrics] = await Promise.all([
+    this.getWalletSnapshot(driverId),
+    this.aggregate(driverId, start, end),
+    this.onlineHours.getActiveSecondsForRange(driverId, start, end),
+    this.getPerformanceMetrics(driverId),
+  ]);
+
+  // Clamp online seconds so a stuck session can't inflate the metric.
+  const cappedSeconds = Math.min(
+    activeSeconds,
+    PERFORMANCE_RULES.MAX_ONLINE_HOURS_PER_DAY *
+      Math.max(1, this.daysBetween(start, end)) *
+      3600,
+  );
+  const onlineHours = cappedSeconds / 3600;
+  const avgPerHour = onlineHours > 0 ? agg.totalEarnings / onlineHours : 0;
+
+  // Total Earnings card = wallet + pending + this period's earnings.
+  const totalEarningsOnCard =
+    wallet.availableBalance + wallet.pendingBalance + agg.totalEarnings;
+
+  // ── Breakdown strategy per period ─────────────────────────────
+  //  TODAY  → one row per delivery (per earning), online hours split evenly
+  //  WEEK   → one row per day (existing behaviour)
+  //  MONTH  → NO daily breakdown; weeklyAggregation only
+  //  CUSTOM → one row per day (same as WEEK)
+  let breakdown: DriverEarningsDashboard['breakdown'] = [];
+  let weeklyAggregation: DriverEarningsDashboard['weeklyAggregation'];
+
+  if (period === EarningsPeriod.TODAY) {
+    breakdown = await this.getPerDeliveryBreakdown(
+      driverId,
+      start,
+      end,
+      cappedSeconds,
+    );
+  } else if (period === EarningsPeriod.MONTH) {
+    const dailyBreakdown = await this.getDailyBreakdown(driverId, start, end);
+    weeklyAggregation = this.buildWeeklyAggregation(
+      dailyBreakdown,
+      start,
+      end,
+    );
+    breakdown = [];   // ← MONTH uses weeklyAggregation instead
+  } else {
+    breakdown = await this.getDailyBreakdown(driverId, start, end);
+  }
+
+  return {
+    period: { start, end, type: period },
+    wallet: {
+      availableBalance: wallet.availableBalance,
+      pendingBalance: wallet.pendingBalance,
+      totalOnCard: Helper.round2(totalEarningsOnCard),
+      currency: wallet.currency,
+    },
+    summary: {
+      earningsInPeriod: Helper.round2(agg.totalEarnings),
+      totalEarnings: Helper.round2(totalEarningsOnCard),
+      deliveries: agg.deliveries,
+      tipsEarned: Helper.round2(agg.tips),
+      bonuses: Helper.round2(agg.bonuses),
+      onlineHours: Helper.round2(onlineHours),
+      avgEarningsPerHour: Helper.round2(avgPerHour),
+    },
+    performance: performanceMetrics,
+    breakdown,
+    ...(weeklyAggregation ? { weeklyAggregation } : {}),
+  };
+}
 
   // ═════════════════════════════════════════════════════════════════
   // PUBLIC — Performance metrics (also exposed as a standalone endpoint)
@@ -589,6 +668,70 @@ export class DriverEarningsService {
 
     return weeks;
   }
+
+
+  /**
+ * Per-delivery breakdown for a range. Currently only used for TODAY,
+ * where "deliveries for the day" is the meaningful unit.
+ *
+ * Online hours are split evenly across the deliveries in the range.
+ * Why even split: the alternative (session-based attribution) requires
+ * joining DriverSession ranges against earning timestamps and defining
+ * what happens when a delivery has no session — which is noisy. The
+ * even split is honest ("you were online X hours and did Y deliveries,
+ * averaging Z hours per delivery") and doesn't lie about precision.
+ *
+ * If you want session-based attribution later, swap the onlineHours
+ * calculation for a per-earning lookup against DriverSession.
+ */
+private async getPerDeliveryBreakdown(
+  driverId: string,
+  start: Date,
+  end: Date,
+  totalOnlineSeconds: number,
+): Promise<DriverEarningsDashboard['breakdown']> {
+  const earnings = await this.prisma.driverEarning.findMany({
+    where: {
+      driverId,
+      earnedAt: { gte: start, lte: end },
+      status: { in: ['EARNED', 'CLEARED'] },
+    },
+    select: {
+      id: true,
+      orderId: true,
+      totalAmount: true,
+      earnedAt: true,
+    },
+    orderBy: { earnedAt: 'asc' },
+  });
+
+  if (earnings.length === 0) {
+    // Return one zero row so the client renders an empty card, not a crash
+    return [
+      {
+        date: start.toISOString().slice(0, 10),
+        deliveries: 0,
+        earnings: 0,
+        onlineHours: 0,
+      },
+    ];
+  }
+
+  // Even split of the period's online seconds across all deliveries.
+  const perDeliverySeconds =
+    totalOnlineSeconds > 0 ? totalOnlineSeconds / earnings.length : 0;
+  const perDeliveryHours = Helper.round2(perDeliverySeconds / 3600);
+
+  return earnings.map((e) => ({
+    // The date the delivery was completed
+    date: e.earnedAt.toISOString().slice(0, 10),
+    // One delivery per row — this is the whole point of TODAY
+    deliveries: 1,
+    earnings: Helper.round2(e.totalAmount),
+    // Each delivery gets an equal slice of the day's online hours
+    onlineHours: perDeliveryHours,
+  }));
+}
 
   // ═════════════════════════════════════════════════════════════════
   // INTERNAL — Range resolution
