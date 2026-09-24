@@ -64,24 +64,7 @@ export class DriverAssignmentProcessor extends WorkerHost {
         await this.driverAssignmentService.tryNextDriver(orderId, radius, attempt);
         break;
       }
-      // case 'retry-driver-search':
-      //   const { orderId, radius } = job.data;
-      //   const order = await this.driverAssignmentService.prisma.order.findUnique({
-      //     where: { id: orderId },
-      //   });
-      //   const location = order.pickupLocation as any;
-      //   const drivers = await this.driverAssignmentService.getNearbyDrivers(
-      //     location.lat,
-      //     location.lng,
-      //     radius,
-      //   );
-      //   if (drivers.length === 0) {
-      //     await this.driverAssignmentService.handleNoDrivers(orderId);
-      //   } else {
-
-      //     await this.driverAssignmentService.findAndNotifyDrivers(orderId, location);
-      //   }
-      //   break;
+      
       case 'driver-response-timeout':
         await this.handleDriverTimeout(job);
         break;

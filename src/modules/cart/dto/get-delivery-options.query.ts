@@ -1,18 +1,3 @@
-// // dto/get-delivery-options.query.ts
-// import { Type } from 'class-transformer';
-// import { IsLatitude, IsLongitude, IsNumber } from 'class-validator';
-
-// export class GetDeliveryOptionsQueryDto {
-//   @Type(() => Number)
-//   @IsNumber()
-//   @IsLatitude()
-//   latitude: number;
-
-//   @Type(() => Number)
-//   @IsNumber()
-//   @IsLongitude()
-//   longitude: number;
-// }
 
 // get-delivery-options-query.dto.ts
 import { ApiProperty } from '@nestjs/swagger';

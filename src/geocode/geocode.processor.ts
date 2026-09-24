@@ -61,7 +61,6 @@ export class GeocodeProcessor implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Geocoding store: ${storeId}`);
 
     const location = await Helper.geocodeAddress(address);
-    //const location = await this.geocodeAddress(address);
 
     await this.prisma.store.update({
       where: { id: storeId },

@@ -118,31 +118,6 @@ private async formatAssignedOrderPayload(order: any) {
     }
   }
 
-  /**
-   * Send a new order request to a specific driver
-   */
-  // emitNewOrderRequest(driverId: string, orderData: any) {
-  //   const socketId = this.driverSockets.get(driverId);
-  //   if (socketId) {
-  //     this.server.to(socketId).emit('new-order-request', {
-  //       orderId: orderData.orderId,
-  //       orderNumber: orderData.orderNumber,
-  //       orderType: orderData.orderType,
-  //       vendorLocation: orderData.vendorLocation,
-  //       eta: orderData.eta,
-  //       storeName: orderData.storeName,
-  //       totalAmount: orderData.totalAmount,
-  //       distance: orderData.distance,
-
-  //       // Add any other relevant order details
-  //     });
-  //     this.logger.log(`Sent new order request to driver ${driverId}`);
-  //     return true;
-  //   } else {
-  //     this.logger.warn(`Driver ${driverId} not connected`);
-  //     return false;
-  //   }
-  // }
 async emitNewOrderRequest(
   driverId: string,
   orderId: string,
@@ -407,31 +382,6 @@ async emitNewOrderRequest(
     client.emit('status-updated', { status: data.status });
   }
 
-
-  // driver.gateway.ts
-
-// @SubscribeMessage('subscribe-assigned-orders')
-// async handleSubscribeAssignedOrders(
-//   @ConnectedSocket() client: Socket,
-//   @MessageBody() data: { driverId: string },
-// ) {
-//   const driverId = client.data.driverId || data.driverId;
-//   if (!driverId) throw new WsException('Unauthorized');
-
-//   // Join the driver’s assigned-orders room
-//   const room = `driver:${driverId}:assigned`;
-//   client.join(room);
-
-//   // Fetch current assigned orders
-//   const orders = await this.driverAssignmentService.getAssignedOrders(driverId);
-//   const payload = await Promise.all(
-//     orders.map(order => this.formatAssignedOrderPayload(order))
-//   );
-
-//   client.emit('assigned-orders-list', { orders: payload });
-
-//   this.logger.log(`Driver ${driverId} subscribed to assigned orders`);
-// }
 
 @SubscribeMessage('subscribe-assigned-orders')
 async handleSubscribeAssignedOrders(

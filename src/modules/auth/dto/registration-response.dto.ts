@@ -1,14 +1,6 @@
 import { User } from '../../../modules/user/entities/user.entity';
 import { RegistrationMethod, RegistrationStatus, UserRole } from '../../../shared/enums';
 
-// export class RegisterResponseDto {
-//   user?: string;
-//   accessToken?: string;
-//   status: RegistrationStatus;
-//   requiresVerification: boolean;
-//   registrationMethod: RegistrationMethod;
-//   verificationIdentifier: string;
-// }
 
 export class PendingVerificationDto {
   status:

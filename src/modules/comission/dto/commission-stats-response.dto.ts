@@ -1,4 +1,3 @@
-// src/commission/dto/commission-stats-response.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CommissionStatsResponseDto {

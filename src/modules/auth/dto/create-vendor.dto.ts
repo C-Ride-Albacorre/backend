@@ -1,4 +1,3 @@
-// src/vendors/dto/create-vendor.dto.ts
 import {
   IsEmail,
   IsNotEmpty,
@@ -34,7 +33,6 @@ export class CreateVendorDto {
   @ApiProperty({ example: 'StrongP@ssw0rd' })
   @IsString()
   @MinLength(8)
-  //@Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/)
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
     message:
       'Password must contain at least 1 uppercase, 1 lowercase, 1 number and 1 special character',
@@ -125,44 +123,9 @@ export class VendorDocumentDto {
   metadata?: Record<string, any>;
   description: any;
 
-  // @ApiPropertyOptional({
-  //   description: 'Document description or notes',
-  //   example: 'Certificate of Incorporation',
-  // })
-  // @IsOptional()
-  // @IsString()
-  // @MaxLength(500, { message: 'Description cannot exceed 500 characters' })
-  // description?: string;
-
-  // @ApiPropertyOptional({
-  //   description: 'Document expiry date if applicable',
-  //   example: '2025-12-31',
-  // })
-  // @IsOptional()
-  // @IsString()
-  // @Matches(/^\d{4}-\d{2}-\d{2}$/, {
-  //   message: 'Expiry date must be in YYYY-MM-DD format',
-  // })
-  // expiryDate?: string;
-
-  // @ApiPropertyOptional({
-  //   description: 'Whether this is the primary document of its type',
-  //   example: true,
-  // })
-  // @IsOptional()
-  // @IsBoolean()
-  // isPrimary?: boolean;
 }
 
 export class BusinessAddressDto {
-  // @ApiProperty({
-  //   description: 'Street address',
-  //   example: '123 Business Avenue',
-  // })
-  // @IsString()
-  // @MinLength(5, { message: 'Address must be at least 5 characters long' })
-  // @MaxLength(200, { message: 'Address cannot exceed 200 characters' })
-  // street: string;
 
   @ApiProperty({
     description: 'City',
@@ -346,51 +309,6 @@ export class BankDetailsDto {
   @Matches(/^\d{10}$/, { message: 'Account number must be 10 digits' })
   accountNumber: string;
 
-  // @ApiPropertyOptional({
-  //   description: 'Bank sort code',
-  //   example: '011',
-  // })
-  // @IsOptional()
-  // @IsString()
-  // @Matches(/^\d{3}$/, { message: 'Sort code must be 3 digits' })
-  // sortCode?: string;
-
-  // @ApiPropertyOptional({
-  //   description: 'Bank routing number',
-  //   example: '123456789',
-  // })
-  // @IsOptional()
-  // @IsString()
-  // routingNumber?: string;
-
-  // @ApiPropertyOptional({
-  //   description: 'SWIFT/BIC code for international transfers',
-  //   example: 'FBNINGLA',
-  // })
-  // @IsOptional()
-  // @IsString()
-  // @Matches(/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/, {
-  //   message: 'Invalid SWIFT/BIC code format'
-  // })
-  // swiftCode?: string;
-
-  // @ApiPropertyOptional({
-  //   description: 'Bank branch address',
-  //   example: '123 Bank Street, Lagos',
-  // })
-  // @IsOptional()
-  // @IsString()
-  // @MaxLength(200, { message: 'Branch address cannot exceed 200 characters' })
-  // branchAddress?: string;
-
-  // @ApiPropertyOptional({
-  //   description: 'Currency for the account',
-  //   example: 'NGN',
-  // })
-  // @IsOptional()
-  // @IsString()
-  // @Matches(/^[A-Z]{3}$/, { message: 'Currency must be a 3-letter ISO code' })
-  // currency?: string;
 }
 
 export class CompleteOnboardingDtoFull {

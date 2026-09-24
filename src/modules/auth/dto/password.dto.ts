@@ -12,51 +12,9 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-// export class ForgotPasswordDto {
-//   @ApiProperty({
-//     description: 'Email address for password reset',
-//     example: 'user@example.com',
-//     required: false,
-//   })
-//   @IsOptional()
-//   @IsEmail()
-//   email?: string;
-
-//   @ApiProperty({
-//     description: 'Phone number for password reset',
-//     example: '+1234567890',
-//     required: false,
-//   })
-//   @IsOptional()
-//   @IsPhoneNumber()
-//   phoneNumber?: string;
-
-//   // Ensure at least one identifier is provided
-//   // constructor(partial: Partial<ForgotPasswordDto>) {
-//   //   Object.assign(this, partial);
-//   //   if (!this.email && !this.phoneNumber) {
-//   //     throw new Error('Either email or phoneNumber must be provided');
-//   //   }
-//   // }
-// }
 
 export class ForgotPasswordDto {
-  // @ApiPropertyOptional({
-  //   example: 'user@example.com',
-  // })
-  // @ValidateIf((o) => !o.phoneNumber)
-  // @IsEmail()
-  // @IsNotEmpty()
-  // email?: string;
-
-  // @ApiPropertyOptional({
-  //   example: '+1234567890',
-  // })
-  // @ValidateIf((o) => !o.email)
-  // // @IsPhoneNumber()
-  // @IsNotEmpty()
-  // phoneNumber?: string;
-
+ 
   @ApiProperty({
     description: 'Identifier for password reset (email or phone number)',
     example: 'user@example.com | +1234567890',

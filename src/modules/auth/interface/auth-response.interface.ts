@@ -1,6 +1,3 @@
-// import { UserRole } from '../../../shared/enums';
-
-// import { UserRole } from "src/shared/constants";
 import { Role } from '@prisma/client';
 
 export interface AuthResponse {

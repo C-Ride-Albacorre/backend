@@ -156,15 +156,7 @@ export class AuthService {
         isEmailVerified: true,
         verifiedAt: new Date(),
       },
-      // select: {
-      //   id: true,
-      //   email: true,
-      //   phoneNumber: true,
-      //   firstName: true,
-      //   lastName: true,
-      //   role: true,
-      //   createdAt: true,
-      // },
+      
     });
 
     this.logger.log(`Admin created: ${admin.email || admin.phoneNumber}`);
@@ -224,30 +216,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Generate JWT token
-    // const payload = {
-    //   sub: admin.id,
-    //   email: admin.email,
-    //   role: admin.role,
-    // };
-
-    // return this.generateAuthResponse(admin);
-
+   
     const identifier = null;
     const verificationMethod = null;
 
     return this.generateAuthResponse(admin, identifier, verificationMethod);
 
-    // const accessToken = this.jwtService.sign(payload);\
-    // return {
-    //   success: true,
-    //   accessToken,
-    //   user: {
-    //     id: admin.id,
-    //     email: admin.email,
-    //     role: admin.role,
-    //   },
-    // };
+
   }
 
   async login(dto: { email: string; password: string }) {
@@ -262,9 +237,7 @@ export class AuthService {
       },
     });
 
-    // if (!admin) {
-    //   throw new UnauthorizedException('Invalid credentials');
-    // }
+ 
     if (!admin) {
       throw new NotFoundException(
         'Account not found. Please create an account first.',
@@ -414,53 +387,6 @@ export class AuthService {
     };
   }
 
-  // async registerCustomerold(
-  //   dto: CreateCustomerDto,
-  // ): Promise<RegisterResponseDto> {
-  //   const registrationResponse = await this.userService.createCustomer(dto);
-  //   const identifier = null;
-  //   const verificationMethod = null;
-
-  //   // Only generate token if user exists
-  //   const auth = registrationResponse.user
-  //     ? //await this.generateAuthResponse(registrationResponse.user)
-  //       await this.generateAuthResponse(
-  //         registrationResponse.user,
-  //         identifier,
-  //         verificationMethod,
-  //       )
-  //     : null;
-
-  //   return {
-  //     accessToken: auth?.accessToken ?? '', // only available if user exists
-  //     status: registrationResponse.status,
-  //     requiresVerification: registrationResponse.requiresVerification,
-  //     registrationMethod: registrationResponse.registrationMethod,
-  //     verificationIdentifier: registrationResponse.verificationIdentifier,
-  //     role: registrationResponse.user?.role as any,
-  //   };
-  // }
-
-  // async registerCustomer(dto: CreateCustomerDto): Promise<RegisterResponseDto> {
-  //   const { email, phoneNumber } = dto;
-
-  //   this.logger.log(`Registering customer: ${email || phoneNumber}`);
-
-  //   const registrationResponse = await this.userService.createCustomer({
-  //     email: dto.email,
-  //     phoneNumber: dto.phoneNumber,
-  //     password: dto.password,
-  //     firstName: dto.firstName,
-  //     lastName: dto.lastName,
-  //   });
-
-  //   return {
-  //     status: registrationResponse.status,
-  //     requiresVerification: registrationResponse.requiresVerification,
-  //     registrationMethod: registrationResponse.registrationMethod,
-  //     verificationIdentifier: email || phoneNumber,
-  //   };
-  // }
 
   /**
    * Verify OTP during registration
@@ -647,46 +573,6 @@ export class AuthService {
     );
   }
 
-  // async loginCustomerOld(loginDto: LoginCustomerDto) {
-  //   const { email, phoneNumber } = loginDto;
-  //   const identifier = email || phoneNumber;
-
-  //   this.logger.log(`Login attempt: ${identifier}`);
-
-  //   // This will throw if user is not verified
-  //   const user = await this.userService.authenticateUser(loginDto);
-
-  //   // Check if user is verified (redundant but safe)
-  //   if (!user.isVerified) {
-  //     throw new UnauthorizedException(
-  //       'Account not verified. Please verify your account.',
-  //     );
-  //   }
-
-  //   //return this.generateAuthResponse(user);
-  //   const verificationMethod = null;
-
-  //   return this.generateAuthResponse(user, identifier, verificationMethod);
-  // }
-
-  /**
-   * Login user with email/phone and password
-   */
-  // async loginCustomer2(loginDto: LoginCustomerDto): Promise<AuthResponse> {
-  //   const { email, phoneNumber } = loginDto;
-  //   const identifier = email || phoneNumber;
-
-  //   this.logger.log(`Login attempt: ${identifier}`);
-
-  //   // Delegate authentication to UserService
-  //   const user = await this.userService.authenticateUser(loginDto);
-
-  //   // return this.generateAuthResponse(user);
-
-  //   const verificationMethod = null;
-
-  //   return this.generateAuthResponse(user, identifier, verificationMethod);
-  // }
 
   /**
    * Resend OTP for registration
@@ -774,14 +660,6 @@ export class AuthService {
             );
           }
           break;
-
-        // case 'ADMIN':
-        //   if (!user.isActive) {
-        //     this.logger.warn(`Inactive admin: ${user.id}`);
-        //     throw new UnauthorizedException('Admin account is deactivated');
-        //   }
-        //   // You can add extra checks for admin if needed
-        //   break;
 
         case 'ADMIN':
         case 'SUPER_ADMIN':
@@ -937,7 +815,6 @@ export class AuthService {
     this.logger.log(`Refresh token rotated for user: ${userId}`);
   }
 
-  ////////////////////////////////////////////////////
 
   async createCustomer(dto: CreateCustomerDto) {
     const { email, password } = dto;
@@ -1021,7 +898,6 @@ export class AuthService {
       }
 
       // Find user by identifier
-      // const user = await this.userService.findUserByIdentifier(identifier);
       const user = await this.userService.findUserForPasswordReset(identifier);
       if (!user || !user.isActive) {
         this.logger.warn(
@@ -1947,159 +1823,6 @@ export class AuthService {
     };
   }
 
-  async registerVendorold(dto: CreateVendorDto): Promise<{
-    success: boolean;
-    message: string;
-    vendor: Partial<User>;
-    nextSteps: string[];
-  }> {
-    this.logger.log(`Registering vendor: ${dto.email}`);
-
-    // Check if vendor already exists
-    await this.checkExistingVendor(dto.email, dto.phoneNumber);
-
-    // Hash password
-    const hashedPassword = await Helper.hashText(dto.password);
-
-    // Create vendor with pending verification status
-    const vendor = await this.userRepository.create({
-      email: dto.email,
-      phoneNumber: dto.phoneNumber,
-      password: hashedPassword,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      role: UserRole.VENDOR,
-      status: UserStatus.PENDING_EMAIL_VERIFICATION,
-    });
-
-    // Send verification OTPs to both email and phone
-    await this.sendInitialVerificationOtps(vendor);
-
-    return {
-      success: true,
-      message:
-        'Vendor registration successful. Please verify your email and phone.',
-      vendor: {
-        id: vendor.id,
-        email: vendor.email,
-        phoneNumber: vendor.phoneNumber,
-        status: vendor.status,
-      },
-      nextSteps: [
-        'Check your email for verification code',
-        'Check your phone for verification code',
-        'Verify phone first, then email',
-        'Complete business onboarding after both verifications',
-      ],
-    };
-  }
-
-  async registerUserold2(dto: CreateUserDto, role: UserRole): Promise<any> {
-    this.logger.log(`Registering ${role}: ${dto.email}`);
-
-    // ✅ Normalize phone FIRST
-    if (dto.phoneNumber) {
-      const phone = parsePhoneNumberFromString(
-        dto.phoneNumber,
-        (dto.countryCode || 'NG') as CountryCode,
-      );
-
-      if (!phone || !phone.isValid()) {
-        throw new BadRequestException('Invalid phone number');
-      }
-
-      dto.phoneNumber = phone.format('E.164');
-    }
-
-    // ✅ Use normalized phone for duplicate check
-    await this.checkExistingUser(dto.email, dto.phoneNumber);
-
-    const hashedPassword = await Helper.hashText(dto.password);
-
-    const user = await this.userRepository.create({
-      email: dto.email,
-      phoneNumber: dto.phoneNumber, // ✅ normalized
-      countryCode: dto.countryCode, // ✅ stored
-      password: hashedPassword,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      role,
-      status: UserStatus.PENDING_EMAIL_VERIFICATION,
-    });
-
-    await this.sendInitialUserVerificationOtps(user);
-
-    // ✅ Token generation stays unchanged
-    // const auth = await this.generateAuthResponse(user);
-    const verificationMethod = null;
-    const identifier = null;
-    const auth = await this.generateAuthResponse(
-      user,
-      identifier,
-      verificationMethod,
-    );
-
-    return {
-      success: true,
-      message: `${role} registration successful. Please verify your email and phone.`,
-      accessToken: auth.accessToken,
-      refreshTken: auth.refreshToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        phoneNumber: user.phoneNumber,
-        status: user.status,
-        role: user.role,
-      },
-      nextSteps: [
-        'Check your email for verification code',
-        'Check your phone for verification code',
-        'Verify phone first, then email',
-      ],
-    };
-  }
-
-  async registerUserold(dto: CreateUserDto, role: UserRole): Promise<any> {
-    this.logger.log(`Registering ${role}: ${dto.email}`);
-
-    await this.checkExistingUser(dto.email, dto.phoneNumber);
-
-    const hashedPassword = await Helper.hashText(dto.password);
-
-    const user = await this.userRepository.create({
-      email: dto.email,
-      phoneNumber: dto.phoneNumber,
-      password: hashedPassword,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      role,
-      status: UserStatus.PENDING_EMAIL_VERIFICATION,
-    });
-
-    await this.sendInitialUserVerificationOtps(user);
-
-    // ✅ ISSUE TOKEN HERE
-    // const auth = await this.generateAuthResponse(user);
-
-    // return {
-    //   success: true,
-    //   message: `${role} registration successful. Please verify your email and phone.`,
-    //   accessToken: auth.accessToken, // 👈 NEW
-    //   user: {
-    //     id: user.id,
-    //     email: user.email,
-    //     phoneNumber: user.phoneNumber,
-    //     status: user.status,
-    //     role: user.role,
-    //   },
-    //   nextSteps: [
-    //     'Check your email for verification code',
-    //     'Check your phone for verification code',
-    //     'Verify phone first, then email',
-    //   ],
-    // };
-  }
-
   /**
    * Verify Vendor Email - Step 2
    */
@@ -2274,168 +1997,6 @@ export class AuthService {
     };
   }
 
-  async verifyUserEmailold2(
-    userId: string,
-    dto: VerifyEmailDto,
-  ): Promise<{
-    success: boolean;
-    message: string;
-    nextAction: string;
-    accessToken?: string;
-    user: Partial<User>;
-  }> {
-    const { email, otp } = dto;
-
-    this.logger.log(`Verifying email for user: ${userId}`);
-
-    // 1️⃣ Get authenticated user (FIXED)
-    const user = await this.userRepository.findById(userId);
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    // 2️⃣ Ensure user has email
-    if (!user.email) {
-      throw new BadRequestException('No email found for this user');
-    }
-
-    // 3️⃣ Ensure email matches (SECURITY CHECK)
-    if (user.email !== email) {
-      throw new BadRequestException('Email mismatch');
-    }
-
-    // 4️⃣ Prevent re-verification
-    if (user.isEmailVerified) {
-      throw new ConflictException('Email already verified');
-    }
-
-    // 5️⃣ Enforce phone-first flow (your rule)
-    if (!user.isPhoneVerified) {
-      throw new BadRequestException('Please verify your phone number first');
-    }
-
-    // 6️⃣ Verify OTP
-    const isValid = await this.verificationService.verifyOtp({
-      identifier: email,
-      otp,
-      purpose: VerificationPurpose.USER_EMAIL_VERIFICATION,
-    });
-
-    if (!isValid) {
-      throw new UnauthorizedException('Invalid or expired verification code');
-    }
-
-    // 7️⃣ Update user
-    user.isEmailVerified = true;
-    user.emailVerifiedAt = new Date();
-
-    user.status = UserStatus.PENDING_ONBOARDING;
-
-    // Initialize onboarding if needed
-    if (!user.onboardingStatus) {
-      user.onboardingStatus = 'NOT_STARTED';
-      user.onboardingStep = 0;
-    }
-
-    const updatedUser = await this.userRepository.update(user.id, user);
-
-    const identifier = null;
-    const verificationMethod = null;
-
-    // 8️⃣ Issue fresh token (optional but good)
-    // const auth = await this.generateAuthResponse(updatedUser);
-    const auth = await this.generateAuthResponse(
-      updatedUser,
-      identifier,
-      verificationMethod,
-    );
-
-    return {
-      success: true,
-      message: 'Email verified successfully',
-      nextAction: 'Complete business onboarding',
-      accessToken: auth.accessToken,
-      user: {
-        id: updatedUser.id,
-        email: updatedUser.email,
-        phoneNumber: updatedUser.phoneNumber,
-        status: updatedUser.status,
-        onboardingStatus: updatedUser.onboardingStatus,
-        onboardingStep: updatedUser.onboardingStep,
-      },
-    };
-  }
-
-  async verifyUserEmailold(dto: VerifyEmailDto): Promise<{
-    success: boolean;
-    message: string;
-    nextAction: string;
-    accessToken?: string;
-    user: Partial<User>;
-  }> {
-    this.logger.log(`Verifying email for: ${dto.email}`);
-
-    const isValid = await this.verificationService.verifyOtp({
-      identifier: dto.email,
-      otp: dto.otp,
-      purpose: VerificationPurpose.USER_EMAIL_VERIFICATION,
-    });
-
-    if (!isValid) {
-      throw new UnauthorizedException('Invalid or expired verification code');
-    }
-
-    const user = await this.userRepository.findByEmail(dto.email);
-    if (!user) {
-      throw new NotFoundException('user not found');
-    }
-
-    if (!user.isPhoneVerified) {
-      throw new BadRequestException('Please verify your phone number first');
-    }
-
-    if (user.isEmailVerified) {
-      throw new ConflictException('Email already verified');
-    }
-
-    user.isEmailVerified = true;
-    user.emailVerifiedAt = new Date();
-
-    user.status = UserStatus.PENDING_ONBOARDING;
-
-    // Initialize onboarding
-    if (!user.onboardingStatus) {
-      user.onboardingStatus = 'NOT_STARTED';
-      user.onboardingStep = 0;
-    }
-
-    const updatedUser = await this.userRepository.update(user.id, user);
-
-    // Now fully verified → issue JWT
-    //   const auth = await this.generateAuthResponse(updatedUser);
-    const verificationMethod = null;
-    const identifier = null;
-    const auth = await this.generateAuthResponse(
-      updatedUser,
-      identifier,
-      verificationMethod,
-    );
-
-    return {
-      success: true,
-      message: 'Email verified successfully',
-      nextAction: 'Complete business onboarding',
-      accessToken: auth.accessToken,
-      user: {
-        id: updatedUser.id,
-        email: updatedUser.email,
-        phoneNumber: updatedUser.phoneNumber,
-        status: updatedUser.status,
-        onboardingStatus: updatedUser.onboardingStatus,
-        onboardingStep: updatedUser.onboardingStep,
-      },
-    };
-  }
 
   /**
    * Verify Vendor Phone - Step 3
@@ -2849,9 +2410,6 @@ export class AuthService {
 
     const vendor = await this.userRepository.findByEmail(email);
 
-    // if (!vendor) {
-    //   throw new UnauthorizedException('Invalid credentials');
-    // }
     if (!vendor) {
       throw new NotFoundException(
         'Account not found. Please create an account first.',
@@ -2924,9 +2482,7 @@ export class AuthService {
 
     const user = await this.userRepository.findByEmail(email);
 
-    // if (!user) {
-    //   throw new UnauthorizedException('Invalid credentials');
-    // }
+  
     if (!user) {
       throw new NotFoundException(
         'Account not found. Please create an account first.',
@@ -3059,156 +2615,6 @@ export class AuthService {
     };
   }
 
-  async loginUserold(loginDto: LoginDto, role: UserRole) {
-    const { email, password } = loginDto;
-    this.logger.log(`user login attempt: ${email}`);
-
-    const user = await this.userRepository.findByEmail(email);
-
-    if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    if (user.role !== role) {
-      throw new UnauthorizedException('Invalid role');
-    }
-
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    /**
-     * Enforce verification order
-     * Phone → Email → Onboarding
-     */
-
-    // if (!user.isPhoneVerified) {
-    //   throw new UnauthorizedException(
-    //     'Please verify your phone number before logging in',
-    //   );
-    // }
-
-    // if (!user.isEmailVerified) {
-    //   throw new UnauthorizedException(
-    //     'Please verify your email address before logging in',
-    //   );
-    // }
-
-    if (!user.isPhoneVerified) {
-      return {
-        success: false,
-        status: 'UNVERIFIED',
-        message: 'Please verify your phone number before logging in',
-
-        // ✅ IMPORTANT
-        identifier: user.phoneNumber,
-        verificationMethod: 'phone',
-        onboardingStep: user.onboardingStep ?? 0,
-        onboardingStatus: user.onboardingStatus,
-      };
-    }
-
-    // ❌ Email not verified
-    if (!user.isEmailVerified) {
-      return {
-        success: false,
-        status: 'UNVERIFIED',
-        message: 'Please verify your email address before logging in',
-
-        // ✅ IMPORTANT
-        identifier: user.email,
-        verificationMethod: 'email',
-        onboardingStep: user.onboardingStep ?? 0,
-        onboardingStatus: user.onboardingStatus,
-      };
-    }
-
-    // ✅ DO NOT block login for:
-    // - PENDING_ONBOARDING
-    // - IN_PROGRESS
-    // - COMPLETED
-    // - PENDING (admin review)
-    // - REJECTED
-    // - APPROVED
-
-    // Update last login
-    const lastLoginAt = new Date();
-
-    await this.userRepository.update(user.id, {
-      lastLoginAt,
-    });
-
-    // Generate auth tokens
-    // const auth = await this.generateAuthResponse(user);
-
-    const verificationMethod = null;
-    const identifier = null;
-    const auth = await this.generateAuthResponse(
-      user,
-      identifier,
-      verificationMethod,
-    );
-
-    return {
-      ...auth,
-      // Return onboarding + account state
-      onboardingStatus: user.onboardingStatus,
-      onboardingStep: user.onboardingStep,
-      status: user.status,
-    };
-  }
-
-  async loginVendor2(loginDto: LoginDto): Promise<AuthResponse> {
-    const { email, password } = loginDto;
-    this.logger.log(`Vendor login attempt: ${email}`);
-
-    const vendor = await this.userRepository.findByEmail(email);
-    if (!vendor) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, vendor.password);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    // Check verification status
-    if (!vendor.isEmailVerified || !vendor.isPhoneVerified) {
-      throw new UnauthorizedException(
-        'Please verify your email and phone before logging in',
-      );
-    }
-
-    // Check if onboarding is completed
-    // if (!vendor.onboardingCompletedAt) {
-    //   throw new UnauthorizedException(
-    //     'Please complete business onboarding before logging in',
-    //   );
-    // }
-
-    // Check account status
-    // if (vendor.status !== UserStatus.APPROVED) {
-    //   throw new UnauthorizedException(
-    //     `Account is ${vendor.status.toLowerCase()}. Please contact support.`,
-    //   );
-    // }
-
-    // Update last login
-    vendor.lastLoginAt = new Date();
-    await this.userRepository.update(vendor.id, {
-      lastLoginAt: vendor.lastLoginAt,
-    });
-
-    // Generate auth tokens
-    //return this.generateAuthResponse(vendor);
-    const verificationMethod = null;
-    const identifier = null;
-    return this.generateAuthResponse(vendor, identifier, verificationMethod);
-  }
 
   /**
    * Resend verification OTP
@@ -3334,42 +2740,6 @@ export class AuthService {
       );
     }
 
-    // const businessData: Prisma.BusinessInfoUpdateInput = {};
-
-    // switch (step) {
-    //   case 1:
-    //     Object.assign(businessData, {
-    //       businessName: dto.businessName,
-    //       businessType: dto.businessType,
-    //       registrationNumber: dto.registrationNumber,
-    //       taxId: dto.taxId,
-    //       description: dto.description,
-    //     });
-    //     break;
-
-    //   case 2:
-    //     Object.assign(businessData, {
-    //       businessPhone: dto.businessPhone,
-    //       businessEmail: dto.businessEmail,
-    //     });
-    //     break;
-
-    //   case 3:
-    //     Object.assign(businessData, {
-    //       address: dto.address,
-    //       city: dto.city,
-    //       state: dto.state,
-    //     });
-    //     break;
-
-    //   case 4:
-    //     Object.assign(businessData, {
-    //       bankName: dto.bankName,
-    //       accountName: dto.accountName,
-    //       accountNumber: dto.accountNumber,
-    //     });
-    //     break;
-    // }
 
     const businessCreateData: Prisma.BusinessInfoCreateWithoutUserInput = {};
     const businessUpdateData: Prisma.BusinessInfoUpdateWithoutUserInput = {};
@@ -4039,351 +3409,7 @@ export class AuthService {
     };
   }
 
-  /**
-   * Upload multiple documents at once
-   */
-  private async uploadVendorDocumentsbk1(
-    vendorId: string,
-    files: Express.Multer.File[],
-    documentMetadata: VendorDocumentDto[],
-  ): Promise<any[]> {
-    const uploadedDocuments = [];
-    const uploadPromises = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const metadata = documentMetadata[i];
-
-      // Create upload promise
-      const uploadPromise = this.cloudinary
-        .uploadDocument(file, {
-          folder: `vendors/${vendorId}/documents`,
-          resource_type: 'auto',
-          tags: [metadata.documentType, vendorId],
-        })
-        .then(async (uploadResult) => {
-          // Create document record in database
-          const document = await this.userRepository.createVendorDocument({
-            vendorId,
-            documentType: metadata.documentType,
-            documentUrl: uploadResult.secure_url,
-            publicId: uploadResult.public_id,
-            originalName: file.originalname,
-            mimeType: file.mimetype,
-            size: file.size,
-            description: metadata.description,
-            isVerified: false,
-          });
-
-          return document;
-        })
-        .catch((error) => {
-          this.logger.error(
-            `Failed to upload document ${file.originalname}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          throw new InternalServerErrorException(
-            `Failed to upload ${metadata.documentType}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        });
-
-      uploadPromises.push(uploadPromise);
-    }
-
-    // Wait for all uploads to complete
-    const results = await Promise.all(uploadPromises);
-    uploadedDocuments.push(...results);
-
-    this.logger.log(
-      `Successfully uploaded ${uploadedDocuments.length} documents for vendor ${vendorId}`,
-    );
-    return uploadedDocuments;
-  }
-
-  /**
-   * Upload a single document during onboarding
-   */
-  // async uploadSingleDocument(
-  //   vendorId: string,
-  //   dto: UploadDocumentDto,
-  //   file: Express.Multer.File,
-  // ): Promise<{
-  //   success: boolean;
-  //   message: string;
-  //   document: any;
-  // }> {
-  //   this.logger.log(`Uploading ${dto.documentType} for vendor: ${vendorId}`);
-
-  //   // Validate vendor
-  //   const vendor = await this.userRepository.findById(vendorId);
-  //   if (!vendor) {
-  //     throw new NotFoundException('Vendor not found');
-  //   }
-
-  //   // Validate vendor status
-  //   if (vendor.status !== UserStatus.PENDING_ONBOARDING &&
-  //       vendor.status !== UserStatus.PENDING_DOCUMENTS) {
-  //     throw new ConflictException(
-  //       `Cannot upload documents in current status: ${vendor.status}`,
-  //     );
-  //   }
-
-  //   // Upload to Cloudinary
-  //   const uploadResult = await this.cloudinaryService.uploadDocument(file, {
-  //     folder: `vendors/${vendorId}/documents`,
-  //     resource_type: 'auto',
-  //     tags: [dto.documentType, vendorId],
-  //   });
-
-  //   // Create document record in database
-  //   const document = await this.userRepository.createVendorDocument({
-  //     vendorId,
-  //     documentType: dto.documentType,
-  //     documentUrl: uploadResult.secure_url,
-  //     publicId: uploadResult.public_id,
-  //     originalName: file.originalname,
-  //     mimeType: file.mimetype,
-  //     size: file.size,
-  //     description: dto.description,
-  //     isVerified: false,
-  //   });
-
-  //   return {
-  //     success: true,
-  //     message: `${dto.documentType} uploaded successfully`,
-  //     document: {
-  //       id: document.id,
-  //       documentType: document.documentType,
-  //       documentUrl: document.documentUrl,
-  //       publicId: document.publicId,
-  //       originalName: document.originalName,
-  //       size: document.size,
-  //     },
-  //   };
-  // }
-
-  /**
-   * Upload multiple documents at once
-   */
-  // private async uploadVendorDocuments(
-  //   vendorId: string,
-  //   files: Express.Multer.File[],
-  //   documentMetadata: VendorDocumentDto[],
-  // ): Promise<any[]> {
-  //   const uploadedDocuments = [];
-  //   const uploadPromises = [];
-
-  //   for (let i = 0; i < files.length; i++) {
-  //     const file = files[i];
-  //     const metadata = documentMetadata[i];
-
-  //     // Create upload promise
-  //     const uploadPromise = this.cloudinary
-  //       .uploadDocument(file, {
-  //         folder: `vendors/${vendorId}/documents`,
-  //         resource_type: 'auto',
-  //         tags: [metadata.documentType, vendorId],
-  //       })
-  //       .then(async (uploadResult) => {
-  //         // Create document record in database
-  //         const document = await this.userRepository.createVendorDocument({
-  //           vendorId,
-  //           documentType: metadata.documentType,
-  //           documentUrl: uploadResult.secure_url,
-  //           publicId: uploadResult.public_id,
-  //           originalName: file.originalname,
-  //           mimeType: file.mimetype,
-  //           size: file.size,
-  //           isVerified: false,
-  //         });
-
-  //         return document;
-  //       })
-  //       .catch((error) => {
-  //         this.logger.error(
-  //           `Failed to upload document ${file.originalname}: ${error.message}`,
-  //         );
-  //         throw new InternalServerErrorException(
-  //           `Failed to upload ${metadata.documentType}: ${error.message}`,
-  //         );
-  //       });
-
-  //     uploadPromises.push(uploadPromise);
-  //   }
-
-  //   // Wait for all uploads to complete
-  //   const results = await Promise.all(uploadPromises);
-  //   uploadedDocuments.push(...results);
-
-  //   this.logger.log(
-  //     `Successfully uploaded ${uploadedDocuments.length} documents for vendor ${vendorId}`,
-  //   );
-  //   return uploadedDocuments;
-  // }
-
-  /**
-   * Validate vendor is eligible for onboarding
-   */
-  // private async validateVendorForOnboarding(vendorId: string): Promise<User> {
-  //   const vendor = await this.userRepository.findById(vendorId);
-
-  //   if (!vendor) {
-  //     throw new NotFoundException('Vendor not found');
-  //   }
-
-  //   if (vendor.status !== UserStatus.PENDING_ONBOARDING) {
-  //     throw new ConflictException(
-  //       `Vendor is not ready for onboarding. Current status: ${vendor.status}`,
-  //     );
-  //   }
-
-  //   if (!vendor.isEmailVerified || !vendor.isPhoneVerified) {
-  //     throw new ConflictException(
-  //       'Both email and phone must be verified before onboarding',
-  //     );
-  //   }
-
-  //   return vendor;
-  // }
-
-  /**
-   * Prepare business info data for repository
-   */
-  // private prepareBusinessInfoData(dto: CompleteOnboardingDto): any {
-  //   return {
-  //     businessName: dto.businessName,
-  //     businessType: dto.businessType,
-  //     description: dto.description,
-  //     businessPhone: dto.businessPhone,
-  //     businessEmail: dto.businessEmail,
-  //     address: dto.address,
-  //     city: dto.city,
-  //     state: dto.state,
-  //     bankName: dto.bankName,
-  //     accountName: dto.accountName,
-  //     accountNumber: dto.accountNumber,
-  //   };
-  // }
-  // async completeVendorOnboarding(
-  //   vendorId: string,
-  //   dto: CompleteOnboardingDto,
-  // ): Promise<{
-  //   success: boolean;
-  //   message: string;
-  //   vendor: Partial<User>;
-  // }> {
-  //   this.logger.log(`Completing vendor onboarding: ${vendorId}`);
-
-  //   const vendor = await this.userRepository.findById(vendorId);
-
-  //   if (!vendor) {
-  //     throw new NotFoundException('Vendor not found');
-  //   }
-
-  //   // Check if vendor is in correct state for onboarding
-  //   if (vendor.status !== UserStatus.PENDING_ONBOARDING) {
-  //     throw new ConflictException(
-  //       `Vendor is not ready for onboarding. Current status: ${vendor.status}`,
-  //     );
-  //   }
-
-  //   // Check if email and phone are verified
-  //   if (!vendor.isEmailVerified || !vendor.isPhoneVerified) {
-  //     throw new ConflictException(
-  //       'Both email and phone must be verified before onboarding',
-  //     );
-  //   }
-
-  //   // Ensure at least one document is provided
-  //   if (!dto.documents || dto.documents.length === 0) {
-  //     throw new BadRequestException(
-  //       'At least one business document is required for onboarding',
-  //     );
-  //   }
-
-  //   // Complete onboarding using repository method
-  //   const updatedVendor = await this.userRepository.completeVendorOnboarding(
-  //     vendorId,
-  //     {
-  //       businessName: dto.businessName,
-  //       businessType: dto.businessType,
-  //       description: dto.description,
-  //       businessPhone: dto.businessPhone,
-  //       businessEmail: dto.businessEmail,
-  //       address: dto.address,
-  //       city: dto.city,
-  //       state: dto.state,
-  //       bankName: dto.bankName,
-  //       accountName: dto.accountName,
-  //       accountNumber: dto.accountNumber,
-  //     },
-  //     dto.documents,
-  //   );
-
-  //   return {
-  //     success: true,
-  //     message:
-  //       'Vendor onboarding completed successfully. Your account is now active.',
-  //     vendor: {
-  //       id: updatedVendor.id,
-  //       email: updatedVendor.email,
-  //       //businessName: updatedVendor.businessInfo.businessName,
-  //       status: updatedVendor.status,
-  //       // documentsCount: updatedVendor.documents?.length || 0,
-  //     },
-  //   };
-  // }
-
-  /**
-   * Get vendor onboarding status
-   */
-  // async getVendorOnboardingStatus(vendorId: string): Promise<{
-  //   status: UserStatus;
-  //   isEmailVerified: boolean;
-  //   isPhoneVerified: boolean;
-  //   hasBusinessInfo: boolean;
-  //   documentsRequired: string[];
-  //   uploadedDocuments: any[];
-  //   nextSteps: string[];
-  // }> {
-  //   const vendor = await this.userRepository.getVendorWithRelations(vendorId);
-
-  //   if (!vendor) {
-  //     throw new NotFoundException('Vendor not found');
-  //   }
-
-  //   const requiredDocuments = [DocumentType.CAC];
-  //   const uploadedDocTypes = vendor.documents?.map((d) => d.documentType) || [];
-
-  //   const missingDocuments = requiredDocuments.filter(
-  //     (docType) => !uploadedDocTypes.includes(docType),
-  //   );
-
-  //   const nextSteps = [];
-  //   if (!vendor.isEmailVerified) nextSteps.push('Verify your email address');
-  //   if (!vendor.isPhoneVerified) nextSteps.push('Verify your phone number');
-  //   if (!vendor.businessInfo) nextSteps.push('Complete business information');
-  //   if (missingDocuments.length > 0) {
-  //     nextSteps.push(
-  //       `Upload required documents: ${missingDocuments.join(', ')}`,
-  //     );
-  //   }
-  //   if (
-  //     vendor.status === UserStatus.PENDING_ONBOARDING &&
-  //     nextSteps.length === 0
-  //   ) {
-  //     nextSteps.push('Submit for admin review');
-  //   }
-
-  //   return {
-  //     status: vendor.status as UserStatus,
-  //     isEmailVerified: vendor.isEmailVerified,
-  //     isPhoneVerified: vendor.isPhoneVerified,
-  //     hasBusinessInfo: !!vendor.businessInfo,
-  //     documentsRequired: missingDocuments,
-  //     uploadedDocuments: vendor.documents || [],
-  //     nextSteps,
-  //   };
-  // }
+  
 
   /**
    * Add additional vendor documents

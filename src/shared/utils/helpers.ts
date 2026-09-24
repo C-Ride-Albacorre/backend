@@ -477,18 +477,6 @@ export default class Helper {
     return email.replace(/(^.).*(@.*$)/, '$1***$2');
   }
 
-  // static generateAccessToken(user: User, jwt: JwtService, env: string) {
-  //   const payload = {
-  //     sub: user.id,
-  //     email: user.email,
-  //     env,
-  //     role: user.roles?.[0],
-  //   };
-  //   return {
-  //     accessToken: jwt.sign(payload),
-  //     user,
-  //   };
-  // }
 
   static getDateRanges(
     startDate?: string,

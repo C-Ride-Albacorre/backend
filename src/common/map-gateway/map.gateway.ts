@@ -20,8 +20,6 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   constructor(
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    // @Inject(forwardRef(() => DriverAssignmentService))
-    // private readonly driverAssignmentService: DriverAssignmentService,
   ) { }
 
   @WebSocketServer() server: Server;
@@ -38,15 +36,6 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.join(`order:${orderId}`);
   }
 
-  ///
-
-  // emitDriverLocation(
-  //   orderId: string,
-  //   location: { lat: number; lng: number; heading: number },
-  // ) {
-
-  //   this.server.to(`order:${orderId}`).emit('driver-location', location);
-  // }
   async emitDriverLocation(
     orderId: string,
     location: { lat: number; lng: number; heading: number },
@@ -100,13 +89,6 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.redis.setex(key, 30, value); // 30 seconds TTL (short, as driver moves)
   }
 
-  // emitEta(
-  //   orderId: string,
-  //   etaSeconds: number,
-  //   leg: 'to-vendor' | 'to-customer',
-  // ) {
-  //   this.server.to(`order:${orderId}`).emit('eta-update', { leg, etaSeconds });
-  // }
 
   // In DriverAssignmentService or MapGateway
   emitEta(orderId: string, etaSeconds: number, leg: 'to-vendor' | 'to-customer') {
@@ -120,9 +102,7 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.redis.setex(key, 300, value); // 5 minutes TTL
   }
 
-  // emitPolyline(orderId: string, polyline: string, leg: 'to-vendor' | 'to-customer') {
-  //   this.server.to(`order:${orderId}`).emit('polyline-update', { leg, polyline });
-  // }
+ 
   emitPolyline(orderId: string, polyline: string, leg: 'to-vendor' | 'to-customer') {
     // 1. Emit WebSocket event
     this.server.to(`order:${orderId}`).emit('polyline-update', { leg, polyline });

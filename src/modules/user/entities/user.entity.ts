@@ -59,14 +59,4 @@ export class BusinessInfo {
   updatedAt: Date;
 }
 
-// export class VendorDocument {
-//   id: string;
-//   userId: string;
-//   documentType: DocumentType;
-//   documentUrl: string;
-//   uploadedAt?: Date;
-//   reviewedAt?: Date;
-//   createdAt: Date;
-//   updatedAt: Date;
-//   status: DocumentStatus;
-// }
+

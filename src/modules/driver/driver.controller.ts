@@ -267,18 +267,11 @@ STEP 3 – Final Step: Review (Optional save before uploads)
     status: 200,
     description: 'Available orders fetched successfully',
   })
-  // async getAvailableOrders(
-  //   @GetUser() driver: User,
-  //   @Query('lat') lat: number,
-  //   @Query('lng') lng: number,
-  // ) {
-  //   return this.driverService.findAvailableOrders(driver.id, lat, lng);
-  // }
+
   async getAvailableOrders(
     @GetUser() driver: User,
     @Query('lat') lat: string,
     @Query('lng') lng: string,
-    // @Query('radius') radius?: string,
   ) {
     const driverLat = parseFloat(lat);
     const driverLng = parseFloat(lng);
@@ -291,14 +284,7 @@ STEP 3 – Final Step: Review (Optional save before uploads)
       radiusKm,
     );
 
-    // return {
-    //   status: 'success',
-    //   data: orders,
-    //   meta: {
-    //     count: orders.length,
-    //     radiusKm,
-    //   }
-    // };
+  
   }
 
   @Get('available-order/:orderId')
@@ -468,18 +454,6 @@ STEP 3 – Final Step: Review (Optional save before uploads)
   }
 
 
-  // @Get('by-code/:code')
-  // @ApiOperation({ summary: 'Get order details by confirmation code', description: 'Returns full order details for the driver assigned to this order.' })
-  // @ApiParam({ name: 'code', type: String, example: 'ORD-123456' })
-  // @ApiResponse({ status: 200, description: 'Order details retrieved' })
-  // async getOrderByCode(
-  //   @Param('code') code: string,
-  //   @GetUser() driver: User,
-  // ) {
-  //   return this.driverService.getOrderDetailsByCode(code, driver.id);
-  // }
-
-
   @Post('location')
   @ApiOperation({
     summary: 'Update driver location',
@@ -554,36 +528,6 @@ STEP 3 – Final Step: Review (Optional save before uploads)
     return this.orderService.getTrackingData(driverId);
   }
 
-
-  // @Get(':orderId/tracking')
-  // @ApiOperation({
-  //   summary: 'Get tracking data for an order',
-  //   description: 'Retrieve tracking information for a specific order.',
-  // })
-  // @ApiParam({
-  //   name: 'orderId',
-  //   type: String,
-  //   description: 'Order ID',
-  //   example: 'clx123abc456',
-  // })
-  // @ApiOkResponse({
-  //   description: 'Tracking data retrieved successfully',
-  // })
-  // @ApiResponse({
-  //   status: 404,
-  //   description: 'Order not found',
-  // })
-  // @ApiResponse({
-  //   status: 403,
-  //   description: 'Forbidden - User is not a vendor',
-  // })
-  // @ApiResponse({
-  //   status: 500,
-  //   description: 'Internal server error',
-  // })
-  // async getTrackingDataWithOrderId(@Param('orderId') orderId: string) {
-  //   return this.orderService.getTrackingDataWithOrderId(orderId);
-  // }
 
 @Get('history')
 @Roles(UserRole.DISPATCHER)

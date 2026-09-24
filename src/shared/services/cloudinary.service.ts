@@ -76,50 +76,6 @@ export class CloudinaryService {
     });
   }
 
-  async uploadFilebk(
-    file: Express.Multer.File,
-  ): Promise<{ rawUrl: string; viewableUrl: string }> {
-    if (!file) throw new BadRequestException('No file uploaded');
-
-    const isPdf = file.mimetype === 'application/pdf';
-
-    return new Promise(async (resolve, reject) => {
-      const uploadStream = v2.uploader.upload_stream(
-        {
-          folder: 'menu_uploads',
-          use_filename: true,
-          unique_filename: false,
-          resource_type: 'auto',
-          type: 'upload',
-        },
-        async (error, result) => {
-          if (error) return reject(error);
-          if (!result) return reject(new Error('Upload failed'));
-
-          try {
-            await v2.api.update(result.public_id, {
-              access_mode: 'public',
-            });
-          } catch (err) {
-            console.warn(
-              '⚠️ Could not set access_mode to public:',
-              err.message,
-            );
-          }
-
-          const rawUrl = result.secure_url;
-          const viewableUrl = isPdf
-            ? rawUrl.replace('/upload/', '/upload/fl_inline/') // ✅ Only for display
-            : rawUrl;
-
-          resolve({ rawUrl, viewableUrl });
-        },
-      );
-
-      toStream(file.buffer).pipe(uploadStream);
-    });
-  }
-
   // --- New Method for Multiple File Uploads ---
   async uploadMultipleFiles(
     files: Express.Multer.File[],
@@ -137,47 +93,7 @@ export class CloudinaryService {
   /**
    * Upload a single document
    */
-  // async uploadDocument(
-  //   file: Express.Multer.File,
-  //   folder = 'documents',
-  // ): Promise<{
-  //   secure_url: string;
-  //   public_id: string;
-  //   format: string;
-  //   resource_type: string;
-  //   bytes: number;
-  //   created_at: string;
-  // }> {
-  //   if (!file) {
-  //     throw new BadRequestException('No file uploaded');
-  //   }
 
-  //   return new Promise((resolve, reject) => {
-  //     const uploadStream = v2.uploader.upload_stream(
-  //       {
-  //         folder,
-  //         resource_type: 'auto',
-  //         use_filename: true,
-  //         unique_filename: true,
-  //       },
-  //       (error: UploadApiErrorResponse, result: UploadApiResponse) => {
-  //         if (error) return reject(error);
-  //         if (!result) return reject(new Error('Upload failed'));
-
-  //         resolve({
-  //           secure_url: result.secure_url,
-  //           public_id: result.public_id,
-  //           format: result.format,
-  //           resource_type: result.resource_type,
-  //           bytes: result.bytes,
-  //           created_at: result.created_at,
-  //         });
-  //       },
-  //     );
-
-  //     toStream(file.buffer).pipe(uploadStream);
-  //   });
-  // }
   async uploadDocument(
     file: Express.Multer.File,
     options?: {

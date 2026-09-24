@@ -1,6 +1,4 @@
-// src/admin/dto/admin-response.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
-// import { UserStatus, StoreStatus } from '@prisma/client';
 import { StoreStatus, UserRole, UserStatus } from '../../../shared/enums';
 import { IsOptional, IsPhoneNumber, IsString, Length } from 'class-validator';
 
@@ -10,9 +8,6 @@ export class AdminResponseDto {
 
   @ApiProperty()
   email?: string;
-
-  // @ApiProperty()
-  // phoneNumber?: string;
 
   @ApiProperty({ example: 'NG', required: false })
   @IsOptional()

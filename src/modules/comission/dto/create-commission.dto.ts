@@ -1,4 +1,3 @@
-// src/commission/dto/create-commission.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum, IsNotEmpty, IsNumber, IsString, IsUUID, Max, Min } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';

@@ -1,11 +1,3 @@
-// import { Controller } from '@nestjs/common';
-// import { WaitlistService } from './waitlist.service';
-
-// @Controller('waitlist')
-// export class WaitlistController {
-//   constructor(private readonly waitlistService: WaitlistService) { }
-// }
-// src/waitlist/waitlist.controller.ts
 import {
   Body,
   Controller,

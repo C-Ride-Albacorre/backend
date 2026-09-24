@@ -1,4 +1,3 @@
-// src/admin/admin.service.ts
 import {
   Injectable,
   Logger,
@@ -724,7 +723,6 @@ export class AdminService {
       `${row.vendor?.firstName ?? ''} ${row.vendor?.lastName ?? ''}`.trim();
 
     const businessInfo = row.vendor?.businessInfo;
-    //this.logger.log(`Business Info: ${JSON.stringify(businessInfo)}`); // Debugging line
     const location =
       row.store?.storeAddress ??
       businessInfo?.address ??
@@ -883,11 +881,6 @@ export class AdminService {
     }
 
     // Check if already processed
-    // if (store.status !== StoreStatus.INACTIVE) {
-    //   throw new BadRequestException(
-    //     `Store already ${store.status.toLowerCase()}`,
-    //   );
-    // }
     if (store.status === 'ACTIVE') {
       return {
         success: true,
@@ -2323,41 +2316,6 @@ export class AdminService {
 
   // ========== SUBCATEGORY SERVICES ==========
 
-  // async createSubcategory(dto: CreateSubcategoryDto) {
-  //   // Verify category exists
-  //   const category = await this.prisma.category.findUnique({
-  //     where: { id: dto.categoryId },
-  //   });
-
-  //   if (!category) {
-  //     throw new NotFoundException('Category not found');
-  //   }
-
-  //   try {
-  //     return await this.prisma.subcategory.create({
-  //       data: {
-  //         name: dto.name,
-  //         description: dto.description,
-  //         icon: dto.icon,
-  //         image: dto.image,
-  //         categoryId: dto.categoryId,
-  //         isActive: dto.isActive ?? true,
-  //         displayOrder: dto.displayOrder ?? 0,
-  //       },
-  //       include: {
-  //         category: true,
-  //       },
-  //     });
-  //   } catch (error) {
-  //     if (error.code === 'P2002') {
-  //       throw new ConflictException(
-  //         'Subcategory with this name already exists in this category',
-  //       );
-  //     }
-  //     throw error;
-  //   }
-  // }
-
   async createSubcategory(
     dto: CreateSubcategoryDto,
     files?: {
@@ -2398,7 +2356,7 @@ export class AdminService {
         data: {
           name: dto.name,
           description: dto.description,
-          icon: iconUrl, // 👈 now from Cloudinary
+          icon: iconUrl,
           image: imageUrl,
           categoryId: dto.categoryId,
           isActive: dto.isActive ?? true,
@@ -2423,8 +2381,7 @@ export class AdminService {
       include: {
         category: true,
         _count: {
-          // select: { storeSubcategories: true },
-          select: { products: true }, // ✅ FIXED
+          select: { products: true },
         },
       },
       orderBy: [{ categoryId: 'asc' }, { displayOrder: 'asc' }],
@@ -2436,7 +2393,7 @@ export class AdminService {
       where: { categoryId },
       include: {
         _count: {
-          select: { products: true }, // ✅ FIXED
+          select: { products: true }, 
         },
       },
       orderBy: { displayOrder: 'asc' },
@@ -2480,8 +2437,8 @@ export class AdminService {
     return {
       id: subcategory.id,
       name: subcategory.name,
-      image: subcategory.image, // ✅ included
-      icon: subcategory.icon, // ✅ included
+      image: subcategory.image, 
+      icon: subcategory.icon,
       isActive: subcategory.isActive,
       category: subcategory.category,
       products: subcategory.products,

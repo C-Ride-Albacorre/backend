@@ -1,5 +1,4 @@
 // common/middleware/request-id.middleware.ts
-// import { v4 as uuid } from 'uuid';
 import { randomUUID } from 'crypto';
 
 import { Request, Response, NextFunction } from 'express';

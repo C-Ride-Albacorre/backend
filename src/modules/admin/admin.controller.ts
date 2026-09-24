@@ -1,4 +1,3 @@
-// src/admin/admin.controller.ts
 import {
   Controller,
   Get,
@@ -218,8 +217,6 @@ async updateStatus(
   return this.adminService.updateStatus(id, dto);
 }
 
-
-////////////////
 @Get('stores')
 @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 @HttpCode(HttpStatus.OK)
@@ -461,11 +458,6 @@ async updateCategory(
 }
 
 @Delete('category/:id')
-// @ApiOperation({
-//   summary: 'Delete category (soft delete)',
-//   description:
-//     'Soft deletes a category by setting isActive to false. The category remains in the database but becomes inactive.',
-// })
 @ApiOperation({
   summary: 'Delete category',
   description: 'Deletes a category from db.',
@@ -533,37 +525,6 @@ async reorderCategory(
 }
 
 // ========== SUBCATEGORY ENDPOINTS ==========
-
-// @Post('subcategories')
-// @ApiOperation({
-//   summary: 'Create a new subcategory',
-//   description:
-//     'Creates a new subcategory under an existing category. Subcategory name must be unique within its category.',
-// })
-// @ApiBody({
-//   type: CreateSubcategoryDto,
-//   description: 'Subcategory creation data',
-//   examples: {
-//     'Italian Subcategory': {
-//       value: {
-//         name: 'Italian Restaurant',
-//         description: 'Authentic Italian cuisine',
-//         categoryId: '123e4567-e89b-12d3-a456-426614174000',
-//         isActive: true,
-//         displayOrder: 1,
-//       },
-//     },
-//   },
-// })
-// @ApiCreatedResponse({ description: 'Subcategory created successfully' })
-// @ApiBadRequestResponse({ description: 'Invalid input data' })
-// @ApiNotFoundResponse({ description: 'Category not found' })
-// @ApiConflictResponse({
-//   description: 'Subcategory with this name already exists in this category',
-// })
-// async createSubcategory(@Body() dto: CreateSubcategoryDto) {
-//   return this.adminService.createSubcategory(dto);
-// }
 
 @Post('subcategories')
 @ApiConsumes('multipart/form-data')
@@ -715,11 +676,6 @@ async updateSubcategory(
 }
 
 @Delete('subcategories/:id')
-// @ApiOperation({
-//   summary: 'Delete subcategory (soft delete)',
-//   description:
-//     'Soft deletes a subcategory by setting isActive to false. The subcategory remains in the database but becomes inactive.',
-// })
 @ApiOperation({
   summary: 'Delete subCategory',
   description: 'Deletes a subCategory from db.',

@@ -1,4 +1,3 @@
-// src/users/repositories/prisma-user.repository.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../shared/services/prisma.service';
 import { AbstractUserRepository } from './abstract-user.repository';
@@ -16,7 +15,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
     try {
       return await this.prisma.user.findUnique({ where: { id } });
     } catch (error) {
-      this.logger.error(`Failed to find user by id ${id}: ${error.message}`);
+      this.logger.error(`Failed to find user by id ${id}: ${error}`);
       throw error;
     }
   }
@@ -26,7 +25,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
       return await this.prisma.user.findUnique({ where: { email } });
     } catch (error) {
       this.logger.error(
-        `Failed to find user by email ${email}: ${error.message}`,
+        `Failed to find user by email ${email}: ${error}`,
       );
       throw error;
     }
@@ -37,7 +36,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
       return await this.prisma.user.findUnique({ where: { phoneNumber } });
     } catch (error) {
       this.logger.error(
-        `Failed to find user by phone number ${phoneNumber}: ${error.message}`,
+        `Failed to find user by phone number ${phoneNumber}: ${error}`,
       );
       throw error;
     }
@@ -56,7 +55,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
         where: { OR: conditions },
       });
     } catch (error) {
-      this.logger.error(`Failed to find existing user: ${error.message}`);
+      this.logger.error(`Failed to find existing user: ${error}`);
       throw error;
     }
   }
@@ -81,7 +80,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
         },
       });
     } catch (error) {
-      this.logger.error(`Failed to find existing user: ${error.message}`);
+      this.logger.error(`Failed to find existing user: ${error}`);
       throw error;
     }
   }
@@ -92,7 +91,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
         data: userData as Prisma.UserCreateInput,
       });
     } catch (error) {
-      this.logger.error(`Failed to create user: ${error.message}`);
+      this.logger.error(`Failed to create user: ${error}`);
       throw error;
     }
   }
@@ -107,26 +106,11 @@ export class PrismaUserRepository implements AbstractUserRepository {
         },
       });
     } catch (error) {
-      this.logger.error(`Failed to update user ${id}: ${error.message}`);
+      this.logger.error(`Failed to update user ${id}: ${error}`);
       throw error;
     }
   }
 
-  // async update(id: string, userData: Partial<User>): Promise<User> {
-  // async update(id: string, userData: Prisma.UserUpdateInput): Promise<User> {
-  //   try {
-  //     return await this.prisma.user.update({
-  //       where: { id },
-  //       data: userData as Prisma.UserUpdateInput,
-  //       include: {
-  //         businessInfo: true,
-  //       },
-  //     });
-  //   } catch (error) {
-  //     this.logger.error(`Failed to update user ${id}: ${error.message}`);
-  //     throw error;
-  //   }
-  // }
 
   async updateVendor(
     id: string,
@@ -141,7 +125,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
         },
       });
     } catch (error) {
-      this.logger.error(`Failed to update user ${id}: ${error.message}`);
+      this.logger.error(`Failed to update user ${id}: ${error}`);
       throw error;
     }
   }
@@ -157,7 +141,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
       });
     } catch (error) {
       this.logger.error(
-        `Failed to update refresh token for user ${id}: ${error.message}`,
+        `Failed to update refresh token for user ${id}: ${error}`,
       );
       throw error;
     }
@@ -197,7 +181,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
 
       return createdDocuments;
     } catch (error) {
-      this.logger.error(`Failed to create vendor documents: ${error.message}`);
+      this.logger.error(`Failed to create vendor documents: ${error}`);
       throw error;
     }
   }
@@ -228,7 +212,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
       });
     } catch (error) {
       this.logger.error(
-        `Failed to update vendor document ${documentId}: ${error.message}`,
+        `Failed to update vendor document ${documentId}: ${error}`,
       );
       throw error;
     }
@@ -250,7 +234,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
       });
     } catch (error) {
       this.logger.error(
-        `Failed to find vendor document for ${params.vendorId} (${params.documentType}): ${error.message}`,
+        `Failed to find vendor document for ${params.vendorId} (${params.documentType}): ${error}`,
       );
       throw error;
     }
@@ -272,7 +256,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
       });
     } catch (error) {
       this.logger.error(
-        `Failed to get vendor with relations: ${error.message}`,
+        `Failed to get vendor with relations: ${error}`,
       );
       throw error;
     }
@@ -348,7 +332,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
       });
     } catch (error) {
       this.logger.error(
-        `Failed to complete vendor onboarding: ${error.message}`,
+        `Failed to complete vendor onboarding: ${error}`,
       );
       throw error;
     }
@@ -381,179 +365,4 @@ export class PrismaUserRepository implements AbstractUserRepository {
     });
   }
 
-  // Business Info Methods
-  // async createBusinessInfo(
-  //   businessInfo: Partial<BusinessInfo>,
-  // ): Promise<BusinessInfo> {
-  //   try {
-  //     return await this.prisma.businessInfo.create({
-  //       data: businessInfo as Prisma.BusinessInfoCreateInput,
-  //     });
-  //   } catch (error) {
-  //     this.logger.error(`Failed to create business info: ${error.message}`);
-  //     throw error;
-  //   }
-  // }
-
-  // async updateBusinessInfo(
-  //   id: string,
-  //   businessInfo: Partial<BusinessInfo>,
-  // ): Promise<BusinessInfo> {
-  //   try {
-  //     return await this.prisma.businessInfo.update({
-  //       where: { id },
-  //       data: businessInfo,
-  //     });
-  //   } catch (error) {
-  //     this.logger.error(
-  //       `Failed to update business info ${id}: ${error.message}`,
-  //     );
-  //     throw error;
-  //   }
-  // }
-
-  // async findBusinessInfoByVendorId(
-  //   vendorId: string,
-  // ): Promise<BusinessInfo | null> {
-  //   try {
-  //     return await this.prisma.businessInfo.findUnique({
-  //       where: { userId: vendorId },
-  //     });
-  //   } catch (error) {
-  //     this.logger.error(
-  //       `Failed to find business info for vendor ${vendorId}: ${error.message}`,
-  //     );
-  //     throw error;
-  //   }
-  // }
-
-  // // Document Methods
-  // async createDocument(
-  //   document: Partial<VendorDocument>,
-  // ): Promise<VendorDocument> {
-  //   try {
-  //     return await this.prisma.vendorDocument.create({
-  //       data: document as Prisma.VendorDocumentCreateInput,
-  //     });
-  //   } catch (error) {
-  //     this.logger.error(`Failed to create document: ${error.message}`);
-  //     throw error;
-  //   }
-  // }
-
-  // async getVendorDocuments(vendorId: string): Promise<VendorDocument[]> {
-  //   try {
-  //     return await this.prisma.vendorDocument.findMany({
-  //       where: { userId: vendorId },
-  //       orderBy: { createdAt: 'desc' },
-  //     });
-  //   } catch (error) {
-  //     this.logger.error(
-  //       `Failed to get documents for vendor ${vendorId}: ${error.message}`,
-  //     );
-  //     throw error;
-  //   }
-  // }
-
-  // async getDocumentByType(
-  //   vendorId: string,
-  //   documentType: DocumentType,
-  // ): Promise<VendorDocument | null> {
-  //   try {
-  //     return await this.prisma.vendorDocument.findFirst({
-  //       where: {
-  //         vendorId,
-  //         documentType,
-  //       },
-  //     });
-  //   } catch (error) {
-  //     this.logger.error(
-  //       `Failed to get document by type for vendor ${vendorId}: ${error.message}`,
-  //     );
-  //     throw error;
-  //   }
-  // }
-
-  // async updateDocument(
-  //   id: string,
-  //   document: Partial<VendorDocument>,
-  // ): Promise<VendorDocument> {
-  //   try {
-  //     return await this.prisma.vendorDocument.update({
-  //       where: { id },
-  //       data: document,
-  //     });
-  //   } catch (error) {
-  //     this.logger.error(`Failed to update document ${id}: ${error.message}`);
-  //     throw error;
-  //   }
-  // }
-
-  // async deleteDocument(id: string): Promise<void> {
-  //   try {
-  //     await this.prisma.vendorDocument.delete({
-  //       where: { id },
-  //     });
-  //   } catch (error) {
-  //     this.logger.error(`Failed to delete document ${id}: ${error.message}`);
-  //     throw error;
-  //   }
-  // }
-
-  // // Additional helper methods
-  // async findByIdAndRole(id: string, role: string): Promise<User | null> {
-  //   try {
-  //     return await this.prisma.user.findFirst({
-  //       where: {
-  //         id,
-  //         //role,
-  //       },
-  //       include: {
-  //         businessInfo: true,
-  //         documents: true,
-  //       },
-  //     });
-  //   } catch (error) {
-  //     this.logger.error(
-  //       `Failed to find user by id and role ${id}: ${error.message}`,
-  //     );
-  //     throw error;
-  //   }
-  // }
-
-  // async findVendorsWithFilters(filters: {
-  //   status?: string;
-  //   isVerified?: boolean;
-  //   skip?: number;
-  //   take?: number;
-  // }): Promise<{ users: User[]; total: number }> {
-  //   try {
-  //     const where: any = { role: 'VENDOR' };
-
-  //     if (filters.status) where.status = filters.status;
-  //     if (filters.isVerified !== undefined)
-  //       where.isVerified = filters.isVerified;
-
-  //     const [users, total] = await Promise.all([
-  //       this.prisma.user.findMany({
-  //         where,
-  //         include: {
-  //           businessInfo: true,
-  //           documents: true,
-  //         },
-  //         skip: filters.skip || 0,
-  //         take: filters.take || 10,
-  //         orderBy: { createdAt: 'desc' },
-  //       }),
-  //       this.prisma.user.count({ where }),
-  //     ]);
-
-  //     return { users, total };
-  //   } catch (error) {
-  //     this.logger.error(
-  //       `Failed to find vendors with filters: ${error.message}`,
-  //     );
-  //     throw error;
-  //   }
-  // }
 }

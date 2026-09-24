@@ -232,15 +232,6 @@ export class WalletService {
     };
   }
 
-//   async handleFundingWebhook(
-//     transactionReference: string,
-//     status: string,
-//     metaData: Record<string, any>,
-//   ) {
-//     // Your existing wallet funding logic
-//     // ...
-//   }
-
 /**
  * Create a PENDING credit. Balance is NOT incremented — the money is
  * "pending" until clearPendingCredit is called by the cron.
