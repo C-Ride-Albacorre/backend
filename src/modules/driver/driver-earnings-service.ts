@@ -109,70 +109,82 @@ export class DriverEarningsService {
   // ═════════════════════════════════════════════════════════════════
   // PUBLIC — Dashboard
   // ═════════════════════════════════════════════════════════════════
-  async getDashboardold(
-    driverId: string,
-    period: EarningsPeriod,
-    from?: Date,
-    to?: Date,
-  ): Promise<DriverEarningsDashboard> {
-    const { start, end } = this.resolveRange(period, from, to);
+ async getDashboard(
+  driverId: string,
+  period: EarningsPeriod,
+  from?: Date,
+  to?: Date,
+): Promise<DriverEarningsDashboard> {
+  const { start, end } = this.resolveRange(period, from, to);
 
-    // All four data sources in parallel. `performanceMetrics` is deliberately
-    // named to avoid colliding with the Node.js global `performance`.
-    const [wallet, agg, breakdown, activeSeconds, performanceMetrics] =
-      await Promise.all([
-        this.getWalletSnapshot(driverId),
-        this.aggregate(driverId, start, end),
-        this.getDailyBreakdown(driverId, start, end),
-        this.onlineHours.getActiveSecondsForRange(driverId, start, end),
-        this.getPerformanceMetrics(driverId),
-      ]);
+  const [wallet, agg, activeSeconds, performanceMetrics] = await Promise.all([
+    this.getWalletSnapshot(driverId),
+    this.aggregate(driverId, start, end),
+    this.onlineHours.getActiveSecondsForRange(driverId, start, end),
+    this.getPerformanceMetrics(driverId),
+  ]);
 
-    // Clamp online hours so a stuck session can't inflate the metric.
-    const cappedSeconds = Math.min(
-      activeSeconds,
-      PERFORMANCE_RULES.MAX_ONLINE_HOURS_PER_DAY *
-        Math.max(1, this.daysBetween(start, end)) *
-        3600,
+  const cappedSeconds = Math.min(
+    activeSeconds,
+    PERFORMANCE_RULES.MAX_ONLINE_HOURS_PER_DAY *
+      Math.max(1, this.daysBetween(start, end)) *
+      3600,
+  );
+  const onlineHours = cappedSeconds / 3600;
+  const avgPerHour = onlineHours > 0 ? agg.totalEarnings / onlineHours : 0;
+
+  const totalEarningsOnCard =
+    wallet.availableBalance + wallet.pendingBalance + agg.totalEarnings;
+
+  // ── Breakdown strategy per period ─────────────────────────────
+  //  TODAY  → one row per delivery (online hours split evenly)
+  //  WEEK   → one row per day
+  //  MONTH  → one row per day AND weekly roll-up (both populated)
+  //  CUSTOM → one row per day
+  let breakdown: DriverEarningsDashboard['breakdown'] = [];
+  let weeklyAggregation: DriverEarningsDashboard['weeklyAggregation'];
+
+  if (period === EarningsPeriod.TODAY) {
+    breakdown = await this.getPerDeliveryBreakdown(
+      driverId,
+      start,
+      end,
+      cappedSeconds,
     );
-    const onlineHours = cappedSeconds / 3600;
-    const avgPerHour = onlineHours > 0 ? agg.totalEarnings / onlineHours : 0;
+  } else {
+    // WEEK, MONTH, CUSTOM all use the daily breakdown
+    breakdown = await this.getDailyBreakdown(driverId, start, end);
 
-    // The "Total Earnings" tile = wallet balance + pending + this period.
-    // This matches the screenshot where Total Earnings sits next to the wallet.
-    const totalEarningsOnCard =
-      wallet.availableBalance + wallet.pendingBalance + agg.totalEarnings;
-
-    // Week-on-week aggregation is only meaningful for MONTH.
-    const weeklyAggregation =
-      period === EarningsPeriod.MONTH
-        ? this.buildWeeklyAggregation(breakdown, start, end)
-        : undefined;
-
-    return {
-      period: { start, end, type: period },
-      wallet: {
-        availableBalance: wallet.availableBalance,
-        pendingBalance: wallet.pendingBalance,
-        totalOnCard: Helper.round2(totalEarningsOnCard),
-        currency: wallet.currency,
-      },
-      summary: {
-        earningsInPeriod: Helper.round2(agg.totalEarnings),
-        totalEarnings: Helper.round2(totalEarningsOnCard),
-        deliveries: agg.deliveries,
-        tipsEarned: Helper.round2(agg.tips),
-        bonuses: Helper.round2(agg.bonuses),
-        onlineHours: Helper.round2(onlineHours),
-        avgEarningsPerHour: Helper.round2(avgPerHour),
-      },
-      performance: performanceMetrics,
-      breakdown,
-      ...(weeklyAggregation ? { weeklyAggregation } : {}),
-    };
+    // Only MONTH additionally exposes the weekly roll-up
+    if (period === EarningsPeriod.MONTH) {
+      weeklyAggregation = this.buildWeeklyAggregation(breakdown, start, end);
+    }
   }
 
-  async getDashboard(
+  return {
+    period: { start, end, type: period },
+    wallet: {
+      availableBalance: wallet.availableBalance,
+      pendingBalance: wallet.pendingBalance,
+      totalOnCard: Helper.round2(totalEarningsOnCard),
+      currency: wallet.currency,
+    },
+    summary: {
+      earningsInPeriod: Helper.round2(agg.totalEarnings),
+      totalEarnings: Helper.round2(totalEarningsOnCard),
+      deliveries: agg.deliveries,
+      tipsEarned: Helper.round2(agg.tips),
+      bonuses: Helper.round2(agg.bonuses),
+      onlineHours: Helper.round2(onlineHours),
+      avgEarningsPerHour: Helper.round2(avgPerHour),
+    },
+    performance: performanceMetrics,
+    breakdown,
+    ...(weeklyAggregation ? { weeklyAggregation } : {}),
+  };
+}
+
+  async getDashboardWithoutMonthBreakdown(
   driverId: string,
   period: EarningsPeriod,
   from?: Date,
