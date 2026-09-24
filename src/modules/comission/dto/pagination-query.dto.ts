@@ -1,4 +1,3 @@
-// src/commission/dto/pagination-query.dto.ts
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Min, Max } from 'class-validator';

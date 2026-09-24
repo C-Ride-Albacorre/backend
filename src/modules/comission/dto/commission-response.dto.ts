@@ -1,4 +1,3 @@
-// src/commission/dto/commission-response.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
 import { CommissionStatus } from '@prisma/client';
 

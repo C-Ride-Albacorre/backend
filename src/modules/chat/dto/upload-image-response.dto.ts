@@ -1,4 +1,3 @@
-// src/modules/chat/dto/upload-image-response.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UploadImageResponseDto {

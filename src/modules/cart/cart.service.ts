@@ -672,12 +672,7 @@ export class CartService {
       include: { items: true },
     });
 
-    // if (!cart) {
-    //   cart = await this.prisma.cart.create({
-    //     data: { sessionId },
-    //     include: { items: true },
-    //   });
-    // }
+  
     if (!cart) {
       cart = await this.prisma.cart.create({
         //data: userId ? { userId } : { sessionId },
@@ -778,20 +773,8 @@ export class CartService {
           selectedAddons = await this.getAddonDetails(dto.addonIds);
           addonsTotal = selectedAddons.reduce((sum, addon) => sum + addon.price, 0);
         }
-        // unitPrice = productDetails.price + addonsTotal;   // includes add‑ons
-        // totalPrice = unitPrice * dto.quantity;
-        // // unitPrice = productDetails.price;
-        // // totalPrice = unitPrice * dto.quantity;
-        // if (dto.addonIds?.length) {
-        //   selectedAddons = await this.getAddonDetails(dto.addonIds);
-        //   const addonsTotal = selectedAddons.reduce(
-        //     (sum, addon) => sum + addon.price,
-        //     0,
-        //   );
-        //   totalPrice += addonsTotal * dto.quantity;
-        // }
-        unitPrice = productDetails.price + addonsTotal;   // 18,000
-        totalPrice = unitPrice * dto.quantity;            // 18,000
+        unitPrice = productDetails.price + addonsTotal;   
+        totalPrice = unitPrice * dto.quantity;            
 
         break;
 
@@ -1144,23 +1127,7 @@ export class CartService {
   /**
    * Remove item from cart
    */
-  // async removeCartItem(cartItemId: string) {
-  //   const cartItem = await this.prisma.cartItem.findUnique({
-  //     where: { id: cartItemId },
-  //   });
 
-  //   if (!cartItem) {
-  //     throw new NotFoundException('Cart item not found');
-  //   }
-
-  //   await this.prisma.cartItem.delete({
-  //     where: { id: cartItemId },
-  //   });
-
-  //   await this.updateCartTotal(cartItem.cartId);
-
-  //   return this.getCartSummary(cartItem.cartId);
-  // }
   async removeCartItem(
     cartItemId: string,
     userId?: string,
@@ -1349,11 +1316,6 @@ export class CartService {
       storeId: store?.id ?? null,
       storeName: store?.storeName ?? null,
       items,
-      // subtotal,
-      // deliveryFee,
-      // serviceFee,
-      // taxAmount,
-      // totalAmount: subtotal + deliveryFee + serviceFee + taxAmount,
       subtotal: round2(subtotal),
       deliveryFee: round2(deliveryFee),
       serviceFee: round2(t),
@@ -1837,19 +1799,7 @@ async calculateDeliveryFeeWithMeta(
   distanceKm: number | null;
   distanceSource: 'google_routes' | 'haversine' | null;
 }> {
-  // ── same body as above, but return the provenance too ──
-  // Every `return <number>` becomes `return { fee: <number>, distanceKm, distanceSource };`
-  // The early `return 0` (no dropoff) becomes:
-  //   return { fee: 0, distanceKm: null, distanceSource: null };
-// }
 
-//   async calculateDeliveryFee(
-//   cartId: string,
-//   dropoffLocation: { latitude: number; longitude: number } | null,
-//   selectedVehicleTypeConfigId?: string,
-//   tx?: Prisma.TransactionClient,
-//   requestId?: string,                    // ← new, optional to preserve callers
-// ): Promise<number> {
   const prisma = tx ?? this.prisma;
   const logCtx = requestId ? `[${requestId}] ` : '';
 
