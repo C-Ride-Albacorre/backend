@@ -660,9 +660,9 @@ model Rating {
   orderId       String
   order         Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
   subjectId     String // ID of the user being rated (driver)
-  subject       User         @relation("subjectRatings", fields: [subjectId], references: [id])
+  subject       User         @relation("subjectRatings", fields: [subjectId], references: [id], onDelete: Cascade)
   reviewerId    String // ID of the user giving the rating
-  reviewer      User         @relation("reviewerRatings", fields: [reviewerId], references: [id])
+  reviewer      User         @relation("reviewerRatings", fields: [reviewerId], references: [id], onDelete: Cascade)
   reviewerRole  Role // CUSTOMER, VENDOR, etc.
   rating        Int? // 1–5, null if not yet submitted
   comment       String?
@@ -926,7 +926,7 @@ enum MessageType {
 model Call {
   id          String     @id @default(cuid())
   orderId     String
-  order       Order      @relation(fields: [orderId], references: [id])
+  order       Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
   initiatedBy String // userId who started the call
   status      CallStatus @default(INITIATED)
   startedAt   DateTime? // when the call was actually connected
@@ -941,7 +941,7 @@ model Call {
 model CallParticipant {
   id        String    @id @default(cuid())
   callId    String
-  call      Call      @relation(fields: [callId], references: [id])
+  call      Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
   userId    String
   role      Role // CUSTOMER or DISPATCHER (or DRIVER)
   joinedAt  DateTime? // when they actually joined the call
@@ -1216,7 +1216,7 @@ model DriverPayout {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  driver User @relation(fields: [driverId], references: [id])
+  driver User @relation(fields: [driverId], references: [id], onDelete: Cascade)
 
   @@index([driverId, status])
   @@index([status, requestedAt])
