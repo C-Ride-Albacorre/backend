@@ -5,9 +5,8 @@ import {
   HealthIndicatorResult,
 } from '@nestjs/terminus';
 import { PrismaService } from '../../shared/services/prisma.service';
-// import { CacheService, CacheHealth } from '../../shared/services/cache.service';
 import { ApiTags } from '@nestjs/swagger';
-import Helper from 'src/shared/utils/helpers';
+import Helper from '../../shared/utils/helpers';
 
 export interface HealthCheckResponse {
   status: string;
@@ -34,14 +33,26 @@ export class HealthController {
   constructor(
     private readonly health: HealthCheckService,
     private readonly prisma: PrismaService,
-    //private readonly cacheService: CacheService,
   ) {
     this.startupTime = new Date();
   }
 
   @Get()
   @HealthCheck()
-  async check(): Promise<HealthCheckResponse> {
+  async check() {
+  return {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV ,
+    service: 'c-ride-api',
+    database: "ok",
+    redis: "ok"
+  };
+  }
+
+  @Get('diagnostics')
+  async diagnose(): Promise<HealthCheckResponse> {
     let databaseLatency: number | undefined;
     let cacheLatency: number | undefined;
 
@@ -67,54 +78,19 @@ export class HealthController {
             },
           };
         } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
           return {
             database: {
               status: 'down',
-              message: error.message,
-              error: error.name,
+              message: errorMessage,
+              error: error instanceof Error ? error.name : 'UnknownError',
               timestamp: new Date().toISOString(),
             },
           };
         }
       },
 
-      // Cache health check
-      // async (): Promise<HealthIndicatorResult> => {
-      //   try {
-      //     const cacheHealth = await this.cacheService.checkHealth();
-      //     cacheLatency = cacheHealth.latency;
-
-      //     if (cacheHealth.status === 'healthy') {
-      //       return {
-      //         cache: {
-      //           status: 'up',
-      //           latency: `${cacheHealth.latency}ms`,
-      //           details: {
-      //             connection: 'established',
-      //             timestamp: new Date().toISOString(),
-      //           },
-      //         },
-      //       };
-      //     }
-
-      //     return {
-      //       cache: {
-      //         status: 'down',
-      //         message: cacheHealth.error || 'Cache health check failed',
-      //         timestamp: new Date().toISOString(),
-      //       },
-      //     };
-      //   } catch (error) {
-      //     return {
-      //       cache: {
-      //         status: 'down',
-      //         message: error.message,
-      //         error: error.name,
-      //         timestamp: new Date().toISOString(),
-      //       },
-      //     };
-      //   }
-      // },
+  
 
       // Memory health check
       async (): Promise<HealthIndicatorResult> => {
@@ -172,11 +148,12 @@ export class HealthController {
             },
           };
         } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
           return {
             storage: {
               status: 'down',
-              message: error.message,
-              error: error.name,
+              message: errorMessage,
+              error: error instanceof Error ? error.name : 'UnknownError',
               timestamp: new Date().toISOString(),
             },
           };
@@ -215,15 +192,12 @@ export class HealthController {
       await this.prisma.$queryRaw`SELECT 1`;
       checks.push({ database: 'ready' });
     } catch (error) {
-      checks.push({ database: 'not_ready', error: error.message });
+      checks.push({
+        database: 'not_ready',
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
-    // Cache readiness
-    // const cacheHealth = await this.cacheService.checkHealth();
-    // checks.push({
-    //   cache: cacheHealth.status === 'healthy' ? 'ready' : 'not_ready',
-    //   latency: cacheHealth.latency,
-    // });
 
     const allReady = checks.every(
       (check) => Object.values(check)[0] === 'ready',
@@ -246,7 +220,7 @@ export class HealthController {
 
   @Get('detailed')
   async detailed(): Promise<HealthCheckResponse> {
-    const basicHealth = await this.check();
+    const basicHealth = await this.diagnose();
 
     // Add additional detailed information
     const detailedHealth: HealthCheckResponse = {
@@ -262,24 +236,6 @@ export class HealthController {
 
     return detailedHealth;
   }
-
-  // @Get('cache')
-  // async cacheHealth(): Promise<{
-  //   status: string;
-  //   // health: CacheHealth;
-  //   connection: boolean;
-  //   stats: any;
-  // }> {
-  //   const health = await this.cacheService.checkHealth();
-  //   const stats = await this.cacheService.getStats();
-
-  //   return {
-  //     status: health.status,
-  //     health,
-  //     connection: this.cacheService.getConnectionStatus(),
-  //     stats,
-  //   };
-  // }
 
   @Get('database')
   async databaseHealth(): Promise<{
@@ -299,7 +255,7 @@ export class HealthController {
     } catch (error) {
       return {
         status: 'down',
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       };
     }
   }

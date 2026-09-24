@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CommissionStatus, OrderStatus, PaymentStatus, Prisma, SettlementStatus } from '@prisma/client';
-import { PrismaService } from 'src/shared/services/prisma.service';
+import { PrismaService } from '../../shared/services/prisma.service';
 
 @Injectable()
 export class VendorSettlementService {

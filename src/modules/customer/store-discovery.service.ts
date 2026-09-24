@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../shared/services/prisma.service';
 import Helper from '../../shared/utils/helpers';
-import { StoreStatus } from 'src/shared/enums';
+import { StoreStatus } from '../../shared/enums';
 
 @Injectable()
 export class StoreDiscoveryService {

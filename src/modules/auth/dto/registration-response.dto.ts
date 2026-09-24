@@ -1,4 +1,4 @@
-import { User } from 'src/modules/user/entities/user.entity';
+import { User } from '../../../modules/user/entities/user.entity';
 import { RegistrationMethod, RegistrationStatus, UserRole } from '../../../shared/enums';
 
 // export class RegisterResponseDto {

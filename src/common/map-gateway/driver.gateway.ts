@@ -16,7 +16,7 @@ import { DriverStatus } from '@prisma/client';
 import { DriverAssignmentService } from '../../modules/driver/driver-assignment.service';
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { DriverService } from 'src/modules/driver/driver.service';
+import { DriverService } from '../../modules/driver/driver.service';
 
 
 

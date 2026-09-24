@@ -32,7 +32,7 @@ import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { NotificationService } from '../notification/notification.service';
 import { DriverAssignmentService } from '../driver/driver-assignment.service';
-import { MapGateway } from 'src/common/map-gateway/map.gateway';
+import { MapGateway } from '../../common/map-gateway/map.gateway';
 import { TrackingDataResponseDto } from './dto/tracking-response.dto';
 import { REDIS_CLIENT } from '../redis/redis.provider';
 import Redis from 'ioredis';

@@ -4,7 +4,7 @@ import { CreateCommissionDto } from './dto/create-commission.dto';
 import { UpdateCommissionDto } from './dto/update-commission.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { CommissionStatus } from '@prisma/client';
-import { PrismaService } from 'src/shared/services/prisma.service';
+import { PrismaService } from '../../shared/services/prisma.service';
 
 @Injectable()
 export class CommissionService {

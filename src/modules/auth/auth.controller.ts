@@ -77,7 +77,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly userService: UserService,
     private config: ConfigService,
-  ) {}
+  ) { }
 
   @Post('create-admin')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -839,7 +839,7 @@ STEP 4 – Bank Details
     },
   })
   async verifyOtp(@Body() dto: VerifyOtpDto) {
-   return this.authService.verifyResetOtp(dto);
+    return this.authService.verifyResetOtp(dto);
     // return this.authService.verifyOtpAndGenerateToken(dto.identifier, dto.otp);
   }
 
@@ -1092,14 +1092,15 @@ STEP 4 – Bank Details
 
       return res.redirect(redirectUrl.toString());
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `Google OAuth callback error: ${error.message}`,
-        error.stack,
+        `Google OAuth callback error: ${errorMessage}`,
+        error instanceof Error ? error.stack : undefined,
       );
 
       const frontendUrl = this.getFrontendUrl();
       return res.redirect(
-        `${frontendUrl}/login?error=oauth_failed&message=${encodeURIComponent(error.message)}`,
+        `${frontendUrl}/login?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`,
       );
     }
   }

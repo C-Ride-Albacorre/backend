@@ -6,7 +6,7 @@ import { ValidationPipe, VersioningType } from '@nestjs/common';
 import helmet from 'helmet';
 import * as morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
-import * as compression from 'compression';
+import compression = require('compression');
 import * as xss from 'xss-clean';
 import * as hpp from 'hpp';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
@@ -108,7 +108,7 @@ async function bootstrap() {
   app.use(morgan('combined'));
 
   app.setGlobalPrefix('api', {
-    exclude: ['/', '/health'],
+    exclude: ['/'],
   });
 
   app.enableVersioning({
@@ -154,7 +154,7 @@ async function bootstrap() {
     );
   }
 
-  await app.listen(config.get('PORT', 4000));
+await app.listen(config.get('PORT', 4000), '0.0.0.0');  
 }
 
 bootstrap();
