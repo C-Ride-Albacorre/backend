@@ -353,34 +353,6 @@ model DeliveryOption {
   @@index([isActive])
 }
 
-model ServiceFee {
-  id          String          @id @default(uuid())
-  name        String
-  description String?
-  feeType     FeeType
-  value       Float
-  isActive    Boolean         @default(true)
-  appliesTo   FeeApplicableTo
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-
-  @@index([isActive])
-  @@index([appliesTo])
-}
-
-model TaxSetting {
-  id          String          @id @default(uuid())
-  name        String
-  description String?
-  rate        Float
-  isActive    Boolean         @default(true)
-  appliesTo   TaxApplicableTo
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-
-  @@index([isActive])
-  @@index([appliesTo])
-}
 
 model Cart {
   id           String     @id @default(uuid())
@@ -477,6 +449,7 @@ model Order {
   driverEarning          DriverEarning?
   deliveryDistanceKm     Decimal?           @db.Decimal(10, 3)
   deliveryDistanceSource String? // 'google_routes' | 'haversine'
+  deliveryEtaSeconds     Int?             // ← ADD: promised route duration at order time
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -841,24 +814,6 @@ enum PackageType {
   DOCUMENT
 }
 
-enum FeeType {
-  PERCENTAGE
-  FIXED
-}
-
-enum FeeApplicableTo {
-  ALL
-  VENDOR_ORDERS
-  PACKAGE_ORDERS
-  DOCUMENT_ORDERS
-}
-
-enum TaxApplicableTo {
-  ALL
-  VENDOR_ORDERS
-  PACKAGE_ORDERS
-  DOCUMENT_ORDERS
-}
 
 enum CartItemType {
   PRODUCT
