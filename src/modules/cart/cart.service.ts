@@ -1798,6 +1798,143 @@ async calculateDeliveryFeeWithMeta(
   fee: number;
   distanceKm: number | null;
   distanceSource: 'google_routes' | 'haversine' | null;
+  durationSeconds: number | null;          // ← ADD
+}> {
+  const prisma = tx ?? this.prisma;
+  const logCtx = requestId ? `[${requestId}] ` : '';
+
+  const cart = await prisma.cart.findUnique({
+    where: { id: cartId },
+    include: {
+      items: {
+        include: {
+          product: { include: { store: true } },
+          package: { include: { store: true } },
+        },
+      },
+    },
+  });
+  if (!cart) throw new NotFoundException('Cart not found');
+
+  const firstItem = cart.items[0];
+  const store = firstItem?.product?.store ?? firstItem?.package?.store;
+  if (!store) throw new BadRequestException('No vendor store found for cart');
+
+  // ── No dropoff yet → no fee, no distance, no duration ──
+  if (!dropoffLocation || store.latitude == null || store.longitude == null) {
+    return { fee: 0, distanceKm: null, distanceSource: null, durationSeconds: null };
+  }
+
+  // ⬇️ resolveDistanceKm already returns durationSeconds — capture it
+  const { distanceKm, distanceSource, durationSeconds } =
+    await Helper.resolveDistanceKm(
+      { latitude: store.latitude, longitude: store.longitude },
+      { latitude: dropoffLocation.latitude, longitude: dropoffLocation.longitude },
+      {
+        log: (m) =>
+          this.logger.log(`${logCtx}${m} | cartId=${cartId} | storeId=${store.id}`),
+        warn: (m) =>
+          this.logger.warn(`${logCtx}${m} | cartId=${cartId} | storeId=${store.id}`),
+      },
+    );
+
+  this.logger.log(
+    `${logCtx}Calculated distance | cartId=${cartId} | storeId=${store.id} | ` +
+      `distance=${distanceKm.toFixed(2)}km | source=${distanceSource} | ` +
+      `durationSeconds=${durationSeconds ?? 'n/a'} | ` +
+      `selectedConfigId=${selectedVehicleTypeConfigId ?? 'none'}`,
+  );
+
+  // ── (a) Customer already chose a vehicle type ──
+  if (selectedVehicleTypeConfigId) {
+    const config = await prisma.vehicleTypeConfig.findUnique({
+      where: { id: selectedVehicleTypeConfigId },
+      include: { distanceBands: true },
+    });
+
+    if (!config || !config.isActive) {
+      throw new BadRequestException('Selected delivery option is unavailable');
+    }
+    if (distanceKm > config.deliveryRadiusKm) {
+      throw new BadRequestException(
+        `Selected vehicle cannot deliver ${distanceKm.toFixed(1)} km`,
+      );
+    }
+    return {
+      fee: Helper.computeFeeFromConfig(
+        {
+          minDeliveryFee: Number(config.minDeliveryFee),
+          perKmRate: Number(config.perKmRate),
+          distanceBands: config.distanceBands.map((band) => ({
+            minDistanceKm: band.fromKm,
+            maxDistanceKm: band.toKm,
+            fee: Number(band.flatFee),
+          })),
+        },
+        distanceKm,
+      ),
+      distanceKm,
+      distanceSource,
+      durationSeconds,                        // ← ADD
+    };
+  }
+
+  // ── (b) No selection → cheapest option within radius ──
+  const inRange = await prisma.vehicleTypeConfig.findMany({
+    where: { isActive: true, deliveryRadiusKm: { gte: distanceKm } },
+    include: { distanceBands: true },
+  });
+
+  if (inRange.length > 0) {
+    return {
+      fee: Math.min(
+        ...inRange.map((c) =>
+          Helper.computeFeeFromConfig(
+            {
+              ...c,
+              minDeliveryFee: Number(c.minDeliveryFee),
+              perKmRate: Number(c.perKmRate),
+              distanceBands: c.distanceBands.map((band) => ({
+                minDistanceKm: band.fromKm,
+                maxDistanceKm: band.toKm,
+                fee: Number(band.flatFee),
+              })),
+            },
+            distanceKm,
+          ),
+        ),
+      ),
+      distanceKm,
+      distanceSource,
+      durationSeconds,                        // ← ADD
+    };
+  }
+
+  // ── (c) Fallback ──
+  const fallback = await prisma.vehicleTypeConfig.findFirst({
+    where: { isActive: true },
+    orderBy: { minDeliveryFee: 'asc' },
+    select: { minDeliveryFee: true },
+  });
+
+  return {
+    fee: fallback ? Number(fallback.minDeliveryFee) : 0,
+    distanceKm,
+    distanceSource,
+    durationSeconds,                          // ← ADD
+  };
+}
+
+async calculateDeliveryFeeWithMetaWithoutEtaDuration(
+  cartId: string,
+  dropoffLocation: { latitude: number; longitude: number } | null,
+  selectedVehicleTypeConfigId?: string,
+  tx?: Prisma.TransactionClient,
+  requestId?: string,
+): Promise<{
+  fee: number;
+  distanceKm: number | null;
+  distanceSource: 'google_routes' | 'haversine' | null;
 }> {
 
   const prisma = tx ?? this.prisma;
