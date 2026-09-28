@@ -53,7 +53,7 @@ export class UserService {
   /**
    * Create a new customer with automatic OTP verification
    */
-  async createCustomer(dto: Partial<User>): Promise<PendingVerificationDto> {
+  async createCustomerbk(dto: Partial<User>): Promise<PendingVerificationDto> {
     if (dto.referralCode) {
       const existing = await this.prisma.user.findUnique({
         where: { referralCode: dto.referralCode },
@@ -89,10 +89,6 @@ export class UserService {
     if (existingUser || existingUser?.isVerified) {
       throw new ConflictException('User already exists. Please log in.');
     }
-
-    // if (existingUser?.isVerified) {
-    //   throw new ConflictException('User already exists. Please log in.');
-    // }
 
     // 🔁 Existing unverified → resend OTP
     if (existingUser) {
@@ -130,9 +126,115 @@ export class UserService {
       registrationMethod,
       verificationIdentifier: registrationInput,
       user,
-      isNewUser: true, // ✅ add this
+      isNewUser: true, 
     };
   }
+
+  async createCustomer(dto: Partial<User>): Promise<PendingVerificationDto> {
+  if (dto.referralCode) {
+    const existing = await this.prisma.user.findUnique({
+      where: { referralCode: dto.referralCode },
+    });
+    if (existing) {
+      throw new BadRequestException('Referral code already exists');
+    }
+  }
+
+  // Normalize phone (unchanged)
+  if (dto.phoneNumber) {
+    const phone = parsePhoneNumberFromString(
+      dto.phoneNumber,
+      (dto.countryCode || 'NG') as CountryCode,
+    );
+    if (!phone || !phone.isValid()) {
+      throw new BadRequestException('Invalid phone number');
+    }
+    dto.phoneNumber = phone.format('E.164');
+  }
+
+  const registrationInput = dto.email || dto.phoneNumber;
+  const registrationMethod = Helper.getRegistrationMethod(registrationInput);
+
+  const existingUser = await this.userRepository.findExistingUser(
+    dto.email,
+    dto.phoneNumber,
+  );
+
+  if (existingUser || existingUser?.isVerified) {
+    throw new ConflictException('User already exists. Please log in.');
+  }
+
+  // 🔁 Existing unverified → resend OTP (ensure wallet exists)
+  if (existingUser) {
+    await this.ensureWalletExists(existingUser.id);
+
+    await this.sendVerificationOtp(existingUser);
+
+    return {
+      status: RegistrationStatus.PENDING_VERIFICATION,
+      requiresVerification: true,
+      registrationMethod,
+      verificationIdentifier: registrationInput,
+      user: existingUser,
+      isNewUser: true,
+    };
+  }
+
+  // 🆕 New user – hash password first
+  const hashedPassword = await Helper.hashText(dto.password);
+
+  // Create user and wallet atomically in one transaction
+  const { user } = await this.prisma.$transaction(async (tx) => {
+     const createdUser = await this.userRepository.create({
+      ...dto,
+      phoneNumber: dto.phoneNumber,
+      countryCode: dto.countryCode,
+      password: hashedPassword,
+      role: UserRole.CUSTOMER,
+      isActive: true,
+      isVerified: false,
+      lastLoginAt: null,
+    });
+
+    // Create the wallet in the same transaction
+    await tx.wallet.create({
+      data: {
+        userId: createdUser.id,
+        balance: 0,
+        currency: 'NGN',
+      },
+    });
+
+    return { user: createdUser };
+  });
+
+  await this.sendVerificationOtp(user);
+
+  return {
+    status: RegistrationStatus.NEW,
+    requiresVerification: true,
+    registrationMethod,
+    verificationIdentifier: registrationInput,
+    user,
+    isNewUser: true,
+  };
+}
+
+/**
+ * Ensure a wallet exists for the given user. Idempotent.
+ * Used for the "resend OTP" path and any legacy users.
+ */
+private async ensureWalletExists(userId: string): Promise<void> {
+  const existing = await this.prisma.wallet.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+  if (!existing) {
+    await this.prisma.wallet.create({
+      data: { userId, balance: 0, currency: 'NGN' },
+    });
+  }
+}
 
   /**
    * Send verification OTP after registration

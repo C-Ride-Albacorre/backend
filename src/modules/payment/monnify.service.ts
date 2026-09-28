@@ -48,6 +48,7 @@ export class MonnifyService {
   // ==================== AUTHENTICATION ====================
 
   private async getAccessToken(): Promise<string> {
+    this.logger.log('Fetching Monnify access token');
     if (this.accessToken && this.tokenExpiry && this.tokenExpiry > new Date()) {
       return this.accessToken;
     }
@@ -544,6 +545,7 @@ export class MonnifyService {
   // In monnify.service.ts
 
 async initializeTransaction(payload: any): Promise<any> {
+  this.logger.log(`Initializing Monnify transaction with payload: ${JSON.stringify(payload)}`);
   const accessToken = await this.getAccessToken();
   try {
     const response = await axios.post(

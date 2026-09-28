@@ -2,14 +2,18 @@
 import { Controller, Post, Get, Body, Request, Query, UseGuards, Res, Logger } from '@nestjs/common';
 import { Response } from 'express';
 import { WalletService } from './wallet.service';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery, ApiBody } from '@nestjs/swagger';
 import { JwtOptionalGuard } from '../../common/guards/jwt-optional.guard';
 import { FundWalletDto } from './dto/wallet.dto.';
 import { ConfigService } from '@nestjs/config';
+import { Roles } from '../../common/decorators/role.decorator';
+import { UserRole } from '../../shared/enums';
+import { PaymentMethod } from '@prisma/client';
 
-@ApiTags('Wallet')
+@ApiTags('Customer Wallet')
 @Controller('wallet')
 @UseGuards(JwtOptionalGuard)
+@Roles(UserRole.CUSTOMER)
 @ApiBearerAuth()
 export class WalletController {
   private readonly logger = new Logger(WalletController.name);
@@ -34,6 +38,17 @@ export class WalletController {
 
   @Post('fund')
   @ApiOperation({ summary: 'Fund wallet via Monnify' })
+  @ApiBody({
+    type: FundWalletDto,
+    description: 'Wallet funding details',
+    examples: {
+      default: {
+        summary: 'Fund wallet',
+        value: { amount: 5000, paymentMethod: PaymentMethod.CARD },
+      },
+    },
+  })
+  
   async fundWallet(@Request() req, @Body() dto: FundWalletDto) {
     return this.walletService.fundWallet(req.user.id, dto.amount, dto.paymentMethod);
   }

@@ -17,15 +17,25 @@ export class WalletService {
   ) {}
 
   // Ensure wallet exists for user (called on signup or first use)
+  // async getOrCreateWallet(userId: string) {
+  //   let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+  //   if (!wallet) {
+  //     wallet = await this.prisma.wallet.create({
+  //       data: { userId, balance: 0 },
+  //     });
+  //   }
+  //   return wallet;
+  // }
   async getOrCreateWallet(userId: string) {
-    let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
-    if (!wallet) {
-      wallet = await this.prisma.wallet.create({
-        data: { userId, balance: 0 },
-      });
-    }
-    return wallet;
+  let wallet = await this.prisma.wallet.findUnique({ where: { userId } });
+  if (!wallet) {
+    this.logger.warn(`Creating missing wallet for user ${userId}`);
+    wallet = await this.prisma.wallet.create({
+      data: { userId, balance: 0, currency: 'NGN' },
+    });
   }
+  return wallet;
+}
 
   // Get wallet balance
   async getBalance(userId: string) {
@@ -52,6 +62,7 @@ export class WalletService {
   // Fund wallet via Monnify
   async fundWallet(userId: string, amount: number, paymentMethod: string) {
     if (amount <= 0) throw new BadRequestException('Amount must be positive');
+    this.logger.log(`Initiating wallet funding of ${amount} for user ${userId} via ${paymentMethod}`);
 
     const wallet = await this.getOrCreateWallet(userId);
 
@@ -59,6 +70,7 @@ export class WalletService {
     const fundingReference = `FUND-${randomUUID()}`;
 
     // Create a pending wallet transaction (PENDING)
+    this.logger.log(`Creating pending wallet transaction for funding reference ${fundingReference}`);
     const tx = await this.prisma.walletTransaction.create({
       data: {
         walletId: wallet.id,
@@ -79,6 +91,7 @@ export class WalletService {
 
     // We need to store the transaction ID in metadata to link webhook.
     // We'll pass a custom redirect URL: /api/v1/wallet/callback
+    this.logger.log(`Initializing Monnify transaction for wallet funding, txId: ${tx.id}`);
     const callbackUrl = `${this.configService.get('BACKEND_URI')}/api/v1/wallet/callback`;
 
     // Call Monnify initialization with amount, reference, etc.
@@ -95,6 +108,7 @@ export class WalletService {
     };
 
     // Use a generic method in MonnifyService that returns the checkout URL
+    this.logger.log(`Calling MonnifyService to initialize transaction for funding reference ${fundingReference}`);
     const response = await this.monnifyService.initializeTransaction(monnifyPayload);
 
     // Return the checkout URL to frontend
