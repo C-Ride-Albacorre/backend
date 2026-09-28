@@ -1085,57 +1085,6 @@ export class DriverAssignmentService {
   }
 
 
-  async handleNoDriversOld(orderId: string, attempt: number = 1) {
-    this.logger.warn(`No drivers found for order ${orderId}, attempt ${attempt}`);
-
-    const maxAttempts = 3;
-    const radii = [5000, 10000, 20000]; // meters – expand each retry
-
-    if (attempt <= maxAttempts) {
-      const nextRadius = radii[attempt - 1] || 20000;
-      this.logger.log(`Retrying driver search for order ${orderId} with radius ${nextRadius}m`);
-      await this.assignmentQueue.add(
-        'retry-driver-search',
-        { orderId, radius: nextRadius, attempt: attempt + 1 },
-        { delay: 30000, jobId: `retry-${orderId}-${attempt}`, attempts: 1, removeOnComplete: true }
-      );
-      return;
-    }
-
-    // All retries exhausted – cancel the order
-    this.logger.error(`No drivers found after ${maxAttempts} attempts for order ${orderId}, cancelling order`);
-
-    await this.prisma.$transaction(async (tx) => {
-      // Mark assignment as failed
-      await tx.driverAssignment.update({
-        where: { orderId },
-        data: { assignmentStatus: AssignmentStatus.FAILED },
-      });
-
-      // Update order status to CANCELLED
-      await tx.order.update({
-        where: { id: orderId },
-        data: { orderStatus: OrderStatus.CANCELLED },
-      });
-
-      // Log activity
-      await tx.orderActivityLog.create({
-        data: {
-          orderId,
-          actorId: 'system',
-          action: 'NO_DRIVERS_AFTER_RETRIES',
-          toStatus: OrderStatus.CANCELLED,
-          reason: 'No available drivers after multiple attempts',
-        },
-      });
-    });
-
-    // Notify admin/dispatcher (existing method)
-    await this.notifyDispatcherNoDrivers(orderId);
-
-    // Notify customer about cancellation
-    await this.sendOrderCancelled(orderId, 'No drivers available in your area');
-  }
 
   // Inside DriverAssignmentService
   private async sendOrderCancelled(orderId: string, reason?: string): Promise<void> {
@@ -1713,43 +1662,7 @@ export class DriverAssignmentService {
     );
   }
 
-  async tryNextDriverOld(orderId: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { items: { include: { store: true } } },
-    });
-    if (!order) return;
 
-    const pickupLocation = order.pickupLocation as any;
-    const store = order.items[0]?.store;
-    const vendorLat = store?.latitude ?? pickupLocation?.latitude ?? pickupLocation?.lat;
-    const vendorLng = store?.longitude ?? pickupLocation?.longitude ?? pickupLocation?.lng;
-
-    // Get previously notified drivers (store in Redis set)
-    const notifiedKey = `order:${orderId}:notified_drivers`;
-    const notifiedDrivers = await this.redis.smembers(notifiedKey);
-
-    // Fetch nearby drivers excluding those already notified
-    const allNearby = await this.getNearbyDrivers(vendorLat, vendorLng, 5000);
-    const remainingDrivers = allNearby.filter(d => !notifiedDrivers.includes(d.userId));
-
-    if (remainingDrivers.length === 0) {
-      // No more drivers – escalate to no‑drivers handler
-      await this.handleNoDrivers(orderId);
-      return;
-    }
-
-    // Notify only the next best driver (or a few) – you can reuse findAndNotifyDrivers
-    // but we need to avoid re‑notifying everyone. Let's just notify the first one for simplicity.
-    const nextDriver = remainingDrivers[0];
-    await this.notifyDriverViaWebSocket(nextDriver.userId, orderId, { lat: vendorLat, lng: vendorLng }, 0);
-    // Also set a new timeout for this driver
-    await this.assignmentQueue.add(
-      'driver-response-timeout',
-      { orderId, driverId: nextDriver.userId },
-      { delay: 60000, jobId: `timeout-${orderId}-${nextDriver.userId}` }
-    );
-  }
 
   async updateDriverStatus(driverId: string, status: DriverStatus): Promise<void> {
   try {

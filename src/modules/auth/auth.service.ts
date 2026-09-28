@@ -382,7 +382,6 @@ export class AuthService {
       requiresVerification,
       registrationMethod: registrationResponse.registrationMethod,
       verificationIdentifier: registrationResponse.verificationIdentifier,
-      //role: user?.role ?? null,
       role: registrationResponse.user?.role as any,
     };
   }
