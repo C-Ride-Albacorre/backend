@@ -10,12 +10,17 @@ import { GoogleAuthGuard } from '../../common/guards/google-auth.guard';
 import { UserModule } from '../user/user.module';
 import { VerificationCacheService } from '../verification/verification-cache.service';
 import { CartModule } from '../cart/cart.module';
+import { WalletModule } from '../wallet/wallet.module';
+import { WalletService } from '../wallet/wallet.service';
+import { PaymentModule } from '../payment/payment.module';
 
 @Module({
   imports: [
     ConfigModule,
     UserModule,
     CartModule,
+    WalletModule,
+    PaymentModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (cfg: ConfigService) => ({
@@ -33,6 +38,7 @@ import { CartModule } from '../cart/cart.module';
     GoogleAuthGuard,
     GoogleStrategy,
     VerificationCacheService,
+    WalletService
   ],
   exports: [AuthService, JwtModule],
 })

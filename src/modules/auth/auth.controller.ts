@@ -23,7 +23,6 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
-  ApiExcludeEndpoint,
   ApiHeader,
   ApiOkResponse,
   ApiOperation,
@@ -50,7 +49,6 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { VerifyOtpDto } from '../verification/dto/verify-otp.dto';
 import {
   CompleteOnboardingDto,
-  CreateVendorDto,
   VendorDocumentMetadataDto,
   VerifyEmailDto,
   VerifyPhoneDto,
@@ -62,12 +60,11 @@ import { UserRole } from '../../shared/enums';
 import { AuthResponse } from './interface/auth-response.interface';
 import { ResendOtpDto } from './dto/resend-otp.dto';
 import { OAuthUser } from '../../common/decorators/oauth-user.decorator';
-import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { AddPhoneDto } from './dto/add-phone-number.dto';
 import { CreateAdminDto } from '../admin/dto/create-admin.dto';
 import { ResendVerificationTokenDto } from './dto/resend-token-expiry.dto';
-import { ResetPasswordWithTokenDto } from './dto/reset-password-with-token.dto';
+import { WalletService } from '../wallet/wallet.service';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -76,6 +73,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly userService: UserService,
+    private readonly walletService: WalletService,
     private config: ConfigService,
   ) { }
 
@@ -123,18 +121,6 @@ export class AuthController {
   async verifyAdminLogin(@Body() dto: VerifyOtpDto) {
     return this.authService.verifyRegistration(dto);
   }
-  // @Post('/admin/verify')
-  // @UseGuards(JwtAuthGuard)
-  // @ApiBearerAuth()
-  // @ApiResponse({
-  //   status: 200,
-  //   description: 'Verification successful',
-  //   type: AuthResponseDto,
-  // })
-  // @ApiResponse({ status: 401, description: 'Invalid OTP' })
-  // async verifyAdminLogin(@Req() req, @Body() dto: VerifyOtpDto) {
-  //   return this.authService.verifyRegistration(req.user.id, dto);
-  // }
 
   //CUSTOMER
   @Post('/customer/signup')

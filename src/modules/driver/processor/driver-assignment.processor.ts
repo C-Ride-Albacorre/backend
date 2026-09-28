@@ -51,14 +51,7 @@ export class DriverAssignmentProcessor extends WorkerHost {
         await service.handleNoDrivers(orderId);
         break;
       }
-      // case 'assignment-timeout':
-      //   const pending = await this.driverAssignmentService.redis.get(
-      //     job.data.pendingKey,
-      //   );
-      //   if (pending) {
-      //     await this.driverAssignmentService.handleNoDrivers(job.data.orderId);
-      //   }
-      //   break;
+   
       case 'retry-driver-search': {
         const { orderId, radius, attempt } = job.data;
         await this.driverAssignmentService.tryNextDriver(orderId, radius, attempt);
