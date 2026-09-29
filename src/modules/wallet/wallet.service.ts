@@ -122,6 +122,53 @@ export class WalletService {
 
   async processWalletCallback({
   paymentReference,
+}: {
+  paymentReference?: string;
+}) {
+  const frontendUrl = this.configService.get('FRONTEND_URL');
+
+  // No reference at all → nothing to look up
+  if (!paymentReference) {
+    return {
+      redirectUrl: `${frontendUrl}/wallet/result?status=FAILED`,
+    };
+  }
+
+  try {
+    // The webhook is the source of truth. By the time the user lands here,
+    // it has usually already flipped the transaction to COMPLETED.
+    const tx = await this.prisma.walletTransaction.findUnique({
+      where: { reference: paymentReference },
+      select: { status: true },
+    });
+
+    // If webhook hasn't landed yet, report PENDING so the frontend can poll.
+    // If no tx at all, treat it as failed.
+    let status: 'SUCCESS' | 'PENDING' | 'FAILED';
+    if (!tx) {
+      status = 'FAILED';
+    } else if (tx.status === 'COMPLETED') {
+      status = 'SUCCESS';
+    } else if (tx.status === 'PENDING') {
+      status = 'PENDING';
+    } else {
+      status = 'FAILED';
+    }
+
+    return {
+      redirectUrl: `${frontendUrl}/wallet/result?status=${status}&reference=${paymentReference}`,
+    };
+  } catch (error) {
+    this.logger.error(`Wallet callback error: ${error}`);
+
+    return {
+      redirectUrl: `${frontendUrl}/wallet/result?status=FAILED&reference=${paymentReference}`,
+    };
+  }
+}
+
+  async processWalletCallbackWrongCallback({
+  paymentReference,
   transactionReference,
 }: {
   paymentReference: string;
