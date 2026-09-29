@@ -10,6 +10,7 @@ import { Roles } from '../../common/decorators/role.decorator';
 import { UserRole } from '../../shared/enums';
 import { PaymentMethod } from '@prisma/client';
 import { RolesGuard } from '../../common/guards/role.guard';
+import { Public } from '../../common/decorators/public.decorator';
 
 @ApiTags('Customer Wallet')
 @Controller('wallet')
@@ -58,6 +59,7 @@ export class WalletController {
   // We'll add a separate controller for webhook handlers.
 
   // In wallet.controller.ts (or new WalletWebhookController)
+  @Public()
   @Get('callback')
   @ApiOperation({
     summary: 'Handle Monnify wallet payment callback',
