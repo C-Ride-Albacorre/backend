@@ -32,7 +32,7 @@ import { PaymentModule } from '../payment/payment.module';
     PaymentModule
   ],
   controllers: [DriverController, DriverEarningsController,
-    DriverWalletController,],
+    DriverWalletController],
   providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService, DriverAssignmentProcessor, DriverNotificationProcessor, DriverEarningsService,
     WalletService],
   exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService, DriverEarningsService,

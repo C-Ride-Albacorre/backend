@@ -59,45 +59,136 @@ export class WalletController {
   // We'll add a separate controller for webhook handlers.
 
   // In wallet.controller.ts (or new WalletWebhookController)
-  @Public()
-  @Get('callback')
-  @ApiOperation({
-    summary: 'Handle Monnify wallet payment callback',
-    description:
-      'Verifies the payment transaction with Monnify, updates the wallet, and redirects the user to the frontend result page.',
-  })
-  @ApiQuery({
-    name: 'transactionReference',
-    required: true,
-    type: String,
-    description: 'Monnify transaction reference',
-    example: 'MNFY|20260817123456|123456',
-  })
-  @ApiQuery({
-    name: 'paymentReference',
-    required: true,
-    type: String,
-    description: 'Payment reference returned by Monnify',
-    example: 'WALLET-FUND-123456',
-  })
-  @ApiQuery({
-    name: 'paymentStatus',
-    required: false,
-    type: String,
-    description:
-      'Payment status supplied by Monnify. This value is not trusted; the transaction is verified directly with Monnify.',
-    example: 'PAID',
-  })
-  @ApiResponse({
-    status: 302,
-    description:
-      'Redirects the user to the frontend wallet payment result page.',
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Missing or invalid transaction reference.',
-  })
-  async walletCallback(
+@Public()
+@Get('callback')
+@ApiOperation({
+  summary: 'Handle Monnify wallet payment callback',
+  description:
+    'Verifies the payment transaction with Monnify, updates the wallet, and redirects the user to the frontend result page.',
+})
+@ApiQuery({
+  name: 'transactionReference',
+  required: true,
+  type: String,
+  description: 'Monnify transaction reference',
+  example: 'MNFY|20260817123456|123456',
+})
+@ApiQuery({
+  name: 'paymentReference',
+  required: true,
+  type: String,
+  description: 'Payment reference returned by Monnify',
+  example: 'WALLET-FUND-123456',
+})
+@ApiQuery({
+  name: 'paymentStatus',
+  required: false,
+  type: String,
+  description:
+    'Payment status supplied by Monnify. This value is not trusted; the transaction is verified directly with Monnify.',
+  example: 'PAID',
+})
+@ApiResponse({
+  status: 302,
+  description:
+    'Redirects the user to the frontend wallet payment result page.',
+})
+@ApiResponse({
+  status: 400,
+  description: 'Missing or invalid transaction reference.',
+})
+@Get('callback')
+async walletCallback(
+  @Query('paymentReference') paymentReference: string,
+  @Query('transactionReference') transactionReference: string,
+  @Res() res: Response,
+) {
+  const result = await this.walletService.processWalletCallback({
+    paymentReference,
+    transactionReference,
+  });
+
+  return res.redirect(result.redirectUrl);
+}
+
+//   @Get('callback')
+//   @ApiOperation({
+//     summary: 'Handle Monnify wallet payment callback',
+//     description:
+//       'Verifies the payment transaction with Monnify, updates the wallet, and redirects the user to the frontend result page.',
+//   })
+//   @ApiQuery({
+//     name: 'transactionReference',
+//     required: true,
+//     type: String,
+//     description: 'Monnify transaction reference',
+//     example: 'MNFY|20260817123456|123456',
+//   })
+//   @ApiQuery({
+//     name: 'paymentReference',
+//     required: true,
+//     type: String,
+//     description: 'Payment reference returned by Monnify',
+//     example: 'WALLET-FUND-123456',
+//   })
+//   @ApiQuery({
+//     name: 'paymentStatus',
+//     required: false,
+//     type: String,
+//     description:
+//       'Payment status supplied by Monnify. This value is not trusted; the transaction is verified directly with Monnify.',
+//     example: 'PAID',
+//   })
+//   @ApiResponse({
+//     status: 302,
+//     description:
+//       'Redirects the user to the frontend wallet payment result page.',
+//   })
+//   @ApiResponse({
+//     status: 400,
+//     description: 'Missing or invalid transaction reference.',
+//   })
+//   @Get('callback')
+// async walletCallback(
+//   @Query('paymentReference') paymentReference: string,
+//   @Query('transactionReference') transactionReference: string,
+//   @Res() res: Response,
+// ) {
+//   const frontendUrl = this.configService.get('FRONTEND_URL');
+//   try {
+//     // Prefer transactionReference; fall back to looking it up by paymentReference
+//     let ref = transactionReference;
+//     if (!ref && paymentReference) {
+//       const tx = await this.prisma.walletTransaction.findUnique({
+//         where: { reference: paymentReference },
+//         select: { metadata: true },
+//       });
+//       ref = (tx?.metadata as any)?.monnifyTransactionReference;
+//     }
+//     if (!ref) throw new Error('Missing transaction reference');
+
+//     const verification = await this.monnifyService.verifyPayment(ref);
+//     const status = verification.responseBody.paymentStatus;
+//     const meta = verification.responseBody.metaData;
+
+//     await this.walletService.handleFundingWebhook(ref, status, {
+//       paymentReference,
+//       walletTxId: meta?.walletTxId,
+//     });
+
+//     return res.redirect(
+//       `${frontendUrl}/wallet/result?status=${status}&reference=${paymentReference}`,
+//     );
+//   } catch (error) {
+//     this.logger.error(`Wallet callback error: ${error}`);
+//     return res.redirect(`${frontendUrl}/wallet/result?status=FAILED`);
+//   }
+// }
+
+
+
+
+  async walletCallbackbk(
     @Query('transactionReference') transactionReference: string,
     @Query('paymentReference') paymentReference: string,
     @Query('paymentStatus') paymentStatus: string,
