@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { WalletService } from './wallet.service';
 import { WalletController } from './wallet.controller';
 import { ConfigModule } from '@nestjs/config';
@@ -8,10 +8,13 @@ import { PaymentModule } from '../payment/payment.module';
 @Module({
   imports: [
     ConfigModule,
-    PaymentModule
+    forwardRef(() => PaymentModule),
   ],
   controllers: [WalletController],
   providers: [
+    WalletService,
+  ],
+   exports: [
     WalletService,
   ],
 })

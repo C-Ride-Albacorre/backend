@@ -7,6 +7,8 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../shared/services/prisma.service';
@@ -20,6 +22,7 @@ import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
 import axios, { AxiosError } from 'axios';
 import { randomUUID } from 'crypto';
 import * as crypto from 'crypto';
+import { WalletService } from '../wallet/wallet.service';
 
 @Injectable()
 export class MonnifyService {
@@ -36,6 +39,8 @@ export class MonnifyService {
     private readonly prisma: PrismaService,
     private readonly orderService: OrderService,
     private readonly notificationService: NotificationService,
+    @Inject(forwardRef(() => WalletService))
+    private readonly walletService: WalletService
   ) {
     this.baseUrl = this.configService.get<string>('MONNIFY_BASE_URL')!;
     this.apiKey = this.configService.get<string>('MONNIFY_API_KEY')!;
@@ -192,6 +197,145 @@ export class MonnifyService {
 
   // ==================== WEBHOOK (FIXED SIGNATURE + IDEMPOTENCY) ====================
   async handleWebhook(
+    rawBody: string,
+    signature: string,
+  ): Promise<{ success: true }> {
+    this.logger.log('Processing webhook');
+
+    // 1. Verify signature using rawBody
+    if (!this.verifyWebhookSignature(rawBody, signature)) {
+      this.logger.error('Invalid webhook signature');
+      throw new ForbiddenException('Invalid signature');
+    }
+
+
+    let webhookData: any;
+    try {
+      webhookData = JSON.parse(rawBody);
+    } catch (e) {
+      throw new BadRequestException('Invalid JSON payload');
+    }
+
+    //
+    const eventData = webhookData.eventData;
+    const metadata = eventData.metaData || {};
+    const paymentReference = eventData.paymentReference;
+    const paymentStatus = eventData.paymentStatus;
+
+    // ✅ Route based on entity type
+    if (metadata.walletTxId || metadata.entityType === 'wallet' || paymentReference?.startsWith('FUND-')) {
+      await this.walletService.handleFundingWebhook(
+        eventData.transactionReference,
+        paymentStatus,
+        { paymentReference, walletTxId: metadata.walletTxId },
+      );
+      return { success: true };
+    }
+
+    //
+
+    this.logger.log(`Full webhook payload: ${JSON.stringify(webhookData)}`);
+
+    // 2. Extract transactionReference from the nested eventData object
+    let transactionRef = webhookData.transactionReference;
+    if (!transactionRef && webhookData.eventData) {
+      transactionRef = webhookData.eventData.transactionReference;
+    }
+
+    if (!transactionRef) {
+      // Ignore test webhooks or non-payment events
+      if (webhookData.eventType === 'TEST' || webhookData.test === true) {
+        this.logger.log('Ignoring test webhook');
+        return { success: true };
+      }
+      this.logger.error(
+        `Missing transactionReference in webhook: ${JSON.stringify(webhookData)}`,
+      );
+      throw new BadRequestException('Missing transactionReference');
+    }
+
+    this.logger.log(`Webhook received for transaction: ${transactionRef}`);
+
+    // 3. Find order using transactionReference (monnifyReference)
+    const order = await this.prisma.order.findFirst({
+      where: { monnifyReference: transactionRef },
+    });
+
+    if (!order) {
+      this.logger.error(`Order not found for transaction: ${transactionRef}`);
+      // A 404 will prompt Monnify to retry.
+      throw new NotFoundException(
+        `Order not found for reference ${transactionRef}`,
+      );
+    }
+
+    // 4. Idempotent update – only if payment is still PENDING
+    const result = await this.prisma.order.updateMany({
+      where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
+      data: {
+        paymentStatus: PaymentStatus.PAID,
+        orderStatus: OrderStatus.CONFIRMED,
+        statusHistory: {
+          push: {
+            status: OrderStatus.CONFIRMED,
+            timestamp: new Date().toISOString(),
+            note: 'Payment confirmed via webhook',
+          },
+        },
+      },
+    });
+
+    if (result.count === 0) {
+      this.logger.warn(`Webhook already processed for order ${order.id}`);
+      // Return success so Monnify doesn't retry
+      return { success: true };
+    }
+
+    // 5. VERIFICATION - Re-query Monnify API as a final safety check
+    // This protects against forged webhook requests, even if the signature is valid.
+    const verification = await this.verifyPayment(transactionRef);
+    if (verification?.responseBody?.paymentStatus !== 'PAID') {
+      // Rollback the database update if the official API check fails
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: {
+          paymentStatus: PaymentStatus.PENDING,
+          orderStatus: OrderStatus.PENDING,
+        },
+      });
+      this.logger.error(
+        `Verification mismatch for order ${order.id}: ${verification?.responseBody?.paymentStatus}`,
+      );
+      throw new BadRequestException('Payment verification failed');
+    }
+
+    // 6. Trigger business logic
+    this.logger.log(`Order ${order.orderNumber} marked as PAID via webhook, triggering business logic`);
+    await this.orderService
+      .transition(order.id, OrderStatus.ORDER_PLACED, {
+        actorId: order.userId,
+        actorRole: 'CUSTOMER',
+      })
+      .catch((e) => this.logger.error(`Transition failed: ${e.message}`));
+
+    this.logger.log(`Notifying vendors for order ${order.orderNumber}`);
+    await this.notificationService
+      .notifyVendorsForOrder(order.id)
+      .catch((e) =>
+        this.logger.error(`Vendor notification failed: ${e.message}`),
+      );
+    this.logger.log(`Notifying customer for order ${order.orderNumber}`);
+    await this.notificationService
+      .notifyCustomerForOrder(order.id)
+      .catch((e) =>
+        this.logger.error(`Customer notification failed: ${e.message}`),
+      );
+
+    this.logger.log(`Order ${order.orderNumber} marked as PAID via webhook`);
+    return { success: true };
+  }
+
+  async handleWebhookWithoutWalletInclusion(
     rawBody: string,
     signature: string,
   ): Promise<{ success: true }> {
@@ -544,28 +688,28 @@ export class MonnifyService {
 
   // In monnify.service.ts
 
-async initializeTransaction(payload: any): Promise<any> {
-  this.logger.log(`Initializing Monnify transaction with payload: ${JSON.stringify(payload)}`);
-  const accessToken = await this.getAccessToken();
-  try {
-    const response = await axios.post(
-      `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
-      payload,
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        timeout: 15000,
-      },
-    );
-    if (!response.data?.requestSuccessful) {
-      throw new Error(response.data?.responseMessage || 'Initialization failed');
+  async initializeTransaction(payload: any): Promise<any> {
+    this.logger.log(`Initializing Monnify transaction with payload: ${JSON.stringify(payload)}`);
+    const accessToken = await this.getAccessToken();
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
+        payload,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          timeout: 15000,
+        },
+      );
+      if (!response.data?.requestSuccessful) {
+        throw new Error(response.data?.responseMessage || 'Initialization failed');
+      }
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Monnify initialization failed: ${error}}`);
+      throw new HttpException(
+        this.extractMonnifyErrorMessage(error),
+        HttpStatus.BAD_REQUEST,
+      );
     }
-    return response.data;
-  } catch (error) {
-    this.logger.error(`Monnify initialization failed: ${error}}`);
-    throw new HttpException(
-      this.extractMonnifyErrorMessage(error),
-      HttpStatus.BAD_REQUEST,
-    );
   }
-}
 }
