@@ -561,7 +561,7 @@ async initializeTransaction(payload: any): Promise<any> {
     }
     return response.data;
   } catch (error) {
-    this.logger.error(`Monnify initialization failed: ${error.message}`);
+    this.logger.error(`Monnify initialization failed: ${error}}`);
     throw new HttpException(
       this.extractMonnifyErrorMessage(error),
       HttpStatus.BAD_REQUEST,
