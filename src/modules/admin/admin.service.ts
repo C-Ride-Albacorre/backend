@@ -632,7 +632,7 @@ export class AdminService {
   // ----------------------------------------------------------------
   // UPDATE STATUS
   // ----------------------------------------------------------------
-  async updateStatus(id: string, dto: UpdateSettlementStatusDto) {
+  async updateSettlementStatus(id: string, dto: UpdateSettlementStatusDto) {
     const existing = await this.prisma.vendorSettlement.findUnique({
       where: { id },
       select: { id: true, status: true },
