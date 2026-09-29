@@ -215,11 +215,11 @@ export class AdminController {
 
   @Patch('/settlement/:id/status')
   @ApiOperation({ summary: 'Update settlement status (PENDING → PROCESSING → SETTLED)' })
-  async updateStatus(
+  async updateSettlementStatus(
     @Param('id') id: string,
     @Body() dto: UpdateSettlementStatusDto,
   ) {
-    return this.adminService.updateStatus(id, dto);
+    return this.adminService.updateSettlementStatus(id, dto);
   }
 
   @Get('stores')
