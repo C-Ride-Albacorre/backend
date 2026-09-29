@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { TxStatus, WalletTxType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../shared/services/prisma.service';
+import { CreditWalletDto, SearchWalletUsersDto, WalletUserType } from '../admin/dto/admin-wallet.dto';
 
 @Injectable()
 export class WalletService {
@@ -322,4 +323,255 @@ private async getTxMetadata(id: string): Promise<Record<string, any>> {
   return (tx?.metadata as Record<string, any>) ?? {};
 }
 
+// wallet.service.ts
+
+/**
+ * Search users with wallet balances (customers or drivers).
+ */
+async searchUsers(dto: SearchWalletUsersDto) {
+  const { userType, search, page = 1, limit = 20 } = dto;
+  const skip = (page - 1) * limit;
+
+  const where: Prisma.UserWhereInput = {
+    isActive: true, // exclude inactive users by default
+  };
+
+  if (userType === WalletUserType.CUSTOMER) {
+    where.role = 'CUSTOMER';
+  } else if (userType === WalletUserType.DRIVER) {
+    where.role = 'DISPATCHER';
+  }
+
+  if (search) {
+    where.OR = [
+      { firstName: { contains: search, mode: 'insensitive' } },
+      { lastName: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } },
+      { phoneNumber: { contains: search, mode: 'insensitive' } },
+      { id: { equals: search } },
+    ];
+  }
+
+  const [users, total] = await this.prisma.$transaction([
+    this.prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phoneNumber: true,
+        role: true,
+        isActive: true,
+        wallet: { select: { id: true, balance: true, currency: true } },
+      },
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+    }),
+    this.prisma.user.count({ where }),
+  ]);
+
+  return {
+    data: users.map((u) => ({
+      id: u.id,
+      name: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email,
+      email: u.email,
+      phoneNumber: u.phoneNumber,
+      role: u.role,
+      isActive: u.isActive,
+      walletBalance: u.wallet?.balance ?? 0,
+      currency: u.wallet?.currency ?? 'NGN',
+    })),
+    total,
+    page,
+    limit,
+  };
+}
+
+/**
+ * Get a single user's wallet details.
+ */
+async getUserWallet(userId: string) {
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      phoneNumber: true,
+      role: true,
+      isActive: true,
+      wallet: true,
+    },
+  });
+  if (!user) throw new NotFoundException('User not found');
+  if (!user.isActive) throw new BadRequestException('User account is inactive');
+  if (!user.wallet) {
+    // Lazy fallback
+    const wallet = await this.getOrCreateWallet(userId);
+    return { ...user, wallet };
+  }
+  return user;
+}
+
+/**
+ * Admin credits a user's wallet.
+ */
+async adminCredit(
+  adminId: string,
+  dto: CreditWalletDto,
+) {
+  if (dto.amount <= 0) {
+    throw new BadRequestException('Credit amount must be greater than 0');
+  }
+
+  // Validate user
+  const user = await this.prisma.user.findUnique({
+    where: { id: dto.userId },
+    include: { wallet: true },
+  });
+
+  if (!user) {
+    throw new NotFoundException('User not found');
+  }
+  if (!user.isActive) {
+    throw new BadRequestException('Cannot credit an inactive user account');
+  }
+  if (user.role !== dto.userType) {
+    throw new BadRequestException(
+      `User role mismatch. Expected ${dto.userType}, got ${user.role}`,
+    );
+  }
+
+  const reference = `ADMIN-CREDIT-${randomUUID()}`;
+
+  return await this.prisma.$transaction(async (tx) => {
+    // Lock wallet row
+    await tx.$queryRaw`SELECT 1 FROM "Wallet" WHERE "userId" = ${user.id} FOR UPDATE`;
+
+    const wallet = await tx.wallet.findUnique({ where: { userId: user.id } });
+    if (!wallet) throw new NotFoundException('Wallet not found');
+
+    const previousBalance = wallet.balance;
+    const newBalance = previousBalance + dto.amount;
+
+    // Create transaction first
+    const walletTx = await tx.walletTransaction.create({
+      data: {
+        walletId: wallet.id,
+        amount: dto.amount,
+        type: WalletTxType.CREDIT,
+        reference,
+        description: dto.reason,
+        status: TxStatus.COMPLETED,
+        initiatedById: adminId,
+        reason: dto.reason,
+        relatedOrderId: dto.relatedOrderId ?? null,
+        metadata: {
+          source: 'ADMIN_CREDIT',
+          userType: dto.userType,
+        },
+      },
+    });
+
+    // Update wallet balance
+    await tx.wallet.update({
+      where: { id: wallet.id },
+      data: { balance: newBalance },
+    });
+
+    return {
+      success: true,
+      message: 'Wallet credited successfully',
+      data: {
+        walletTxId: walletTx.id,
+        reference,
+        userId: user.id,
+        userName:
+          `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.email,
+        amountCredited: dto.amount,
+        previousBalance,
+        newBalance,
+        reason: dto.reason,
+        relatedOrderId: dto.relatedOrderId ?? null,
+        creditedBy: adminId,
+        creditedAt: walletTx.createdAt,
+      },
+    };
+  });
+}
+
+/**
+ * Recent admin-initiated credits & refunds.
+ */
+async getRecentAdminTransactions(page = 1, limit = 20) {
+  const skip = (page - 1) * limit;
+
+  const [rows, total] = await this.prisma.$transaction([
+    this.prisma.walletTransaction.findMany({
+      where: {
+        initiatedById: { not: null },
+      },
+      include: {
+        wallet: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
+        initiatedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    }),
+    this.prisma.walletTransaction.count({
+      where: { initiatedById: { not: null } },
+    }),
+  ]);
+
+  return {
+    data: rows.map((t) => ({
+      id: t.id,
+      userName:
+        `${t.wallet.user.firstName ?? ''} ${t.wallet.user.lastName ?? ''}`.trim() ||
+        t.wallet.user.email,
+      userType: t.wallet.user.role,
+      amount: t.amount,
+      type: t.type,
+      reference: t.reference,
+      reason: t.reason,
+      relatedOrderId: t.relatedOrderId,
+      previousBalance:
+        t.metadata && typeof t.metadata === 'object'
+          ? (t.metadata as any).previousBalance ?? null
+          : null,
+      newBalance:
+        t.metadata && typeof t.metadata === 'object'
+          ? (t.metadata as any).newBalance ?? null
+          : null,
+      initiatedBy: {
+        id: t.initiatedBy?.id,
+        name:
+          `${t.initiatedBy?.firstName ?? ''} ${t.initiatedBy?.lastName ?? ''}`.trim() ||
+          t.initiatedBy?.email,
+      },
+      createdAt: t.createdAt,
+    })),
+    total,
+    page,
+    limit,
+  };
+}
 }

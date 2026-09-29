@@ -8,35 +8,35 @@ datasource db {
 }
 
 model User {
-  id                    String             @id @default(uuid())
-  email                 String?            @unique
-  phoneNumber           String?            @unique
+  id                    String              @id @default(uuid())
+  email                 String?             @unique
+  phoneNumber           String?             @unique
   password              String?
   firstName             String
   lastName              String
-  role                  Role               @default(CUSTOMER)
-  isActive              Boolean            @default(true)
+  role                  Role                @default(CUSTOMER)
+  isActive              Boolean             @default(true)
   refreshTokenHash      String?
-  referralCode          String?            @unique
+  referralCode          String?             @unique
   referredBy            String?
   lastLoginAt           DateTime?
-  isVerified            Boolean            @default(false)
+  isVerified            Boolean             @default(false)
   verifiedAt            DateTime?
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
   emailVerifiedAt       DateTime?
-  isEmailVerified       Boolean            @default(false)
-  isPhoneVerified       Boolean            @default(false)
+  isEmailVerified       Boolean             @default(false)
+  isPhoneVerified       Boolean             @default(false)
   onboardingCompletedAt DateTime?
   phoneVerifiedAt       DateTime?
-  status                UserStatus         @default(ACTIVE)
+  status                UserStatus          @default(ACTIVE)
   profilePicture        String?
-  onboardingStatus      OnBoardingStatus   @default(NOT_STARTED)
+  onboardingStatus      OnBoardingStatus    @default(NOT_STARTED)
   onboardingStep        Int?
   approvedAt            DateTime?
   approvedBy            String?
   rejectionReason       String?
-  isNewUser             Boolean            @default(false)
+  isNewUser             Boolean             @default(false)
   countryCode           String?
   fcmToken              String?
   deviceType            String?
@@ -49,13 +49,14 @@ model User {
   stores                Store[]
   documents             VendorDocument[]
   notifications         Notification[]
-  subjectRatings        Rating[]           @relation("subjectRatings")
-  reviewerRatings       Rating[]           @relation("reviewerRatings")
+  subjectRatings        Rating[]            @relation("subjectRatings")
+  reviewerRatings       Rating[]            @relation("reviewerRatings")
   wallet                Wallet?
   commissions           Commission[]
   vendorSettlements     VendorSettlement[]
   driverEarnings        DriverEarning[]
   driverPayouts         DriverPayout[]
+  initiatedWalletTxs    WalletTransaction[] @relation("WalletTxInitiator")
 
   @@index([email])
   @@index([phoneNumber])
@@ -353,7 +354,6 @@ model DeliveryOption {
   @@index([isActive])
 }
 
-
 model Cart {
   id           String     @id @default(uuid())
   userId       String?    @unique
@@ -449,7 +449,7 @@ model Order {
   driverEarning          DriverEarning?
   deliveryDistanceKm     Decimal?           @db.Decimal(10, 3)
   deliveryDistanceSource String? // 'google_routes' | 'haversine'
-  deliveryEtaSeconds     Int?             // ← ADD: promised route duration at order time
+  deliveryEtaSeconds     Int? // ← ADD: promised route duration at order time
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -814,7 +814,6 @@ enum PackageType {
   DOCUMENT
 }
 
-
 enum CartItemType {
   PRODUCT
   PACKAGE
@@ -927,17 +926,21 @@ model Wallet {
 }
 
 model WalletTransaction {
-  id          String       @id @default(cuid())
-  walletId    String
-  wallet      Wallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  amount      Float // positive for credit, negative for debit
-  type        WalletTxType
-  reference   String       @unique
-  description String
-  status      TxStatus     @default(PENDING)
-  metadata    Json? // store monnify reference, order id, etc.
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id             String       @id @default(cuid())
+  walletId       String
+  wallet         Wallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount         Float // positive for credit, negative for debit
+  type           WalletTxType
+  reference      String       @unique
+  description    String
+  status         TxStatus     @default(PENDING)
+  metadata       Json? // store monnify reference, order id, etc.
+  initiatedById  String? // admin user id
+  initiatedBy    User?        @relation("WalletTxInitiator", fields: [initiatedById], references: [id], onDelete: SetNull)
+  reason         String? // admin's note/reason
+  relatedOrderId String? // optional link to an order
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 }
 
 enum WalletTxType {
