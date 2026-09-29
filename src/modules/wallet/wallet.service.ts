@@ -120,6 +120,55 @@ export class WalletService {
     };
   }
 
+  async processWalletCallback({
+  paymentReference,
+  transactionReference,
+}: {
+  paymentReference: string;
+  transactionReference: string;
+}) {
+  const frontendUrl = this.configService.get('FRONTEND_URL');
+
+  try {
+    // Prefer transactionReference; fall back to looking it up by paymentReference
+    let ref = transactionReference;
+   
+    if (!ref && paymentReference) {
+      const tx = await this.prisma.walletTransaction.findUnique({
+        where: { reference: paymentReference },
+        select: { metadata: true },
+      });
+
+      ref = (tx?.metadata as any)?.monnifyTransactionReference;
+    }
+
+    if (!ref) {
+      throw new Error('Missing transaction reference');
+    }
+
+    const verification = await this.monnifyService.verifyPayment(ref);
+
+    const status = verification.responseBody.paymentStatus;
+    const meta = verification.responseBody.metaData;
+
+    await this.handleFundingWebhook(ref, status, {
+      paymentReference,
+      walletTxId: meta?.walletTxId,
+    });
+
+    return {
+      redirectUrl: `${frontendUrl}/wallet/result?status=${status}&reference=${paymentReference}`,
+    };
+  } catch (error) {
+    this.logger.error(`Wallet callback error: ${error}`);
+
+    return {
+      redirectUrl: `${frontendUrl}/wallet/result?status=FAILED`,
+    };
+  }
+}
+
+
   // Handle Monnify webhook for wallet funding
   async handleFundingWebhook(transactionReference: string, paymentStatus: string, metadata: any) {
     // Find the pending transaction by metadata.walletTxId or by reference

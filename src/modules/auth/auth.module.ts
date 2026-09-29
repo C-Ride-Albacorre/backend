@@ -38,7 +38,6 @@ import { PaymentModule } from '../payment/payment.module';
     GoogleAuthGuard,
     GoogleStrategy,
     VerificationCacheService,
-    WalletService
   ],
   exports: [AuthService, JwtModule],
 })

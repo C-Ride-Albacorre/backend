@@ -47,8 +47,6 @@ import { VerificationService } from '../verification/verification.service';
 import { VerificationCacheService } from '../verification/verification-cache.service';
 import {
   CompleteOnboardingDto,
-  CreateVendorDto,
-  VendorDocumentDto,
   VendorDocumentMetadataDto,
   VerifyEmailDto,
   VerifyPhoneDto,
