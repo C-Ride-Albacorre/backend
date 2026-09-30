@@ -5,4 +5,6 @@
 
 */
 -- AlterTable
-ALTER TABLE "driver_earnings" ADD COLUMN     "vehicleTier" "VehicleType" NOT NULL;
+--ALTER TABLE "driver_earnings" ADD COLUMN     "vehicleTier" "VehicleType" NOT NULL;
+
+ALTER TABLE "driver_earnings" ADD COLUMN "vehicleTier" "VehicleType";

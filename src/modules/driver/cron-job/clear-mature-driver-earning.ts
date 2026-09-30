@@ -18,7 +18,7 @@ async clearMaturedDriverEarnings() {
   const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);   // 48h hold
 
   const batch = await this.prisma.driverEarning.findMany({
-    where: { status: EarningStatus.EARNED, clearedAt: null, earnedAt: { lte: cutoff } },
+    where: { status: EarningStatus.CLEARED, clearedAt: null, earnedAt: { lte: cutoff } },
     select: { id: true, walletTxId: true, driverId: true, totalAmount: true },
   });
   if (batch.length === 0) return;
