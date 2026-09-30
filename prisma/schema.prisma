@@ -1149,7 +1149,7 @@ model DriverEarning {
   driver User  @relation(fields: [driverId], references: [id], onDelete: Cascade)
   order  Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
-  vehicleTier VehicleType // ✅ snapshot from order.deliveryOption.name
+  vehicleTier VehicleType? // ✅ snapshot from order.deliveryOption.name
   payoutId    String? // linked once included in a Payout batch
   payout      DriverPayout? @relation(fields: [payoutId], references: [id])
 
@@ -1198,6 +1198,7 @@ model DriverPayout {
   paidAt       DateTime?
   note         String?
   earnings     DriverEarning[]
+  bonusTotal   Float @default(0)  // ✅ add if missing
 
   @@index([driverId, status])
   @@index([status, requestedAt])
