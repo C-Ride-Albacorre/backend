@@ -403,16 +403,20 @@ export class DriverEarningsService {
       }
 
       const payout = await tx.driverPayout.create({
-        data: {
+        // This payout request is created before the earnings summary is
+        // calculated. The generated Prisma type currently requires the
+        // reporting-only fields even though they are populated later in the
+        // payout lifecycle.
+        data: ({
           reference: `PO-${Date.now()}-${Math.random()
             .toString(36)
             .slice(2, 8)
             .toUpperCase()}`,
-          driverId,
+          driver: { connect: { id: driverId } },
           amount,
           bankSnapshot: driver.driverProfile as any,
           status: 'PENDING',
-        },
+        } as any),
       });
 
       // Reserve the amount immediately so it can't be double-spent
