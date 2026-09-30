@@ -712,4 +712,54 @@ export class MonnifyService {
       );
     }
   }
+
+  ////DISBURSTMENT//////////
+
+  async initiateTransfer(payload: {
+    amount: number;
+    reference: string;
+    narration: string;
+    destinationBankCode: string;
+    destinationAccountNumber: string;
+    destinationAccountName: string; // REQUIRED since March 2026 [citation:28]
+    sourceAccountNumber: string;
+  }) {
+    const accessToken = await this.getAccessToken();
+    const baseUrl = this.configService.get('MONNIFY_BASE_URL');
+
+    try {
+      const response = await axios.post(
+        `${baseUrl}/api/v2/disbursements/single`,
+        {
+          amount: payload.amount,
+          reference: payload.reference,
+          narration: payload.narration,
+          destinationBankCode: payload.destinationBankCode,
+          destinationAccountNumber: payload.destinationAccountNumber,
+          destinationAccountName: payload.destinationAccountName, // mandatory [citation:28]
+          currency: 'NGN',
+          sourceAccountNumber: payload.sourceAccountNumber,
+        },
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          timeout: 30000,
+        },
+      );
+
+      if (!response.data?.requestSuccessful) {
+        throw new Error(response.data?.responseMessage || 'Transfer failed');
+      }
+
+      return response.data.responseBody;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Transfer failed';
+      this.logger.error(`Disbursement failed: ${message}`);
+      const responseMessage = (error as any)?.response?.data?.responseMessage;
+      throw new BadRequestException(
+        responseMessage || 'Transfer failed',
+      );
+    }
+  }
+
+ 
 }
