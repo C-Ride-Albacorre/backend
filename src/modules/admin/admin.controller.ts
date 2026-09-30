@@ -67,6 +67,8 @@ import { GenerateSettlementsDto } from './dto/settlement/generate-settlement.dto
 import { CreditWalletDto, SearchWalletUsersDto } from './dto/admin-wallet.dto';
 import { WalletService } from '../wallet/wallet.service';
 import { Request } from 'express';
+import { DriverPayoutService } from './driver-payout.service';
+import { GeneratePayoutsDto, ListPayoutsDto, UpdatePayoutStatusDto } from './dto/payout/driver-payout.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -849,6 +851,57 @@ export class AdminWalletController {
     @Query('limit') limit = 20,
   ) {
     return this.walletService.getRecentAdminTransactions(+page, +limit);
+  }
+}
+
+
+/////////DRIVER PAYOUT///////////
+@ApiTags('admin-driver-payouts')
+@Controller('admin/driver-payouts')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@ApiBearerAuth()
+export class DriverPayoutController {
+  constructor(private readonly service: DriverPayoutService) {}
+
+  @Get('summary')
+  @ApiOperation({ summary: 'Dashboard summary tiles' })
+  getSummary() {
+    return this.service.getSummary();
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'List payouts (filter + paginated)' })
+  list(@Query() dto: ListPayoutsDto) {
+    return this.service.list(dto);
+  }
+
+  @Post('generate')
+  @ApiOperation({ summary: 'Generate payouts for a period' })
+  generate(@Body() dto: GeneratePayoutsDto, @Req() req) {
+    return this.service.generate(dto, req.user.id);
+  }
+
+  @Patch(':id/status')
+  @ApiOperation({ summary: 'Update payout status (Process/Paid/Cancel/Fail)' })
+  updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdatePayoutStatusDto,
+    @Req() req,
+  ) {
+    return this.service.updateStatus(id, dto, req.user.id);
+  }
+
+  @Get('export')
+  @ApiOperation({ summary: 'Export payouts to CSV' })
+  async export(@Query() dto: ListPayoutsDto, @Res() res: Response) {
+    const csv = await this.service.exportCsv(dto);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="driver-payouts-${Date.now()}.csv"`,
+    );
+    return res.send(csv);
   }
 }
 

@@ -1911,7 +1911,7 @@ async declineOrder(
       totalAmount: netAmount,
       status: 'EARNED',
       earnedAt,
-    },
+    } as Prisma.DriverEarningUncheckedCreateInput,
   });
 
   this.logger.log(
@@ -2027,7 +2027,7 @@ async declineOrder(
         totalAmount: netAmount,
         status: 'EARNED',
         earnedAt,
-      },
+      } as Prisma.DriverEarningUncheckedCreateInput,
     });
 
     this.logger.log(
