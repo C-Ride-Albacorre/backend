@@ -856,7 +856,7 @@ export class AdminWalletController {
 
 
 /////////DRIVER PAYOUT///////////
-@ApiTags('admin-driver-payouts')
+@ApiTags('Admin Driver Payouts')
 @Controller('admin/driver-payouts')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
