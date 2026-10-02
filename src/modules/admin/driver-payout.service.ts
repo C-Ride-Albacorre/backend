@@ -315,13 +315,28 @@ export class DriverPayoutService {
                 }
 
                 // ✅ Tier is now snapshotted per earning — pick dominant tier for the period
-                const tierCounts = list.reduce((acc, e) => {
-                    acc[e.vehicleTier] = (acc[e.vehicleTier] ?? 0) + 1;
-                    return acc;
-                }, {} as Record<string, number>);
+                // const tierCounts = list.reduce((acc, e) => {
+                //     acc[e.vehicleTier] = (acc[e.vehicleTier] ?? 0) + 1;
+                //     return acc;
+                // }, {} as Record<string, number>);
 
-                const tier = (Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0]?.[0]
-                    ?? VehicleType.CAR) as VehicleType;
+                // const tier = (Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0]?.[0]
+                //     ?? VehicleType.CAR) as VehicleType;
+                // ✅ Correct: ignore null tiers entirely
+                const tierCounts = list.reduce((acc, e) => {
+                    if (e.vehicleTier) {
+                        acc[e.vehicleTier] = (acc[e.vehicleTier] ?? 0) + 1;
+                    }
+                    return acc;
+                }, {} as Record<VehicleType, number>);
+
+                const dominantTierEntry = Object.entries(tierCounts)
+                    .sort((a, b) => b[1] - a[1])[0];
+
+                const tier: VehicleType =
+                    (dominantTierEntry?.[0] as VehicleType | undefined) ?? VehicleType.CAR;
+                // const tier: VehicleType | null =
+                //     (dominantTierEntry?.[0] as VehicleType | undefined) ?? null;
 
                 const tripCount = list.length;
                 const grossEarnings = list.reduce((s, e) => s + Number(e.grossAmount), 0);
