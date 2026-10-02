@@ -434,7 +434,7 @@ async searchUsers(dto: SearchWalletUsersDto) {
 
   if (userType === WalletUserType.CUSTOMER) {
     where.role = 'CUSTOMER';
-  } else if (userType === WalletUserType.DRIVER) {
+  } else if (userType === WalletUserType.DISPATCHER) {
     where.role = 'DISPATCHER';
   }
 

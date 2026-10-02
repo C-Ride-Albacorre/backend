@@ -23,47 +23,7 @@ export class DriverPayoutService {
     // ------------------------------------------------------------------
     // 1. Dashboard summary
     // ------------------------------------------------------------------
-    //   async getSummary() {
-    //     const [totals, pending, processing, activeDrivers, commissionAgg] =
-    //       await this.prisma.$transaction([
-    //         this.prisma.driverPayout.aggregate({
-    //           where: { status: PayoutStatus.PAID },
-    //           _sum: { netPayout: true },
-    //           _count: { id: true },
-    //         }),
-    //         this.prisma.driverPayout.aggregate({
-    //           where: { status: PayoutStatus.PENDING },
-    //           _sum: { netPayout: true },
-    //           _count: { id: true },
-    //         }),
-    //         this.prisma.driverPayout.aggregate({
-    //           where: { status: PayoutStatus.PROCESSING },
-    //           _sum: { netPayout: true },
-    //           _count: { id: true },
-    //         }),
-    //         this.prisma.driverPayout.groupBy({
-    //           by: ['driverId'],
-    //           where: {
-    //             status: { in: [PayoutStatus.PENDING, PayoutStatus.PROCESSING] },
-    //           },
-    //         }),
-    //         this.prisma.driverPayout.aggregate({
-    //           _sum: { commissionAmount: true },
-    //           where: { status: PayoutStatus.PAID },
-    //         }),
-    //       ]);
 
-    //     return {
-    //       totalDisbursed: Number(totals._sum.netPayout ?? 0),
-    //       totalDisbursedCount: totals._count.id,
-    //       processingAmount: Number(processing._sum.netPayout ?? 0),
-    //       processingDrivers: processing._count.id,
-    //       pendingAmount: Number(pending._sum.netPayout ?? 0),
-    //       pendingDrivers: pending._count.id,
-    //       activeDrivers: activeDrivers.length,
-    //       totalCommissionEarned: Number(commissionAgg._sum.commissionAmount ?? 0),
-    //     };
-    //   }
     async getSummary() {
         const [totals, pending, processing, activeDrivers, commissionAgg] =
             await this.prisma.$transaction([
@@ -172,69 +132,7 @@ export class DriverPayoutService {
             },
         };
     }
-    //   async list(dto: ListPayoutsDto) {
-    //     const { status, search, tier, from, to, page = 1, limit = 20 } = dto;
-    //     const skip = (page - 1) * limit;
 
-    //     const where: Prisma.DriverPayoutWhereInput = {};
-    //     if (status) where.status = status;
-    //     if (tier) where.vehicleTier = tier;
-    //     if (from || to) {
-    //       where.periodStart = {};
-    //       if (from) where.periodStart.gte = new Date(from);
-    //       if (to) where.periodEnd = { lte: new Date(to) };
-    //     }
-    //     if (search) {
-    //       where.OR = [
-    //         { payoutNumber: { contains: search, mode: 'insensitive' } },
-    //         { driver: { firstName: { contains: search, mode: 'insensitive' } } },
-    //         { driver: { lastName: { contains: search, mode: 'insensitive' } } },
-    //         { driver: { email: { contains: search, mode: 'insensitive' } } },
-    //       ];
-    //     }
-
-    //     const [rows, total, counts] = await this.prisma.$transaction([
-    //       this.prisma.driverPayout.findMany({
-    //         where,
-    //         include: {
-    //           driver: {
-    //             select: {
-    //               id: true, firstName: true, lastName: true, email: true, phoneNumber: true,
-    //             },
-    //           },
-    //         },
-    //         orderBy: { createdAt: 'desc' },
-    //         skip,
-    //         take: limit,
-    //       }),
-    //       this.prisma.driverPayout.count({ where }),
-    //       this.prisma.driverPayout.groupBy({
-    //         by: ['status'],
-    //         _count: { id: true },
-    //       }),
-    //     ]);
-
-    //     const statusCounts = counts.reduce((acc, c) => {
-    //       acc[c.status] = c._count.id;
-    //       return acc;
-    //     }, {} as Record<string, number>);
-
-    //     return {
-    //       data: rows.map((r) => this.mapPayout(r)),
-    //       meta: {
-    //         total,
-    //         page,
-    //         limit,
-    //         totalPages: Math.ceil(total / limit),
-    //         counts: {
-    //           all: total,
-    //           pending: statusCounts[PayoutStatus.PENDING] ?? 0,
-    //           processing: statusCounts[PayoutStatus.PROCESSING] ?? 0,
-    //           paid: statusCounts[PayoutStatus.PAID] ?? 0,
-    //         },
-    //       },
-    //     };
-    //   }
 
     private mapPayout(p: any) {
         return {
@@ -314,30 +212,7 @@ export class DriverPayoutService {
                     continue;
                 }
 
-                // ✅ Tier is now snapshotted per earning — pick dominant tier for the period
-                // const tierCounts = list.reduce((acc, e) => {
-                //     acc[e.vehicleTier] = (acc[e.vehicleTier] ?? 0) + 1;
-                //     return acc;
-                // }, {} as Record<string, number>);
-
-                // const tier = (Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0]?.[0]
-                //     ?? VehicleType.CAR) as VehicleType;
-                // ✅ Correct: ignore null tiers entirely
-                // const tierCounts = list.reduce((acc, e) => {
-                //     if (e.vehicleTier) {
-                //         acc[e.vehicleTier] = (acc[e.vehicleTier] ?? 0) + 1;
-                //     }
-                //     return acc;
-                // }, {} as Record<VehicleType, number>);
-
-                // const dominantTierEntry = Object.entries(tierCounts)
-                //     .sort((a, b) => b[1] - a[1])[0];
-
-                // const tier: VehicleType =
-                //     (dominantTierEntry?.[0] as VehicleType | undefined) ?? VehicleType.CAR;
-                // const tier: VehicleType | null =
-                //     (dominantTierEntry?.[0] as VehicleType | undefined) ?? null;
-
+                
                 const tierCounts = list.reduce((acc, e) => {
                     if (e.vehicleTier) {
                         acc[e.vehicleTier] = (acc[e.vehicleTier] ?? 0) + 1;
@@ -409,12 +284,7 @@ export class DriverPayoutService {
         return `PO-${n.toString().padStart(4, '0')}`;
     }
 
-    private async nextPayoutNumberbk(tx: Prisma.TransactionClient): Promise<string> {
-        // Simple sequential counter using count of payouts
-        const count = await tx.driverPayout.count();
-        const next = (count + 1).toString().padStart(4, '0');
-        return `PO-${next}`;
-    }
+   
 
     // ------------------------------------------------------------------
     // 4. Update payout status (Process, Mark Paid, Cancel, Fail)
