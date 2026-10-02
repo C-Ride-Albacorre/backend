@@ -7,7 +7,7 @@ import { Type } from 'class-transformer';
 
 export enum WalletUserType {
   CUSTOMER = 'CUSTOMER',
-  DRIVER = 'DRIVER',
+  DISPATCHER = 'DISPATCHER',
 }
 
 export class SearchWalletUsersDto {
