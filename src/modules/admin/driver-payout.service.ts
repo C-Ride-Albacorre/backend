@@ -323,6 +323,21 @@ export class DriverPayoutService {
                 // const tier = (Object.entries(tierCounts).sort((a, b) => b[1] - a[1])[0]?.[0]
                 //     ?? VehicleType.CAR) as VehicleType;
                 // ✅ Correct: ignore null tiers entirely
+                // const tierCounts = list.reduce((acc, e) => {
+                //     if (e.vehicleTier) {
+                //         acc[e.vehicleTier] = (acc[e.vehicleTier] ?? 0) + 1;
+                //     }
+                //     return acc;
+                // }, {} as Record<VehicleType, number>);
+
+                // const dominantTierEntry = Object.entries(tierCounts)
+                //     .sort((a, b) => b[1] - a[1])[0];
+
+                // const tier: VehicleType =
+                //     (dominantTierEntry?.[0] as VehicleType | undefined) ?? VehicleType.CAR;
+                // const tier: VehicleType | null =
+                //     (dominantTierEntry?.[0] as VehicleType | undefined) ?? null;
+
                 const tierCounts = list.reduce((acc, e) => {
                     if (e.vehicleTier) {
                         acc[e.vehicleTier] = (acc[e.vehicleTier] ?? 0) + 1;
@@ -335,8 +350,6 @@ export class DriverPayoutService {
 
                 const tier: VehicleType =
                     (dominantTierEntry?.[0] as VehicleType | undefined) ?? VehicleType.CAR;
-                // const tier: VehicleType | null =
-                //     (dominantTierEntry?.[0] as VehicleType | undefined) ?? null;
 
                 const tripCount = list.length;
                 const grossEarnings = list.reduce((s, e) => s + Number(e.grossAmount), 0);
@@ -386,8 +399,17 @@ export class DriverPayoutService {
         };
     }
 
-
     private async nextPayoutNumber(tx: Prisma.TransactionClient): Promise<string> {
+        // Use a Postgres sequence (create once via migration):
+        // CREATE SEQUENCE IF NOT EXISTS driver_payout_seq;
+        const rows = await tx.$queryRaw<{ nextval: bigint }[]>`
+    SELECT nextval('driver_payout_seq') AS nextval
+  `;
+        const n = Number(rows[0].nextval);
+        return `PO-${n.toString().padStart(4, '0')}`;
+    }
+
+    private async nextPayoutNumberbk(tx: Prisma.TransactionClient): Promise<string> {
         // Simple sequential counter using count of payouts
         const count = await tx.driverPayout.count();
         const next = (count + 1).toString().padStart(4, '0');
