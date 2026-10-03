@@ -34,7 +34,7 @@ import {
 import { AuthService } from './auth.service';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { CreateCustomerDto } from './dto/create-customer.dto';
-import { CustomerLoginDto, LoginDto } from './dto/login.dto';
+import { CustomerLoginDto, LoginDriverDto, LoginDto } from './dto/login.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
 import { ApiResponseDto } from '../../common/dto/api-response.dto';
@@ -491,8 +491,8 @@ STEP 4 – Bank Details
   @ApiOperation({ summary: 'Driver login' })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  async loginDriver(@Body() loginDto: LoginDto) {
-    return this.authService.loginUser(loginDto, UserRole.DISPATCHER);
+  async loginDriver(@Body() loginDto: LoginDriverDto) {
+    return this.authService.loginDriverUser(loginDto, UserRole.DISPATCHER);
   }
 
   @Post('refresh')
