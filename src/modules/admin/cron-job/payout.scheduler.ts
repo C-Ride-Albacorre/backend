@@ -9,10 +9,14 @@ export class PayoutScheduler {
   constructor(private readonly payoutService: DriverPayoutService) {}
 
   // Every Monday at 00:00 — adjust timezone to Africa/Lagos
-  @Cron('0 0 0 * * 1', {
-    name: 'weekly-payout-generation',
-    timeZone: 'Africa/Lagos',
-  })
+  // @Cron('0 0 0 * * 1', {
+  //   name: 'weekly-payout-generation',
+  //   timeZone: 'Africa/Lagos',
+  // })
+  @Cron('*/1 * * * *', {
+  name: 'weekly-payout-generation',
+  timeZone: 'Africa/Lagos',
+})
   async handleWeeklyPayouts() {
     this.logger.log('Running weekly payout generation...');
 
