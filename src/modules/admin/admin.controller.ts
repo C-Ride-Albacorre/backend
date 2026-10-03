@@ -33,6 +33,8 @@ import {
   ApiNotFoundResponse,
   ApiConsumes,
   ApiQuery,
+  ApiForbiddenResponse,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { Roles } from '../../common/decorators/role.decorator';
@@ -903,5 +905,45 @@ export class DriverPayoutController {
     );
     return res.send(csv);
   }
+
+
+  // @Post('run-payouts')
+  // @HttpCode(HttpStatus.OK)
+  // @ApiOperation({
+  //   summary: 'Manually trigger driver payout generation (TEST ONLY)',
+  //   description:
+  //     'Runs the weekly payout generation immediately instead of waiting for the Monday cron. ' +
+  //     'Use `days` to widen the window when testing with older orders. ' +
+  //     '**Remove or guard this endpoint before production.**',
+  // })
+  // @ApiQuery({
+  //   name: 'days',
+  //   required: false,
+  //   type: Number,
+  //   example: 7,
+  //   description: 'Days back from now for the period start. Default 7.',
+  // })
+  // @ApiOkResponse({
+  //   description: 'Payout generation completed.',
+  //   schema: {
+  //     example: {
+  //       success: true,
+  //       data: [
+  //         {
+  //           driverId: 'c1a2...',
+  //           amount: 12500,
+  //           reference: 'PAY-2026-10-02-0001',
+  //           status: 'PENDING',
+  //         },
+  //       ],
+  //     },
+  //   },
+  // })
+  // @ApiUnauthorizedResponse({ description: 'Not authenticated.' })
+  // @ApiForbiddenResponse({ description: 'Admin role required.' })
+  // async runPayouts(@Query() query: RunPayoutDto) {
+  //   return this.payoutScheduler.runNow(query.days ?? 7);
+  // }
+
 }
 
