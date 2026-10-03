@@ -9,6 +9,7 @@ import {
 import { randomUUID } from 'crypto';
 import { MonnifyService } from '../payment/monnify.service';
 import { ConfigService } from '@nestjs/config';
+import { BulkGeneratePayoutsDto, BulkPayoutResultDto } from './dto/payout/bulk-payout.dto';
 
 @Injectable()
 export class DriverPayoutService {
@@ -284,6 +285,193 @@ export class DriverPayoutService {
         return `PO-${n.toString().padStart(4, '0')}`;
     }
 
+
+    // driver-payout.service.ts
+
+async bulkGenerate(
+  dto: BulkGeneratePayoutsDto,
+  adminId: string,
+): Promise<{ success: true; summary: any; results: BulkPayoutResultDto[] }> {
+  const start = new Date(dto.periodStart);
+  const end = new Date(dto.periodEnd);
+
+  if (end <= start) {
+    throw new BadRequestException('periodEnd must be after periodStart');
+  }
+
+  // De-dup the driver IDs while preserving order
+  const driverIds = Array.from(new Set(dto.driverIds));
+
+  // Pre-fetch all earnings for the selected drivers in one query
+  const earnings = await this.prisma.driverEarning.findMany({
+    where: {
+      payoutId: null,
+      earnedAt: { gte: start, lte: end },
+      driverId: { in: driverIds },
+    },
+    include: {
+      driver: { select: { id: true, firstName: true, lastName: true, email: true } },
+    },
+  });
+
+  // Group by driver
+  const byDriver = new Map<string, typeof earnings>();
+  for (const e of earnings) {
+    const arr = byDriver.get(e.driverId) ?? [];
+    arr.push(e);
+    byDriver.set(e.driverId, arr);
+  }
+
+  const results: BulkPayoutResultDto[] = [];
+  let createdCount = 0;
+  let totalDisbursed = 0;
+
+  // Process each driver in their own transaction — one failure doesn't affect others
+  for (const driverId of driverIds) {
+    const list = byDriver.get(driverId) ?? [];
+
+    if (list.length === 0) {
+      results.push({
+        driverId,
+        status: 'SKIPPED',
+        reason: 'No unbundled earnings for this period',
+      });
+      continue;
+    }
+
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        // Optional: skip if an existing payout exists
+        if (dto.skipExisting) {
+          const existing = await tx.driverPayout.findFirst({
+            where: {
+              driverId,
+              periodStart: start,
+              periodEnd: end,
+              status: {
+                in: [
+                  PayoutStatus.PENDING,
+                  PayoutStatus.PROCESSING,
+                  PayoutStatus.PAID,
+                ],
+              },
+            },
+          });
+          if (existing) {
+            return {
+              status: 'SKIPPED' as const,
+              reason: `Existing payout ${existing.payoutNumber}`,
+              payout: existing,
+            };
+          }
+        }
+
+        // Determine dominant tier (skip null tiers)
+        const tierCounts = list.reduce((acc, e) => {
+          if (e.vehicleTier) {
+            acc[e.vehicleTier] = (acc[e.vehicleTier] ?? 0) + 1;
+          }
+          return acc;
+        }, {} as Record<VehicleType, number>);
+
+        const dominantTierEntry = Object.entries(tierCounts)
+          .sort((a, b) => b[1] - a[1])[0];
+
+        const tier: VehicleType =
+          (dominantTierEntry?.[0] as VehicleType | undefined) ?? VehicleType.CAR;
+
+        const tripCount = list.length;
+        const grossEarnings = list.reduce((s, e) => s + Number(e.grossAmount), 0);
+        const tipTotal = list.reduce((s, e) => s + Number(e.tips), 0);
+        const commissionAmount = list.reduce(
+          (s, e) => s + Number(e.commissionAmount),
+          0,
+        );
+        const commissionPct =
+          grossEarnings > 0 ? (commissionAmount / grossEarnings) * 100 : 0;
+        const netPayout = grossEarnings - commissionAmount + tipTotal;
+
+        const payoutNumber = await this.nextPayoutNumber(tx);
+
+        const payout = await tx.driverPayout.create({
+          data: {
+            payoutNumber,
+            reference: `BULK-${randomUUID()}`,
+            amount: Number(netPayout.toFixed(2)),
+            bankSnapshot: {},
+            driver: { connect: { id: driverId } },
+            vehicleTier: tier,
+            tripCount,
+            grossEarnings: new Prisma.Decimal(grossEarnings.toFixed(2)),
+            commissionPct: new Prisma.Decimal(commissionPct.toFixed(2)),
+            commissionAmount: new Prisma.Decimal(commissionAmount.toFixed(2)),
+            tipTotal: new Prisma.Decimal(tipTotal.toFixed(2)),
+            netPayout: new Prisma.Decimal(netPayout.toFixed(2)),
+            status: dto.autoApprove
+              ? PayoutStatus.PROCESSING
+              : PayoutStatus.PENDING,
+            periodStart: start,
+            periodEnd: end,
+            approvedBy: { connect: { id: adminId } },
+            approvedAt: new Date(),
+          },
+        });
+
+        await tx.driverEarning.updateMany({
+          where: { id: { in: list.map((e) => e.id) } },
+          data: { payoutId: payout.id },
+        });
+
+        return { status: 'CREATED' as const, payout };
+      });
+
+      if (result.status === 'CREATED') {
+        createdCount++;
+        totalDisbursed += Number(result.payout.netPayout);
+        results.push({
+          driverId,
+          status: 'CREATED',
+          payoutId: result.payout.id,
+          payoutNumber: result.payout.payoutNumber,
+          amount: Number(result.payout.netPayout),
+        });
+      } else {
+        results.push({
+          driverId,
+          status: 'SKIPPED',
+          reason: result.reason,
+        });
+      }
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
+      this.logger.error(
+        `Bulk payout failed for driver ${driverId}: ${errorMessage}`,
+      );
+      results.push({
+        driverId,
+        status: 'FAILED',
+        reason: errorMessage,
+      });
+    }
+  }
+
+  return {
+    success: true,
+    summary: {
+      requested: driverIds.length,
+      created: createdCount,
+      skipped: results.filter((r) => r.status === 'SKIPPED').length,
+      failed: results.filter((r) => r.status === 'FAILED').length,
+      totalPayoutAmount: Number(totalDisbursed.toFixed(2)),
+      periodStart: start,
+      periodEnd: end,
+      autoApproved: !!dto.autoApprove,
+    },
+    results,
+  };
+}
    
 
     // ------------------------------------------------------------------
