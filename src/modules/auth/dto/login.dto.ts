@@ -5,46 +5,51 @@ import {
   IsOptional,
   IsString,
   Matches,
+  MinLength,
 } from 'class-validator';
 
-export class LoginDto {
-  // @ApiProperty({ example: 'fotay44859@netoiu.com' })
-  // @IsEmail()
-  // email: string;
-
-  @ApiProperty({ example: 'fotay44859@netoiu.com' })
-  @IsOptional()
-  @IsEmail()
-  email?: string; // fallback for email-only clients
-
-  @ApiPropertyOptional({
-    description: 'Phone number of the user in international format',
-    example: '+15551234567',
+export class LoginDriverDto {
+  @ApiProperty({
+    description: 'Email address OR phone number (E.164 or local format)',
+    example: 'john@example.com',
+    examples: {
+      email: { value: 'john@example.com', summary: 'Email login' },
+      phone: { value: '+2347058585898', summary: 'Phone login' },
+      localPhone: { value: '07058585898', summary: 'Local phone login' },
+    },
   })
-  @IsOptional()
   @IsString()
-  phoneNumber?: string; // fallback for phone-only clients
+  identifier: string;
 
   @ApiPropertyOptional({
-    description: 'Country code for phone number parsing (e.g., NG, US)',
+    description:
+      'Required only when identifier is a phone number in local format. Defaults to NG.',
     example: 'NG',
+    default: 'NG',
   })
   @IsOptional()
   @IsString()
-  countryCode?: string; // e.g., 'NG', 'US' — defaults to 'NG'
+  countryCode?: string;
+
+  @ApiProperty({
+    description: 'User password',
+    example: 'StrongP@ssw0rd',
+  })
+  @IsString()
+  @MinLength(6, { message: 'Password must be at least 6 characters long' })
+  password: string;
+}
+export class LoginDto {
+  @ApiProperty({ example: 'fotay44859@netoiu.com' })
+  @IsEmail()
+  email: string;
+
 
   @ApiProperty({ example: 'StrongP@ssw0rd' })
   @IsNotEmpty()
   password: string;
 
 
-  @ApiPropertyOptional({
-    description: 'Email or phone number of the user',
-    example: 'john@example.com'
-  })
-  @IsOptional()
-  @IsString()
-  identifier?: string; // accepts either email or phone
 }
 
 export class CustomerLoginDto {
