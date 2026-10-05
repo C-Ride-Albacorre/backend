@@ -19,7 +19,7 @@ import {
   ResetPasswordDto,
   VerifyResetTokenDto,
 } from './dto/password.dto';
-import { LoginDriverDto, LoginDto } from './dto/login.dto';
+import { LoginDriverDto, LoginDriverDtoWithIdentifier, LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import {
   OAuthProviderType,
@@ -2614,6 +2614,175 @@ export class AuthService {
 
 
 async loginDriverUser(loginDto: LoginDriverDto, role: UserRole) {
+  const { email, phoneNumber, password, countryCode = 'NG' } = loginDto;
+
+  // ✅ Enforce: exactly one of email or phoneNumber
+  if (!email && !phoneNumber) {
+    throw new BadRequestException('Either email or phoneNumber is required');
+  }
+
+  if (email && phoneNumber) {
+    throw new BadRequestException(
+      'Provide only one of email or phoneNumber, not both',
+    );
+  }
+
+  let identifier: string;
+  let isEmail: boolean;
+
+  if (email) {
+    isEmail = true;
+    identifier = Helper.normalizeEmail(email);
+  } else {
+    isEmail = false;
+
+    const phone = parsePhoneNumberFromString(
+      phoneNumber!,
+      countryCode as CountryCode,
+    );
+
+    if (!phone || !phone.isValid()) {
+      throw new BadRequestException('Invalid phone number');
+    }
+
+    identifier = phone.format('E.164'); // e.g. +2347058585898
+  }
+
+  this.logger.log(
+    `user login attempt: ${identifier} (${isEmail ? 'email' : 'phone'})`,
+  );
+
+  // Find user by email OR phone
+  const user = isEmail
+    ? await this.userRepository.findByEmail(identifier)
+    : await this.userRepository.findByPhone(identifier);
+
+  if (!user) {
+    throw new NotFoundException(
+      'Account not found. Please create an account first.',
+    );
+  }
+
+  if (user.role !== role) {
+    throw new UnauthorizedException('Invalid role');
+  }
+
+  const isPasswordValid = await bcrypt.compare(password, user.password);
+  if (!isPasswordValid) {
+    throw new UnauthorizedException('Invalid credentials');
+  }
+
+  /**
+   * =========================
+   * VERIFICATION FLOW
+   * =========================
+   */
+
+  // ❌ Neither phone nor email verified
+  if (!user.isPhoneVerified && !user.isEmailVerified) {
+    const verificationIdentifier = user.phoneNumber;
+
+    const verificationResponse = await this.resendVerificationToken({
+      identifier: verificationIdentifier,
+    });
+
+    await this.verificationService.sendOtp({
+      identifier: verificationIdentifier,
+    });
+
+    return {
+      success: false,
+      status: 'UNVERIFIED',
+      message:
+        'Please verify your phone number and email address before logging in. Start with phone verification.',
+      phoneNumber: user.phoneNumber,
+      email: user.email,
+      verificationToken: verificationResponse.verificationToken,
+      onboardingStep: user.onboardingStep ?? 0,
+      onboardingStatus: user.onboardingStatus,
+      isEmailVerified: user.isEmailVerified,
+      isPhoneVerified: user.isPhoneVerified,
+    };
+  }
+
+  // ❌ Phone not verified
+  if (!user.isPhoneVerified) {
+    const verificationResponse = await this.resendVerificationToken({
+      identifier: user.phoneNumber,
+    });
+
+    await this.verificationService.sendOtp({
+      identifier: user.phoneNumber,
+    });
+
+    return {
+      success: false,
+      status: 'UNVERIFIED',
+      message: 'Please verify your phone number before logging in',
+      identifier: user.phoneNumber,
+      verificationMethod: 'phone',
+      verificationToken: verificationResponse.verificationToken,
+      onboardingStep: user.onboardingStep ?? 0,
+      onboardingStatus: user.onboardingStatus,
+      isEmailVerified: user.isEmailVerified,
+      isPhoneVerified: user.isPhoneVerified,
+    };
+  }
+
+  // ❌ Email not verified
+  if (!user.isEmailVerified) {
+    const verificationResponse = await this.resendVerificationToken({
+      identifier: user.email,
+    });
+
+    await this.verificationService.sendOtp({
+      identifier: user.email,
+    });
+
+    return {
+      success: false,
+      status: 'UNVERIFIED',
+      message: 'Please verify your email address before logging in',
+      identifier: user.email,
+      verificationMethod: 'email',
+      verificationToken: verificationResponse.verificationToken,
+      onboardingStep: user.onboardingStep ?? 0,
+      onboardingStatus: user.onboardingStatus,
+      isEmailVerified: user.isEmailVerified,
+      isPhoneVerified: user.isPhoneVerified,
+    };
+  }
+
+  /**
+   * =========================
+   * LOGIN SUCCESS FLOW
+   * =========================
+   */
+
+  await this.userRepository.update(user.id, {
+    lastLoginAt: new Date(),
+  });
+
+  const verificationMethod = null;
+  const identifierForResponse = null;
+
+  const auth = await this.generateAuthResponse(
+    user,
+    identifierForResponse,
+    verificationMethod,
+  );
+
+  return {
+    ...auth,
+    onboardingStatus: user.onboardingStatus,
+    onboardingStep: user.onboardingStep,
+    status: user.status,
+    isEmailVerified: user.isEmailVerified,
+    isPhoneVerified: user.isPhoneVerified,
+  };
+}
+
+async loginDriverUserWithIdentifier(loginDto: LoginDriverDtoWithIdentifier, role: UserRole) {
   // Support both email and phone via 'identifier' field
   // Fallback: if 'email' is provided, treat it as identifier
   const rawIdentifier = loginDto.identifier;
@@ -2779,7 +2948,6 @@ async loginDriverUser(loginDto: LoginDriverDto, role: UserRole) {
     isPhoneVerified: user.isPhoneVerified,
   };
 }
-
 //   async loginDriverUserbk(loginDto: LoginDto, role: UserRole) {
 //   // Support both email and phone via 'identifier' field
 //   // Fallback: if 'email' is provided, treat it as identifier
