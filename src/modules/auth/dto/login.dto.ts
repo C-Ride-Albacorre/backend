@@ -11,7 +11,7 @@ import {
 export class LoginDriverDto {
   @ApiProperty({
     description: 'Email address OR phone number (E.164 or local format)',
-    example: 'john@example.com',
+    example: 'john@example.com | +15551234567 | 07012345678',
     examples: {
       email: { value: 'john@example.com', summary: 'Email login' },
       phone: { value: '+2347058585898', summary: 'Phone login' },

@@ -136,6 +136,9 @@ export class DriverEarningsService {
   const totalEarningsOnCard =
     wallet.availableBalance + wallet.pendingBalance + agg.totalEarnings;
 
+ const totalEarningsPlusWallatBalance =
+    wallet.availableBalance + + agg.totalEarnings;
+
   // ── Breakdown strategy per period ─────────────────────────────
   //  TODAY  → one row per delivery (online hours split evenly)
   //  WEEK   → one row per day
@@ -164,7 +167,7 @@ export class DriverEarningsService {
   return {
     period: { start, end, type: period },
     wallet: {
-      availableBalance: wallet.availableBalance,
+      availableBalance:  Helper.round2(totalEarningsPlusWallatBalance),//wallet.availableBalance,
       pendingBalance: wallet.pendingBalance,
       totalOnCard: Helper.round2(totalEarningsOnCard),
       currency: wallet.currency,
