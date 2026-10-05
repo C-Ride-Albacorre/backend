@@ -1,14 +1,50 @@
+
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsEmail,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  Matches,
-  MinLength,
-} from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+
 
 export class LoginDriverDto {
+  @ApiPropertyOptional({
+    description: 'User email address. Provide either email or phoneNumber.',
+    example: 'john@example.com',
+  })
+  @IsOptional()
+  @IsEmail({}, { message: 'Invalid email address' })
+  email?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Phone number in E.164 or local format. Provide either email or phoneNumber.',
+    example: '+2347058585898',
+    examples: {
+      e164: { value: '+2347058585898', summary: 'E.164 format' },
+      local: { value: '07058585898', summary: 'Local (NG) format' },
+    },
+  })
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Required only when phoneNumber is in local format. Defaults to NG.',
+    example: 'NG',
+    default: 'NG',
+  })
+  @IsOptional()
+  @IsString()
+  countryCode?: string;
+
+  @ApiProperty({
+    description: 'User password',
+    example: 'StrongPassword123!',
+  })
+  @IsString()
+  @MinLength(6, { message: 'Password must be at least 6 characters long' })
+  password: string;
+}
+
+export class LoginDriverDtoWithIdentifier {
   @ApiProperty({
     description: 'Email address OR phone number (E.164 or local format)',
     example: 'john@example.com | +15551234567 | 07012345678',
@@ -39,6 +75,7 @@ export class LoginDriverDto {
   @MinLength(6, { message: 'Password must be at least 6 characters long' })
   password: string;
 }
+
 export class LoginDto {
   @ApiProperty({ example: 'fotay44859@netoiu.com' })
   @IsEmail()
