@@ -167,7 +167,7 @@ export class DriverEarningsService {
   return {
     period: { start, end, type: period },
     wallet: {
-      availableBalance:  Helper.round2(totalEarningsPlusWallatBalance),//wallet.availableBalance,
+      availableBalance:  Helper.round2(totalEarningsOnCard),//wallet.availableBalance,
       pendingBalance: wallet.pendingBalance,
       totalOnCard: Helper.round2(totalEarningsOnCard),
       currency: wallet.currency,
