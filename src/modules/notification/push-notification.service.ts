@@ -32,32 +32,59 @@ export class PushNotificationService {
     }
   }
 
-  private initializeFirebase(): void {
-    try {
-      const projectId = this.configService.get('FIREBASE_PROJECT_ID');
-      const privateKey = this.configService
-        .get('FIREBASE_PRIVATE_KEY')
-        ?.replace(/\\n/g, '\n');
-      const clientEmail = this.configService.get('FIREBASE_CLIENT_EMAIL');
+  // private initializeFirebase(): void {
+  //   try {
+  //     const projectId = this.configService.get('FIREBASE_PROJECT_ID');
+  //     const privateKey = this.configService
+  //       .get('FIREBASE_PRIVATE_KEY')
+  //       ?.replace(/\\n/g, '\n');
+  //     const clientEmail = this.configService.get('FIREBASE_CLIENT_EMAIL');
 
-      if (!projectId || !privateKey || !clientEmail) {
-        throw new Error('Missing Firebase credentials in environment');
-      }
+  //     if (!projectId || !privateKey || !clientEmail) {
+  //       throw new Error('Missing Firebase credentials in environment');
+  //     }
+      
 
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId,
-          privateKey,
-          clientEmail,
-        }),
-      });
-      this.logger.log('Firebase Admin SDK initialized');
-    } catch (error) {
-      this.logger.error('Failed to initialize Firebase Admin SDK', error);
-      this.isEnabled = false; // fallback
+  //     admin.initializeApp({
+  //       credential: admin.credential.cert({
+  //         projectId,
+  //         privateKey,
+  //         clientEmail,
+  //       }),
+  //     });
+  //     this.logger.log('Firebase Admin SDK initialized');
+  //   } catch (error) {
+  //     this.logger.error('Failed to initialize Firebase Admin SDK', error);
+  //     this.isEnabled = false; // fallback
+  //   }
+  // }
+private initializeFirebase(): void {
+  try {
+    const base64 = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
+
+    if (!base64) {
+      throw new Error('FIREBASE_PRIVATE_KEY is not set');
     }
-  }
 
+    // Decode Base64 → JSON string → Object
+    const decoded = Buffer.from(base64, 'base64').toString('utf-8');
+    const serviceAccount = JSON.parse(decoded);
+
+    // Validate required fields
+    if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
+      throw new Error('Service account JSON is missing required fields');
+    }
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+
+    this.logger.log('Firebase Admin SDK initialized');
+  } catch (error) {
+    this.logger.error('Failed to initialize Firebase Admin SDK', error);
+    this.isEnabled = false; // fallback
+  }
+}
   
 
   /**
