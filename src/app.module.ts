@@ -37,7 +37,7 @@ import { VendorModule } from './modules/vendor/vendor.module';
       envFilePath: (() => {
         switch (process.env.NODE_ENV) {
           case 'production':
-            return '.env.production';
+            return '.env.docker';
           case 'staging':
             return '.env.staging';
           default:

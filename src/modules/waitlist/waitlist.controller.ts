@@ -36,6 +36,7 @@ import { Roles } from '../../common/decorators/role.decorator';
 import { RolesGuard } from '../../common/guards/role.guard';
 import { UserRole } from '../../shared/enums';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
+import { Public } from '../../common/decorators/public.decorator';
 
 
 @ApiTags('Waitlist')
@@ -46,6 +47,7 @@ import { JwtAuthGuard } from '../../common/guards/auth.guard';
 export class WaitlistController {
   constructor(private readonly waitlistService: WaitlistService) { }
 
+  @Public()
   @Post('vendor')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add a vendor to the waitlist' })
@@ -92,6 +94,7 @@ export class WaitlistController {
     return this.waitlistService.getVendorById(id);
   }
 
+  @Public()
   @Post('driver')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add a driver to the waitlist' })
@@ -139,6 +142,7 @@ export class WaitlistController {
   }
 
 
+  @Public()
   @Post('customer')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Add a customer to the waitlist' })
