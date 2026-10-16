@@ -26,6 +26,7 @@ import { RatingService } from '../rating/rating.service';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import Helper from '../../shared/utils/helpers';
+import { QUEUES } from '../../shared/constants';
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',
@@ -66,7 +67,8 @@ export class DriverService {
     @Inject(forwardRef(() => OrderService))
     private readonly orderService: OrderService,
     private readonly ratingService: RatingService,
-    @InjectQueue('driver-assignment') private assignmentQueue: Queue,
+    //@InjectQueue('driver-assignment') private assignmentQueue: Queue,
+    @InjectQueue(QUEUES.DRIVER_ASSIGNMENT) private assignmentQueue: Queue,
 
   ) {
     this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');

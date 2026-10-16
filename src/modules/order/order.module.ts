@@ -10,14 +10,19 @@ import { DriverModule } from '../driver/driver.module';
 import { NotificationModule } from '../notification/notification.module';
 import { PaymentModule } from '../payment/payment.module';
 import { VendorSettlementService } from './vendor-settlement.service';
+import { QUEUES } from '../../shared/constants';
 
 @Module({
   imports: [
     RedisModule,
     BullModule.registerQueue(
-      { name: 'order-events' },
-      { name: 'notification' },
-      { name: 'assignment' },
+      // { name: 'order-events' },
+      // { name: 'notification' },
+      // { name: 'assignment' }, 
+      { name: QUEUES.ORDER_EVENTS },
+      { name: QUEUES.NOTIFICATION },
+      { name: QUEUES.ASSIGNMENT },
+
     ),
     forwardRef(() => CustomerModule), // ✅ handle circular dependency
     forwardRef(() => DriverModule), // ✅ REQUIRED
