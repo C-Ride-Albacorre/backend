@@ -7,12 +7,14 @@ import { RatingReminderProcessor } from './rating-reminder.processor';
 
 import { NotificationModule } from '../notification/notification.module';
 import { RatingController } from './rating.controller';
+import { QUEUES } from '../../shared/constants';
 
 @Module({
   imports: [
     NotificationModule,
     BullModule.registerQueue({
-      name: 'rating-reminders',
+      //name: 'rating-reminders',
+      name: QUEUES.RATING_REMINDERS,
     }),
     ScheduleModule.forRoot(),
   ],

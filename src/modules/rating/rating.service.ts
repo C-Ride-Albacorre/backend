@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { PushNotificationService } from '../notification/push-notification.service';
+import { QUEUES } from '../../shared/constants';
 
 @Injectable()
 export class RatingService {
@@ -14,7 +15,9 @@ export class RatingService {
   constructor(
     private prisma: PrismaService,
     private pushService: PushNotificationService,
-    @InjectQueue('rating-reminders') private reminderQueue: Queue, // BullMQ queue
+    //@InjectQueue('rating-reminders') private reminderQueue: Queue, // BullMQ queue
+    @InjectQueue(QUEUES.RATING_REMINDERS) private reminderQueue: Queue, // BullMQ queue
+    
   ) {}
 
   // -------------------------------------------------------------------------

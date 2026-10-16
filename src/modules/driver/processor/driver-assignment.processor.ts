@@ -7,15 +7,19 @@ import { DriverAssignmentService } from '../driver-assignment.service';
 import Helper from '../../../shared/utils/helpers';
 import { PushNotificationService } from '../../../modules/notification/push-notification.service';
 import { OrderStatus } from '@prisma/client';
+import { QUEUES } from '../../../shared/constants';
 
-@Processor('driver-assignment')
+//@Processor('driver-assignment')
+@Processor(QUEUES.DRIVER_ASSIGNMENT)
 export class DriverAssignmentProcessor extends WorkerHost {
   private readonly logger = new Logger(DriverAssignmentProcessor.name);
 
   constructor(
     private driverAssignmentService: DriverAssignmentService,
     public readonly prisma: PrismaService,
-    @InjectQueue('driver-assignment') public assignmentQueue: Queue,
+    //@InjectQueue('driver-assignment') public assignmentQueue: Queue,
+    @InjectQueue(QUEUES.DRIVER_ASSIGNMENT) public assignmentQueue: Queue,
+
     private pushNotificationService: PushNotificationService,
   ) {
     super();
@@ -51,13 +55,13 @@ export class DriverAssignmentProcessor extends WorkerHost {
         await service.handleNoDrivers(orderId);
         break;
       }
-   
+
       case 'retry-driver-search': {
         const { orderId, radius, attempt } = job.data;
         await this.driverAssignmentService.tryNextDriver(orderId, radius, attempt);
         break;
       }
-      
+
       case 'driver-response-timeout':
         await this.handleDriverTimeout(job);
         break;

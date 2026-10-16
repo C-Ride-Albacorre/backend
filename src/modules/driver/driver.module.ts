@@ -16,13 +16,17 @@ import { DriverOnlineHoursService } from './driver-online-hours-service';
 import { WalletService } from '../wallet/wallet.service';
 import { DriverEarningsService } from './driver-earnings-service';
 import { PaymentModule } from '../payment/payment.module';
+import { QUEUES } from '../../shared/constants';
 
 @Module({
   imports: [
     BullModule.registerQueue(
-      { name: 'order-events' },
-      { name: 'driver-notification' },
-      { name: 'driver-assignment' },
+      //  { name: 'order-events' },
+      // { name: 'driver-notification' },
+      // { name: 'driver-assignment' },
+      { name: QUEUES.ORDER_EVENTS },
+      { name: QUEUES.DRIVER_NOTIFICATION },
+      { name: QUEUES.DRIVER_ASSIGNMENT }
     ),
     forwardRef(() => OrderModule),
     forwardRef(() => UserModule),
