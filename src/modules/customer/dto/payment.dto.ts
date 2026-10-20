@@ -1,7 +1,7 @@
 // src/customer/dto/payment.dto.ts
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsUUID, IsString, IsEnum, IsOptional, IsObject, ValidateNested, IsNumber } from 'class-validator';
+import { IsUUID, IsString, IsEnum, IsOptional, IsObject, ValidateNested, IsNumber, IsEmail } from 'class-validator';
 
 export enum MonnifyPaymentMethod {
   CARD = 'CARD',
@@ -23,6 +23,10 @@ export class InitializePaymentDto {
   @IsString()
   @IsOptional()
   callbackUrl?: string;
+
+  @IsOptional()
+@IsEmail()
+email?: string;
 }
 
 export class MonnifyPaymentResponse {
