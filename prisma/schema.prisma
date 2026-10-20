@@ -534,10 +534,16 @@ model DriverProfile {
   bankCode          String?
   accountNumber     String?
   accountName       String?
+  driverType        DriverType       @default(CRIDE)
 
   @@index([userId])
   @@index([status])
   @@index([vehicleType])
+}
+
+enum DriverType {
+  CRIDE
+  PARTNER
 }
 
 model DriverDocument {
