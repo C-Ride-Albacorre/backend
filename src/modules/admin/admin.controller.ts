@@ -71,6 +71,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { Request } from 'express';
 import { DriverPayoutService } from './driver-payout.service';
 import { GeneratePayoutsDto, ListPayoutsDto, UpdatePayoutStatusDto } from './dto/payout/driver-payout.dto';
+import { UpdateDispatcherDto } from './dto/update-dispatcher.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -273,6 +274,20 @@ export class AdminController {
   async getDispatcherDetails(@Param('dispatcherId') dispatcherId: string) {
     return this.adminService.getDispatcherDetails(dispatcherId);
   }
+
+@Patch('dispatchers/:dispatcherId')
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@HttpCode(HttpStatus.OK)
+@ApiOperation({ summary: 'Update dispatcher by ID' })
+async updateDispatcher(
+  @Param('dispatcherId') dispatcherId: string,
+  @Body() dto: UpdateDispatcherDto,
+) {
+  return this.adminService.updateDispatcher(
+    dispatcherId,
+    dto,
+  );
+}
 
   @Patch('dispatchers/:dispatcherId/approve')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)

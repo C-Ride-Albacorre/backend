@@ -130,8 +130,8 @@ export class MonnifyService {
       const user = await tx.user.findUnique({
         where: { id: userId },
       });
-      if (!user || !user.email) {
-        throw new BadRequestException('User email is required for payment');
+      if (!user) {
+        throw new BadRequestException('User not found');
       }
 
       // 3. Generate references
