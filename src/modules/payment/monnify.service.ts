@@ -141,9 +141,14 @@ export class MonnifyService {
       // 4. Call Monnify
       const payload = {
         amount: order.totalAmount,
-        customerName:
-          `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
-        customerEmail: user.email,
+        // customerName:
+        //   `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
+        // customerEmail: user.email,
+          customerName:
+    `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
+  ...(user.email?.trim()
+    ? { customerEmail: user.email.trim() }
+    : {}),
         paymentReference,
         paymentDescription: `Order ${order.orderNumber}`,
         currencyCode: 'NGN',
