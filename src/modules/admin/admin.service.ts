@@ -30,6 +30,7 @@ import { UpdateCustomerStatusDto } from './dto/update-customer-status.dto';
 import { UpdateSettlementStatusDto } from './dto/settlement/update-settlement-status.dto';
 import { VendorSettlementFilterDto } from './dto/settlement/vendor-settlement-filter.dto';
 import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
+import { UpdateDispatcherDto } from './dto/update-dispatcher.dto';
 
 @Injectable()
 export class AdminService {
@@ -1038,6 +1039,75 @@ export class AdminService {
       },
     };
   }
+
+  async updateDispatcher(
+  dispatcherId: string,
+  dto: UpdateDispatcherDto,
+) {
+  const dispatcher = await this.prisma.user.findFirst({
+    where: {
+      id: dispatcherId,
+      role: Role.DISPATCHER,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!dispatcher) {
+    throw new NotFoundException('Dispatcher not found');
+  }
+
+  const {
+    driverProfile,
+    ...userData
+  } = dto;
+
+  const updatedDispatcher = await this.prisma.$transaction(
+    async (tx) => {
+      await tx.user.update({
+        where: {
+          id: dispatcherId,
+        },
+        data: userData,
+      });
+
+      if (driverProfile) {
+        await tx.driverProfile.update({
+          where: {
+            userId: dispatcherId,
+          },
+          data: driverProfile,
+        });
+      }
+
+      return tx.user.findUnique({
+        where: {
+          id: dispatcherId,
+        },
+        include: {
+          driverProfile: {
+            include: {
+              documents: true,
+            },
+          },
+          orders: {
+            take: 10,
+            orderBy: {
+              createdAt: 'desc',
+            },
+          },
+        },
+      });
+    },
+  );
+
+  return {
+    success: true,
+    message: 'Dispatcher updated successfully',
+    data: updatedDispatcher,
+  };
+}
 
   async getDispatcherDetails(dispatcherId: string) {
     const dispatcher = await this.prisma.user.findFirst({

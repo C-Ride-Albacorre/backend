@@ -3,8 +3,10 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
 import { PushNotificationService } from '../../../modules/notification/push-notification.service';
+import { QUEUES } from '../../../shared/constants';
 
-@Processor('driver-notification')
+//@Processor('driver-notification')
+@Processor(QUEUES.DRIVER_NOTIFICATION)
 export class DriverNotificationProcessor extends WorkerHost {
   private readonly logger = new Logger(DriverNotificationProcessor.name);
 

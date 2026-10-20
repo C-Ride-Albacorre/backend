@@ -15,6 +15,7 @@ import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { Queue } from 'bullmq';
 import { GEOCODE_QUEUE } from '../../queue/geocode.queue';
 import Helper from '../../shared/utils/helpers';
+import { QUEUES } from '../../shared/constants';
 
 @Injectable()
 export class StoreService {
@@ -99,7 +100,7 @@ export class StoreService {
 
     // 🚀 Queue background job
     //await geocodeQueue.add('geocode-store-job', {
-    await this.geocodeQueue.add('geocode-store-job', {
+    await this.geocodeQueue.add(QUEUES.GEOCODE_STORE_JOB, {
       storeId: store.id,
       address: store.storeAddress,
     });
@@ -186,7 +187,11 @@ export class StoreService {
 
     // 🚀 If address changed → re-geocode
     if (dto.storeAddress && dto.storeAddress !== store.storeAddress) {
-      await this.geocodeQueue.add('geocode-store-job', {
+      // await this.geocodeQueue.add('geocode-store-job', {
+      //   storeId,
+      //   address: dto.storeAddress,
+      // });
+      await this.geocodeQueue.add(QUEUES.GEOCODE_STORE_JOB, {
         storeId,
         address: dto.storeAddress,
       });

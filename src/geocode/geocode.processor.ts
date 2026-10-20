@@ -11,6 +11,7 @@ import axios from 'axios';
 import { REDIS_CLIENT } from '../modules/redis/redis.provider';
 import { PrismaService } from '../shared/services/prisma.service';
 import Helper from '../shared/utils/helpers';
+import { QUEUES } from '../shared/constants';
 
 @Injectable()
 export class GeocodeProcessor implements OnModuleInit, OnModuleDestroy {
@@ -24,7 +25,7 @@ export class GeocodeProcessor implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     this.worker = new Worker(
-      'geocode-store',
+      QUEUES.GEOCODE_STORE,
       async (job) => this.handleJob(job),
       {
         connection: this.redis.duplicate({
@@ -32,19 +33,6 @@ export class GeocodeProcessor implements OnModuleInit, OnModuleDestroy {
         }) as any,
       },
     );
-
-    //     Bonus (very important for Google API)
-    // Since you're calling external API:
-    // Add limiter to worker:
-    //     new Worker('geocode-store', processor, {
-    //   connection: this.redis.duplicate({
-    //     maxRetriesPerRequest: null,
-    //   }) as any,
-    //   limiter: {
-    //     max: 5,       // 5 jobs
-    //     duration: 1000, // per second
-    //   },
-    // });
 
     this.worker.on('completed', (job) => {
       this.logger.log(`✅ Job completed: ${job.id}`);

@@ -94,3 +94,14 @@ docker/data/
 *.old
 *.orig
 
+# ========================
+# AWS
+# ========================
+secrets-array.json
+secrets-policy.json
+taskdef-clean.json
+taskdef-v6.json
+taskdef-v7.json
+taskdef-v8.json
+taskdef.json
+trust.json

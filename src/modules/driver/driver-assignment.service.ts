@@ -24,6 +24,7 @@ import { ConfigService } from '@nestjs/config';
 import { OrderService } from '../order/order.service';
 import Helper from '../../shared/utils/helpers';
 import { DriverOnlineHoursService } from './driver-online-hours-service';
+import { QUEUES } from '../../shared/constants';
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',
@@ -47,9 +48,12 @@ export class DriverAssignmentService {
   constructor(
     public prisma: PrismaService,
     @Inject(REDIS_CLIENT) public redis: Redis,
-    @InjectQueue('driver-notification') private notificationQueue: Queue,
-    @InjectQueue('driver-assignment') public assignmentQueue: Queue,
-    @InjectQueue('order-events') private orderQueue: Queue,
+    // @InjectQueue('driver-notification') private notificationQueue: Queue,
+    // @InjectQueue('driver-assignment') public assignmentQueue: Queue,
+    // @InjectQueue('order-events') private orderQueue: Queue,
+    @InjectQueue(QUEUES.DRIVER_NOTIFICATION) private notificationQueue: Queue,
+    @InjectQueue(QUEUES.DRIVER_ASSIGNMENT) public assignmentQueue: Queue,
+    @InjectQueue(QUEUES.ORDER_EVENTS) private orderQueue: Queue,
     private zohoEmailProvider: ZohoEmailProvider,
     private vendorNotificationGateway: VendorNotificationGateway,
     public mapGateway: MapGateway,

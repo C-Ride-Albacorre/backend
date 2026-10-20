@@ -40,3 +40,24 @@ const PERFORMANCE_RULES = {
   /** Minimum sample size before showing a rate. Below this → null. */
   MIN_SAMPLE_FOR_RATE: 1,
 } as const;
+
+
+export const QUEUES = {
+    ORDER_EVENTS: '{order-events}',
+    DRIVER_NOTIFICATION: '{driver-notification}',
+    DRIVER_ASSIGNMENT: '{driver-assignment}',
+    GEOCODE: '{geocode}',
+    RATING_REMINDERS: '{rating-reminders}',
+    NOTIFICATION: '{notification}',
+    ASSIGNMENT: '{assignment}',
+    GEOCODE_STORE: '{geocode-store}',
+    GEOCODE_STORE_JOB: '{geocode-store-job}',
+    // SEARCH_AND_NOTIFY: '{search-and-notify}',
+    // NOTIFY_DRIVER: '{notify-driver}',
+    // DRIVER_RESPONSE_TIMEOUT: '{driver-response-timeout}',
+    // ASSIGNMENT_TIMEOUT: '{assignment-timeout}',
+    // UPDATE_ETA: '{update-eta}',
+    // RETRY_DRIVER_SEARCH: '{retry-driver-search}',
+} as const;
+
+export type QueueName = typeof QUEUES[keyof typeof QUEUES];
