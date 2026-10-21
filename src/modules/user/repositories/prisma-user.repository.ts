@@ -60,7 +60,7 @@ export class PrismaUserRepository implements AbstractUserRepository {
     }
   }
 
-  async findExistingUser(
+  async findExistingUser1(
     email?: string,
     phoneNumber?: string,
   ): Promise<User | null> {
@@ -84,6 +84,34 @@ export class PrismaUserRepository implements AbstractUserRepository {
       throw error;
     }
   }
+
+  async findExistingUser(
+  email?: string,
+  phoneNumber?: string,
+): Promise<User | null> {
+  const normalizedEmail = email?.trim().toLowerCase();
+  const normalizedPhone = phoneNumber?.trim();
+
+  const conditions: any[] = [];
+
+  if (normalizedEmail) {
+    conditions.push({ email: normalizedEmail });
+  }
+
+  if (normalizedPhone) {
+    conditions.push({ phoneNumber: normalizedPhone });
+  }
+
+  if (conditions.length === 0) {
+    return null;
+  }
+
+  return this.prisma.user.findFirst({
+    where: {
+      OR: conditions,
+    },
+  });
+}
 
   async create(userData: Partial<User>): Promise<User> {
     try {
