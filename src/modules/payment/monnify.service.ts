@@ -159,6 +159,21 @@ export class MonnifyService {
         paymentMethods: [dto.paymentMethod],
       };
 
+      this.logger.log(
+  `Monnify payload diagnostics: ${JSON.stringify({
+    hasCustomerEmail: Object.prototype.hasOwnProperty.call(
+      payload,
+      'customerEmail',
+    ),
+    customerEmailIsEmpty:
+      'customerEmail' in payload
+        ? !String(payload.customerEmail ?? '').trim()
+        : null,
+    paymentMethod: dto.paymentMethod,
+    baseUrl: this.baseUrl,
+  })}`,
+);
+
       try {
         const response = await axios.post(
           `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
@@ -189,14 +204,34 @@ export class MonnifyService {
         });
 
         return response.data as MonnifyPaymentResponse;
+      // } catch (error) {
+      //   this.logger.error(`Monnify API call failed: ${error instanceof Error ? error.stack : String(error)}`);
+      //   // Rollback is automatic because transaction will abort
+      //   throw new HttpException(
+      //     this.extractMonnifyErrorMessage(error),
+      //     HttpStatus.BAD_REQUEST,
+      //   );
+      // }
       } catch (error) {
-        this.logger.error(`Monnify API call failed: ${error instanceof Error ? error.stack : String(error)}`);
-        // Rollback is automatic because transaction will abort
-        throw new HttpException(
-          this.extractMonnifyErrorMessage(error),
-          HttpStatus.BAD_REQUEST,
-        );
-      }
+  if (axios.isAxiosError(error)) {
+    this.logger.error(
+      `Monnify HTTP status: ${error.response?.status}`,
+    );
+
+    this.logger.error(
+      `Monnify response: ${JSON.stringify(error.response?.data)}`,
+    );
+  } else {
+    this.logger.error(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  throw new HttpException(
+    this.extractMonnifyErrorMessage(error),
+    HttpStatus.BAD_REQUEST,
+  );
+}
     });
   }
 
