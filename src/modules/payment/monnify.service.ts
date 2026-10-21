@@ -134,6 +134,16 @@ export class MonnifyService {
         throw new BadRequestException('User not found');
       }
 
+      const customerEmail = user.email?.trim();
+
+if (!customerEmail) {
+  throw new BadRequestException({
+    statusCode: 400,
+    code: 'EMAIL_REQUIRED_FOR_PAYMENT',
+    message: 'Please provide your email address to continue with payment.',
+  });
+}
+
       // 3. Generate references
       const paymentReference = `PAY-${randomUUID()}`;
       const accessToken = await this.getAccessToken();
@@ -141,15 +151,15 @@ export class MonnifyService {
       // 4. Call Monnify
       const payload = {
         amount: order.totalAmount,
-        // customerName:
-        //   `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
-        // customerEmail: user.email,
-          customerName:
-    `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
+        customerName:
+          `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
+        customerEmail: user.email,
+    //       customerName:
+    // `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
   // ...(user.email?.trim()
   //   ? { customerEmail: user.email.trim() }
   //   : {}),
-   customerEmail: 'samuel.imex@gmail.com',
+  // customerEmail: 'samuel.imex@gmail.com',
         paymentReference,
         paymentDescription: `Order ${order.orderNumber}`,
         currencyCode: 'NGN',
