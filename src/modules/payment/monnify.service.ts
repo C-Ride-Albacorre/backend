@@ -134,15 +134,26 @@ export class MonnifyService {
         throw new BadRequestException('User not found');
       }
 
-      const customerEmail = user.email?.trim();
+       // Prefer the email submitted during checkout.
+      // Otherwise, use the email already saved on the account.
+      const customerEmail = dto.email?.trim() || user.email?.trim();
 
-if (!customerEmail) {
-  throw new BadRequestException({
-    statusCode: 400,
-    code: 'EMAIL_REQUIRED_FOR_PAYMENT',
-    message: 'Please provide your email address to continue with payment.',
-  });
-}
+      if (!customerEmail) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'EMAIL_REQUIRED_FOR_PAYMENT',
+          message: 'Please provide your email address to continue with payment.',
+        });
+      }
+
+      // Save the email if the user does not already have one.
+      // This happens inside the current database transaction.
+      if (!user.email?.trim()) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { email: customerEmail },
+        });
+      }
 
       // 3. Generate references
       const paymentReference = `PAY-${randomUUID()}`;
@@ -153,7 +164,7 @@ if (!customerEmail) {
         amount: order.totalAmount,
         customerName:
           `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
-        customerEmail: user.email,
+        customerEmail,
     //       customerName:
     // `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
   // ...(user.email?.trim()

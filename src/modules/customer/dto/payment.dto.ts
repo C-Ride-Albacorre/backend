@@ -24,9 +24,14 @@ export class InitializePaymentDto {
   @IsOptional()
   callbackUrl?: string;
 
+
+  @ApiPropertyOptional({
+    description: 'Email for checkout, required if the account has no email',
+    example: 'customer@example.com',
+  })
   @IsOptional()
-@IsEmail()
-email?: string;
+  @IsEmail()
+  email?: string;
 }
 
 export class MonnifyPaymentResponse {
