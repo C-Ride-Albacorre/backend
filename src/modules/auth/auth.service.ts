@@ -532,7 +532,7 @@ export class AuthService {
 
   async loginCustomer(loginDto: LoginCustomerDto, sessionId?: string) {
     const { phoneNumber } = loginDto;
-    const email = Helper.normalizeEmail(loginDto.email);
+  const email = Helper.normalizeEmail(loginDto.email ?? '');
     const identifier = email || phoneNumber;
     const verificationMethod = email ? 'email' : 'phone';
 
