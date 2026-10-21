@@ -146,9 +146,10 @@ export class MonnifyService {
         // customerEmail: user.email,
           customerName:
     `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
-  ...(user.email?.trim()
-    ? { customerEmail: user.email.trim() }
-    : {}),
+  // ...(user.email?.trim()
+  //   ? { customerEmail: user.email.trim() }
+  //   : {}),
+   customerEmail: 'samuel.imex@gmail.com',
         paymentReference,
         paymentDescription: `Order ${order.orderNumber}`,
         currencyCode: 'NGN',
