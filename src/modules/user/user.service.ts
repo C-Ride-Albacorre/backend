@@ -474,10 +474,21 @@ private async ensureWalletExists(userId: string): Promise<void> {
       message: string;
     }
   > {
-    const { email, phoneNumber, password } = loginDto;
+    // const { email, phoneNumber, password } = loginDto;
 
-    const user = await this.userRepository.findExistingUser(email, phoneNumber);
+    // const user = await this.userRepository.findExistingUser(email, phoneNumber);
+  const { password } = loginDto;
 
+const email =
+  verificationMethod === 'email' ? identifier : undefined;
+
+const phoneNumber =
+  verificationMethod === 'phone' ? identifier : undefined;
+
+const user = await this.userRepository.findExistingUser(
+  email,
+  phoneNumber,
+);
 
     if (!user) {
       throw new NotFoundException(
