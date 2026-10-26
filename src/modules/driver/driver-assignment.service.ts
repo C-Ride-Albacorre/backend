@@ -4,6 +4,7 @@ import {
   Inject,
   BadRequestException,
   forwardRef,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -50,7 +51,6 @@ export class DriverAssignmentService {
     @Inject(forwardRef(() => DriverGateway))
     public readonly driverGateway: DriverGateway,
     private configService: ConfigService,
-    @Inject(forwardRef(() => OrderService))
     private readonly driverOnlineHoursService: DriverOnlineHoursService,
     private readonly driverService: DriverService,
     private readonly notificationService: NotificationService
@@ -2141,9 +2141,83 @@ async handleNoDrivers(orderId: string, attempt: number = 1): Promise<void> {
     }
   }
 
-
-
   async updateDriverStatus(driverId: string, status: DriverStatus): Promise<void> {
+  // 1. Validate transition
+  const currentDriver = await this.prisma.driverProfile.findUnique({
+    where: { userId: driverId },
+    select: { status: true },
+  });
+  if (!currentDriver) {
+    throw new NotFoundException(`Driver ${driverId} not found`);
+  }
+
+  const oldStatus = currentDriver.status;
+
+  if (oldStatus === status) {
+    this.logger.debug(`Driver ${driverId} already ${status}, no-op`);
+    return;
+  }
+
+  if (status === DriverStatus.OFFLINE && oldStatus === DriverStatus.BUSY) {
+    this.logger.warn(`Driver ${driverId} attempted to go offline while BUSY`);
+    throw new BadRequestException('Cannot go offline while handling an order');
+  }
+
+  // 2. Persist the status change (conditional to avoid lost updates)
+  const { count } = await this.prisma.driverProfile.updateMany({
+    where: { userId: driverId, status: oldStatus },
+    data: { status },
+  });
+  if (count === 0) {
+    throw new ConflictException('Driver status changed concurrently, please retry');
+  }
+
+  // 3. Hours tracking — best-effort, never fails the request
+  await this.safeTrackStatusChange(driverId, oldStatus, status);
+
+  // 4. Redis side-effects — best-effort, logged
+  try {
+    if (status === DriverStatus.OFFLINE) {
+      await this.cleanupDriverPendingClaims(driverId);
+      // await this.redis.srem('online_drivers', driverId);
+    } else if (status === DriverStatus.ONLINE) {
+      await this.redis.sadd('online_drivers', driverId);
+    }
+  } catch (err) {
+    this.logger.error(
+      `Redis side-effects failed for driver ${driverId} → ${status}: ${(err as Error).message}`,
+      (err as Error).stack,
+    );
+  }
+
+  this.logger.log(`Driver ${driverId} status: ${oldStatus} → ${status}`);
+}
+
+private async safeTrackStatusChange(
+  driverId: string,
+  oldStatus: DriverStatus,
+  newStatus: DriverStatus,
+): Promise<void> {
+  const svc = this.driverOnlineHoursService as any;
+  if (typeof svc?.onDriverStatusChange !== 'function') {
+    this.logger.error(
+      `DriverOnlineHoursService.onDriverStatusChange missing (ctor=${svc?.constructor?.name}). ` +
+      `Hours not tracked for ${driverId} ${oldStatus}→${newStatus}. Check build/deploy.`,
+    );
+    return;
+  }
+  try {
+    await svc.onDriverStatusChange(driverId, oldStatus, newStatus);
+  } catch (err) {
+    this.logger.error(
+      `onDriverStatusChange failed for ${driverId} ${oldStatus}→${newStatus}: ${(err as Error).message}`,
+      (err as Error).stack,
+    );
+  }
+}
+
+
+  async updateDriverStatusbklatest(driverId: string, status: DriverStatus): Promise<void> {
   try {
     // 1. Fetch current status to validate transition
     const currentDriver = await this.prisma.driverProfile.findUnique({
