@@ -10,7 +10,7 @@ import { DriverModule } from '../driver/driver.module';
 @Module({
   imports: [
     forwardRef(() => DriverModule),
-  ], 
+  ],
   controllers: [NotificationController],
   providers: [
     NotificationService,

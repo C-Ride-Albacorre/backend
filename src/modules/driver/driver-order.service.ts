@@ -43,7 +43,6 @@ export class DriverOrderService {
   }
 
   // 3. Transition order status (idempotent – if already PICKED_UP, Prisma will throw)
-  // await this.driverAssignmentService.transition(orderId, OrderStatus.PICKED_UP, {
   await this.orderService.transition(orderId, OrderStatus.PICKED_UP, {
     actorId: driverId,
     actorRole: Role.DISPATCHER, 
@@ -53,19 +52,4 @@ export class DriverOrderService {
   this.logger.log(`Driver ${driverId} confirmed pickup for order ${orderId}`);
 }
 
-  async confirmPickupOld(orderId: string, driverId: string) {
-    // await this.driverAssignmentService.transition(
-    await this.orderService.transition(
-      orderId,
-      OrderStatus.PICKED_UP,
-      {
-        actorId: driverId,
-        actorRole: Role.DISPATCHER,
-        respondedAt: new Date()
-      },
-    );
-    // Switch navigation to leg2: vendor → customer
-    //await this.mapGateway.switchToCustomerLeg(orderId);
-    await this.driverAssignmentService.switchToCustomerLeg(orderId, driverId);
-  }
 }

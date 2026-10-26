@@ -38,14 +38,9 @@ import { REDIS_CLIENT } from '../redis/redis.provider';
 import Redis from 'ioredis';
 import { DriverHistoryDto } from '../driver/dto/driver-history.dto';
 import { QUEUES } from '../../shared/constants';
+import { TransitionContext } from '../../shared/types';
 
-type TransitionContext = {
-  actorId?: string;
-  actorRole?: Role;
-  reason?: string;
-  metadata?: any;
-  respondedAt?: Date;
-};
+
 
 @Injectable()
 export class OrderService {
@@ -56,15 +51,11 @@ export class OrderService {
     private readonly prisma: PrismaService,
     private readonly cartService: CartService,
     @Inject(REDIS_CLIENT) public redis: Redis,
-    //private driverAssignment: DriverAssignmentService,
-
     @Inject(forwardRef(() => DriverAssignmentService))
     private readonly driverAssignment: DriverAssignmentService,
     private notification: NotificationService,
-    //    @InjectQueue('order-events') private orderQueue: Queue,
     @InjectQueue(QUEUES.ORDER_EVENTS) private orderQueue: Queue,
-  
-    private mapGateway: MapGateway // 👈 inject the gateway
+    private mapGateway: MapGateway 
 
   ) { }
 
@@ -1413,15 +1404,17 @@ export class OrderService {
     );
     if (!isVendorStore) throw new ForbiddenException('Not your store');
 
-    const existingAction = await this.prisma.order.findUnique({
-      where: { id: orderId },
-    });
-    // if (existingAction?.orderStatus === OrderStatus.ORDER_ACCEPTED || existingAction?.orderStatus === OrderStatus.CANCELLED) {
-    //   this.logger.warn(`Vendor ${vendorId} attempted to respond to order ${orderId} which is already ${existingAction.orderStatus}`);
-    //   throw new ForbiddenException(`Order already responded to with status ${existingAction.orderStatus}`);
+    // const existingAction = await this.prisma.order.findUnique({
+    //   where: { id: orderId },
+    // });
+  
+    // if (existingAction?.orderStatus !== OrderStatus.CONFIRMED) {
+    //   throw new ConflictException(`Order already processed: ${existingAction.orderStatus}`);
     // }
-    if (existingAction?.orderStatus !== OrderStatus.CONFIRMED) {
-      throw new ConflictException(`Order already processed: ${existingAction.orderStatus}`);
+    if (order.orderStatus !== OrderStatus.CONFIRMED) {
+      throw new ConflictException(
+        `Order already processed: ${order.orderStatus}`,
+      );
     }
 
     if (dto.action === 'ACCEPT') {
