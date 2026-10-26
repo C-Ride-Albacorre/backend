@@ -76,6 +76,41 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     };
   }
 
+  // async handleConnection(client: Socket) {
+  //   try {
+  //     const token = client.handshake.auth.token;
+  //     const driverId = client.handshake.query.driverId as string;
+
+  //     if (!token || !driverId) {
+  //       this.logger.warn(`Connection rejected: missing token or driverId`);
+  //       client.disconnect();
+  //       return;
+  //     }
+
+  //     // Verify JWT token
+  //     const decoded = this.jwtService.verify(token);
+  //     if (decoded.sub !== driverId) {
+  //       this.logger.warn(`Connection rejected: token mismatch`);
+  //       client.disconnect();
+  //       return;
+  //     }
+
+  //     // Store connection
+  //     this.driverSockets.set(driverId, client.id);
+  //     client.data.driverId = driverId;
+  //     client.data.user = { id: driverId }; // add this
+
+  //     this.logger.log(`Driver ${driverId} connected with socket ${client.id}`);
+
+  //     // Send connection confirmation
+  //     client.emit('connected', { driverId, status: 'online' });
+  //   } catch (error) {
+  //     this.logger.error(`Connection error: ${error}`);
+  //     client.disconnect();
+  //   }
+  // }
+
+  
   async handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth.token;
@@ -98,18 +133,82 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Store connection
       this.driverSockets.set(driverId, client.id);
       client.data.driverId = driverId;
-      client.data.user = { id: driverId }; // add this
+      client.data.user = { id: driverId };
 
       this.logger.log(`Driver ${driverId} connected with socket ${client.id}`);
 
       // Send connection confirmation
       client.emit('connected', { driverId, status: 'online' });
+
+      // ---------------------------------------------------------
+      // 🚨 NEW: SYNC CURRENT STATE ON CONNECT
+      // ---------------------------------------------------------
+      await this.syncDriverState(client, driverId);
+      
     } catch (error) {
       this.logger.error(`Connection error: ${error}`);
       client.disconnect();
     }
   }
 
+  /**
+   * Fetches the driver's current location and pushes all eligible
+   * orders to the client immediately so their UI is populated.
+   */
+  private async syncDriverState(client: Socket, driverId: string) {
+    try {
+      // 1. Get driver profile (to get lat/lng and status)
+      const profile = await this.driverService.getDriverProfileForSync(driverId);
+      
+      if (!profile || profile.status !== DriverStatus.ONLINE || !profile.latitude || !profile.longitude) {
+        this.logger.warn(`Cannot sync orders: Driver ${driverId} is offline or has no location`);
+        return;
+      }
+
+      // 2. Fetch all available orders using the existing fallback logic
+      const orders = await this.driverService.findAvailableOrders(
+        driverId,
+        profile.latitude,
+        profile.longitude,
+        20, // Maximum radius; the service clamps to order-specific radius anyway
+      );
+
+      // 3. Format and emit the batch
+      const batchPayload = {
+        type: 'order-batch',
+        orders: orders.map((o) => ({
+          order_id: o.order_id,
+          order_number: o.order_number,
+          order_status: o.order_status,
+          total_amount: o.total_amount,
+          delivery_fee: o.delivery_fee,
+          pickup_location: o.pickup_location,
+          dropoff_location: o.dropoff_location,
+          created_at: o.created_at,
+          store_id: o.store_id,
+          store_name: o.store_name,
+          store_logo: o.store_logo,
+          store_lat: o.store_lat,
+          store_lng: o.store_lng,
+          distance_meters: o.distance_meters,
+          order_type: o.order_type,
+          rn: '1',
+          items: o.items,
+        })),
+      };
+
+      // 4. Emit the event
+      client.emit('sync-orders', batchPayload);
+      
+      this.logger.log(`Synced ${orders.length} orders to driver ${driverId} on connect`);
+
+    } catch (error) {
+      this.logger.error(`Failed to sync orders for driver ${driverId}: ${error}`);
+      // Optional: Emit an empty batch so the app knows the sync finished but found nothing
+      client.emit('sync-orders', { type: 'order-batch', orders: [] });
+    }
+  }
+  
   handleDisconnect(client: Socket) {
     const driverId = client.data.driverId;
     if (driverId) {
