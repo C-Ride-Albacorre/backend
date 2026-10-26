@@ -5,6 +5,7 @@ import {
   BadRequestException,
   forwardRef,
   ConflictException,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
