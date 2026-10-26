@@ -54,8 +54,9 @@ import { WalletService } from '../wallet/wallet.service';
 import { DriverEarningsQueryDto } from './dto/driver-earnings-query.dto';
 import { RequestPayoutDto } from './dto/request-payout.dto';
 import { PaginationDto } from './dto/pagination.dto';
+import { Throttle } from '@nestjs/throttler';
 
-@ApiTags('Dispatcher')
+@ApiTags('Driver')
 @Controller('driver')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()
@@ -245,6 +246,7 @@ STEP 3 – Final Step: Review (Optional save before uploads)
   //////////// DRIVER ASSIGNMENT AND TRACKING ////////////////////
 
   @Get('available-orders')
+  @Throttle({default: {limit:30, ttl: 60_000}}) // 1 request per 30 seconds per driver
   @ApiOperation({
     summary: 'Get available nearby orders for driver',
     description: 'Returns a list of available orders near the driver location.',

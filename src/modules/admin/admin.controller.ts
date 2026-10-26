@@ -72,6 +72,7 @@ import { Request } from 'express';
 import { DriverPayoutService } from './driver-payout.service';
 import { GeneratePayoutsDto, ListPayoutsDto, UpdatePayoutStatusDto } from './dto/payout/driver-payout.dto';
 import { UpdateDispatcherDto } from './dto/update-dispatcher.dto';
+import { AdminDispatchService } from './admin-dispatch.service';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -921,7 +922,7 @@ export class DriverPayoutController {
     return res.send(csv);
   }
 
-
+}
   // @Post('run-payouts')
   // @HttpCode(HttpStatus.OK)
   // @ApiOperation({
@@ -960,5 +961,194 @@ export class DriverPayoutController {
   //   return this.payoutScheduler.runNow(query.days ?? 7);
   // }
 
-}
+@ApiTags('Admin Manual Order Dispatch')
+@Controller('admin/dispatch')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@ApiBearerAuth()
+export class AdminDispatchController {
+  constructor(private readonly adminDispatch: AdminDispatchService) {}
+
+
+  ////////////
+
+// Top Bar: Stats
+  // Dashboard statistics
+  @Get('stats')
+  @ApiOperation({
+    summary: 'Get dashboard statistics',
+    description: 'Returns aggregate statistics for the admin dispatch dashboard.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Dashboard statistics retrieved successfully.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized.',
+  })
+  getStats() {
+    return this.adminDispatch.getDashboardStats();
+  }
+
+  // Right Sidebar: Driver Fleet
+  @Get('driver-fleet')
+  @ApiOperation({
+    summary: 'Get driver fleet',
+    description: 'Returns driver fleet information for the dispatch dashboard.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Driver fleet retrieved successfully.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized.',
+  })
+  getDriverFleet() {
+    return this.adminDispatch.getDriverFleet();
+  }
+
+  // Center: Order Queue
+  @Get('orders')
+  @ApiOperation({
+    summary: 'List dispatch orders',
+    description: 'Returns pending or active orders, optionally filtered by search.',
+  })
+  @ApiQuery({
+    name: 'tab',
+    required: false,
+    enum: ['pending', 'active'],
+    description: 'Order status tab to retrieve.',
+    example: 'pending',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    description: 'Optional search term for filtering orders.',
+    example: 'ORD-12345',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Orders retrieved successfully.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid query parameters.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized.',
+  })
+  listOrders(
+    @Query('tab') tab: 'pending' | 'active' = 'pending',
+    @Query('search') search?: string,
+  ) {
+    return this.adminDispatch.listOrders(tab, search);
+  }
+
+  // Manual assignment
+  @Post('orders/:orderId/assign')
+  @ApiOperation({
+    summary: 'Manually assign a driver',
+    description: 'Assigns a driver to an order using the authenticated admin account.',
+  })
+  @ApiParam({
+    name: 'orderId',
+    type: String,
+    description: 'ID of the order to assign.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['driverId'],
+      properties: {
+        driverId: {
+          type: 'string',
+          example: 'driver-123',
+          description: 'ID of the driver to assign.',
+        },
+        reason: {
+          type: 'string',
+          example: 'Manual assignment due to dispatch delay',
+          description: 'Optional reason for manual assignment.',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Driver assigned successfully.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid assignment request.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Order or driver not found.',
+  })
+  assign(
+    @GetUser() admin: any,
+    @Param('orderId') orderId: string,
+    @Body() body: { driverId: string; reason?: string },
+  ) {
+    return this.adminDispatch.manualAssign(orderId, admin.id, body);
+  }
+
+  // Manual cancellation
+  @Post('orders/:orderId/cancel')
+  @ApiOperation({
+    summary: 'Manually cancel an order',
+    description: 'Cancels an order through the admin dispatch workflow.',
+  })
+  @ApiParam({
+    name: 'orderId',
+    type: String,
+    description: 'ID of the order to cancel.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['reason'],
+      properties: {
+        reason: {
+          type: 'string',
+          example: 'No available drivers',
+          description: 'Reason for cancelling the order.',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Order cancelled successfully.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid cancellation request.',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Order not found.',
+  })
+  cancel(
+    @GetUser() admin: any,
+    @Param('orderId') orderId: string,
+    @Body() body: { reason: string },
+  ) {
+    return this.adminDispatch.manualCancel(orderId, admin.id, body);
+  }
+
+} 
+
 
