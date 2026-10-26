@@ -590,7 +590,7 @@ STEP 4 – Bank Details
    */
   @Post('verify-otp')
   @HttpCode(200)
-  @ApiConsumes('multipart/form-data')
+ @ApiConsumes('application/json')
   @ApiOperation({
     summary: 'Verify OTP and generate reset token',
     description:
