@@ -836,7 +836,16 @@ export class DriverService {
     }));
   }
 
-
+  async getDriverProfileForSync(driverId: string) {
+    return this.prisma.driverProfile.findUnique({
+      where: { userId: driverId },
+      select: {
+        status: true,
+        latitude: true,
+        longitude: true,
+      },
+    });
+  }
 
   /**
    * Find available orders within a given radius of a driver's location.
