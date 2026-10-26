@@ -167,8 +167,8 @@ private initializeFirebase(): void {
           .catch((e) => this.logger.error(e));
       } else {
         this.logger.error(
-          `Failed to send push to driver ${driverId}: ${error.message}`,
-          error.stack,
+          `Failed to send push to driver ${driverId}: ${error}`,
+          error,
         );
       }
       return false;
@@ -205,7 +205,7 @@ private initializeFirebase(): void {
     } catch (error) {
       this.logger.error(
         `Failed to send push to customer ${userId}`,
-        error.stack,
+        error,
       );
       return false;
     }
@@ -252,7 +252,7 @@ private initializeFirebase(): void {
       } catch (error) {
         this.logger.error(
           `Multicast send failed for batch starting at ${i}`,
-          error.stack,
+          error,
         );
         failure += batch.length;
       }
@@ -352,12 +352,14 @@ async sendToUser(
     return true;
   } catch (error) {
     this.logger.error(
-      `Failed to send push to user ${userId}: ${error.message}`,
-      error.stack,
+      `Failed to send push to user ${userId}: ${error}`,
+      error,
     );
     return false;
   }
 }
+
+
 
 
   /**

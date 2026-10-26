@@ -59,6 +59,8 @@ model User {
   initiatedWalletTxs    WalletTransaction[] @relation("WalletTxInitiator")
   approvedPayouts       DriverPayout[]      @relation("PayoutApprover")
   bankAccount           BankAccount?
+  ordersAsDriver        Order[]             @relation("OrderDriver")
+  ordersAssignedByAdmin Order[]             @relation("OrderAssignedByAdmin")
 
   @@index([email])
   @@index([phoneNumber])
@@ -433,7 +435,6 @@ model Order {
   vendorAcceptedAt       DateTime?
   vendorDeclinedAt       DateTime?
   chatMessages           ChatMessage[]
-  // deliveryOption       DeliveryOption?    @relation(fields: [deliveryOptionId], references: [id])
   deliveryOptionId       String?
   deliveryOption         VehicleTypeConfig? @relation(fields: [deliveryOptionId], references: [id])
   user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -452,6 +453,17 @@ model Order {
   deliveryDistanceKm     Decimal?           @db.Decimal(10, 3)
   deliveryDistanceSource String? // 'google_routes' | 'haversine'
   deliveryEtaSeconds     Int? // ← ADD: promised route duration at order time
+  dispatchRadiusMeters   Int?
+  assignedByAdminId      String?
+  assignedByAdmin        User?              @relation("OrderAssignedByAdmin", fields: [assignedByAdminId], references: [id])
+  manuallyAssignedAt     DateTime?
+  unacceptedAt           DateTime?
+  isVip                  Boolean            @default(false)
+  adminNotes             String? // e.g., "VIP customer — handle with care"
+  preparationTime        Int? // in mins (e.g., 18)
+  distanceToCustomer     Float? // in km (e.g., 4.2)
+  driverId               String?
+  driver                 User?              @relation("OrderDriver", fields: [driverId], references: [id],  onDelete: SetNull)
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -459,6 +471,7 @@ model Order {
   @@index([orderStatus])
   @@index([paymentStatus])
   @@index([createdAt])
+  @@index([orderStatus, createdAt])
 }
 
 model OrderItem {
@@ -848,6 +861,7 @@ enum OrderStatus {
   ORDER_ACCEPTED
   ORDER_ASSIGNED
   ORDER_DECLINED
+  UNACCEPTED
 }
 
 enum PaymentStatus {

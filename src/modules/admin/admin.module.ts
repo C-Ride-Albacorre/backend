@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AdminService } from './admin.service';
-import { AdminController, AdminWalletController, DriverPayoutController } from './admin.controller';
+import { AdminController, AdminDispatchController, AdminWalletController, DriverPayoutController } from './admin.controller';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { PrismaUserRepository } from '../user/repositories/prisma-user.repository';
 import { UserService } from '../user/user.service';
@@ -11,10 +11,21 @@ import { OrderModule } from '../order/order.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { DriverPayoutService } from './driver-payout.service';
 import { PaymentModule } from '../payment/payment.module';
+import { AdminDispatchService } from './admin-dispatch.service';
+import { DriverModule } from '../driver/driver.module';
+import { NotificationModule } from '../notification/notification.module';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUES } from '../../shared/constants';
 
 @Module({
-  controllers: [AdminController, AdminWalletController, DriverPayoutController],
-  imports: [VerificationModule, AuthModule, OrderModule, WalletModule, PaymentModule],
+  controllers: [AdminController, AdminWalletController, DriverPayoutController, AdminDispatchController],
+  imports: [VerificationModule, AuthModule, OrderModule, WalletModule, PaymentModule,
+    forwardRef(() => DriverModule),
+    forwardRef(() => NotificationModule),
+    BullModule.registerQueue({
+      name: QUEUES.NOTIFICATION,
+    }),
+  ],
   providers: [
     AdminService,
     UserService,
@@ -23,8 +34,9 @@ import { PaymentModule } from '../payment/payment.module';
       useClass: PrismaUserRepository,
     },
     VerificationService,
-    DriverPayoutService
+    DriverPayoutService,
+    AdminDispatchService
   ],
-  exports: [UserService, AbstractUserRepository, VerificationService, DriverPayoutService],
+  exports: [UserService, AbstractUserRepository, VerificationService, DriverPayoutService, AdminDispatchService],
 })
-export class AdminModule {}
+export class AdminModule { }

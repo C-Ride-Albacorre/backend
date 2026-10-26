@@ -67,3 +67,9 @@ export enum DashboardFilterTypes {
   THIS_YEAR = 'this_year',
   CUSTOM = 'custom',
 }
+
+export enum DriverDocumentType {
+  DRIVER_LICENSE = 'DRIVER_LICENSE',
+  VEHICLE_INSURANCE = 'VEHICLE_INSURANCE',
+  VEHICLE_REGISTRATION = 'VEHICLE_REGISTRATION',
+}

@@ -27,6 +27,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import Helper from '../../shared/utils/helpers';
 import { QUEUES } from '../../shared/constants';
+import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 
 export enum DriverDocumentType {
   DRIVER_LICENSE = 'DRIVER_LICENSE',
@@ -34,20 +35,6 @@ export enum DriverDocumentType {
   VEHICLE_REGISTRATION = 'VEHICLE_REGISTRATION',
 }
 
-type NearbyDriver = {
-  userId: string;
-  lat: number;
-  lng: number;
-};
-
-const CLAIM_SCRIPT = `
-  if redis.call('EXISTS', KEYS[1]) == 1 and redis.call('SETNX', KEYS[2], ARGV[1]) == 1 then
-    redis.call('DEL', KEYS[1])
-    return 1
-  else
-    return 0
-  end
-`;
 
 @Injectable()
 export class DriverService {
@@ -67,8 +54,9 @@ export class DriverService {
     @Inject(forwardRef(() => OrderService))
     private readonly orderService: OrderService,
     private readonly ratingService: RatingService,
-    //@InjectQueue('driver-assignment') private assignmentQueue: Queue,
     @InjectQueue(QUEUES.DRIVER_ASSIGNMENT) private assignmentQueue: Queue,
+    @Inject(forwardRef(() => DriverGateway))
+    public readonly driverGateway: DriverGateway,
 
   ) {
     this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');
@@ -607,7 +595,7 @@ export class DriverService {
     driverLng: number,
     radiusKm: number = this.DEFAULT_RADIUS_KM,
   ) {
-    console.log(
+      console.log(
       `[AVAILABLE ORDERS] driver=${driverId} ` +
       `lat=${driverLat} lng=${driverLng} radius=${radiusKm}km`,
     );
@@ -698,46 +686,14 @@ export class DriverService {
     // ---------------------------------------------------------
     // 6. Find geographically eligible orders
     // ---------------------------------------------------------
-    //
-    // The distance calculation is performed in PostgreSQL.
-    //
-    // The order is eligible ONLY when:
-    //
-    // distance(driver -> store) <= effectiveRadiusKm
-    //
-    // Redis is deliberately NOT involved in this decision.
-    //
-
     const latitudeDelta = effectiveRadiusKm / 111.0;
-
-    const longitudeCos = Math.cos(
-      (driverLat * Math.PI) / 180,
-    );
-
+    const longitudeCos = Math.cos((driverLat * Math.PI) / 180);
     const longitudeDelta =
       longitudeCos > 0.000001
         ? effectiveRadiusKm / (111.0 * longitudeCos)
         : 180;
 
-    const availableOrders =
-      await this.prisma.$queryRaw<
-        Array<{
-          order_id: string;
-          order_number: string;
-          order_status: string;
-          total_amount: number;
-          delivery_fee: number;
-          pickup_location: any;
-          dropoff_location: any;
-          created_at: Date;
-          store_id: string;
-          store_name: string;
-          store_logo: string | null;
-          store_lat: number;
-          store_lng: number;
-          distance_meters: number;
-        }>
-      >`
+    const availableOrders = await this.prisma.$queryRaw<any[]>`
     WITH order_store_distances AS (
       SELECT
         o.id AS order_id,
@@ -748,13 +704,12 @@ export class DriverService {
         o."pickupLocation" AS pickup_location,
         o."dropoffLocation" AS dropoff_location,
         o."createdAt" AS created_at,
-
+        o."dispatchRadiusMeters" AS dispatch_radius_meters,
         s.id AS store_id,
         s."storeName" AS store_name,
         s."storeLogo" AS store_logo,
         s.latitude AS store_lat,
         s.longitude AS store_lng,
-
         (
           6371000 * ACOS(
             LEAST(
@@ -763,207 +718,122 @@ export class DriverService {
                 -1.0,
                 COS(RADIANS(${driverLat}))
                 * COS(RADIANS(s.latitude))
-                * COS(
-                  RADIANS(s.longitude)
-                  - RADIANS(${driverLng})
-                )
+                * COS(RADIANS(s.longitude) - RADIANS(${driverLng}))
                 + SIN(RADIANS(${driverLat}))
                 * SIN(RADIANS(s.latitude))
               )
             )
           )
         ) AS distance_meters
-
       FROM "Order" o
-
-      INNER JOIN "OrderItem" oi
-        ON oi."orderId" = o.id
-
-      INNER JOIN "Store" s
-        ON s.id = oi."storeId"
-
+      INNER JOIN "OrderItem" oi ON oi."orderId" = o.id
+      INNER JOIN "Store" s ON s.id = oi."storeId"
       WHERE
-        o."orderStatus" = 'ORDER_ACCEPTED'
-
+        o."orderStatus" = 'ORDER_ACCEPTED' -- NEVER include UNACCEPTED here
+        AND o."createdAt" > NOW() - INTERVAL '30 minutes' -- Prevent stale orders
         AND s.latitude IS NOT NULL
         AND s.longitude IS NOT NULL
-
-        AND s.latitude BETWEEN
-          ${driverLat - latitudeDelta}
-          AND
-          ${driverLat + latitudeDelta}
-
-        AND s.longitude BETWEEN
-          ${driverLng - longitudeDelta}
-          AND
-          ${driverLng + longitudeDelta}
+        AND s.latitude BETWEEN ${driverLat - latitudeDelta} AND ${driverLat + latitudeDelta}
+        AND s.longitude BETWEEN ${driverLng - longitudeDelta} AND ${driverLng + longitudeDelta}
     )
-
-    SELECT
-      order_id,
-      order_number,
-      order_status,
-      total_amount,
-      delivery_fee,
-      pickup_location,
-      dropoff_location,
-      created_at,
-      store_id,
-      store_name,
-      store_logo,
-      store_lat,
-      store_lng,
-      distance_meters
-
-    FROM order_store_distances
-
+    SELECT * FROM order_store_distances
     WHERE distance_meters <= ${radiusMeters}
-
+      AND distance_meters <= COALESCE(dispatch_radius_meters, ${radiusMeters})
     ORDER BY distance_meters ASC
-
     LIMIT 20;
-  `;
-
-
+    `;
 
     // ---------------------------------------------------------
-    // 7. Defensive server-side verification
+    // 7. Defensive server-side verification + Declined filter
     // ---------------------------------------------------------
-    //
-    // PostgreSQL already filtered the orders.
-    //
-    // This additional check protects against unexpected
-    // floating-point/database issues and makes the geographic
-    // rule explicit in application code.
-    //
-
-    const geographicallyValidOrders =
-      availableOrders.filter((order) => {
-        const distance =
-          Number(order.distance_meters);
-
-        return (
-          Number.isFinite(distance) &&
-          distance >= 0 &&
-          distance <= radiusMeters
-        );
-      });
-
-    console.log(
-      `[AVAILABLE ORDERS] driver=${driverId} ` +
-      `found=${geographicallyValidOrders.length}`,
-    );
-
-    // Useful while debugging location problems.
-    for (const order of geographicallyValidOrders) {
-      console.log(
-        `[AVAILABLE ORDER] ` +
-        `driver=${driverId} ` +
-        `order=${order.order_id} ` +
-        `store=${order.store_id} ` +
-        `storeLocation=(${order.store_lat}, ${order.store_lng}) ` +
-        `distance=${order.distance_meters}m`,
-      );
+    let declinedSet = new Set<string>();
+    try {
+      const declined = await this.redis.smembers(`driver:${driverId}:declined`);
+      declinedSet = new Set(declined);
+    } catch (err) {
+      this.logger.warn(`declined-set lookup failed for ${driverId}: ${err}`);
     }
+
+    const geographicallyValidOrders = availableOrders.filter((order) => {
+      const distance = Number(order.distance_meters);
+      return (
+        Number.isFinite(distance) &&
+        distance >= 0 &&
+        distance <= radiusMeters &&
+        !declinedSet.has(order.order_id) // Filter declined
+      );
+    });
 
     if (!geographicallyValidOrders.length) {
       return [];
     }
 
     // ---------------------------------------------------------
-    // 8. Renew ONLY existing pending keys
+    // 8. Claim or renew pending keys (FIXED: handles late acceptance)
     // ---------------------------------------------------------
-    //
-    // IMPORTANT:
-    //
-    // Redis is NOT used to decide whether an order is within
-    // range.
-    //
-    // It is only used to maintain an existing pending/claim
-    // relationship.
-    //
-    // EXPIRE on a non-existent key does nothing.
-    //
-    // Therefore we first check the keys before renewing them.
-    //
-
-    const pipeline =
-      this.redis.pipeline();
-
+    const pipeline = this.redis.pipeline();
     for (const order of geographicallyValidOrders) {
-      const pendingKey =
-        `order:${order.order_id}:pending:${driverId}`;
+      pipeline.exists(`order:${order.order_id}:pending:${driverId}`);
+    }
+    const existsResults = await pipeline.exec();
 
-      const driverPendingSet =
-        `driver:${driverId}:pending_claims`;
+    const claimPipeline = this.redis.pipeline();
+    const newlyClaimed: string[] = [];
 
-      pipeline.exists(pendingKey);
+    geographicallyValidOrders.forEach((order, index) => {
+      const existsResult = existsResults?.[index];
+      const exists = Array.isArray(existsResult) && Number(existsResult[1]) === 1;
+
+      const pendingKey = `order:${order.order_id}:pending:${driverId}`;
+      const driverPendingSet = `driver:${driverId}:pending_claims`;
+      const orderPendingDrivers = `order:${order.order_id}:pending_drivers`;
+
+      if (exists) {
+        claimPipeline.expire(pendingKey, this.TTL_SECONDS);
+      } else {
+        claimPipeline.setex(pendingKey, this.TTL_SECONDS, 'pending');
+        newlyClaimed.push(order.order_id);
+      }
+      claimPipeline.sadd(driverPendingSet, order.order_id);
+      claimPipeline.sadd(orderPendingDrivers, driverId);
+    });
+
+    await claimPipeline.exec();
+
+    // Queue timeouts for new claims
+    for (const orderId of newlyClaimed) {
+      await this.assignmentQueue.add(
+        'driver-response-timeout',
+        { orderId, driverId },
+        {
+          delay: this.TTL_SECONDS * 1000,
+          jobId: `timeout-${orderId}-${driverId}`,
+          removeOnComplete: true,
+        }
+      ).catch(() => null);
     }
 
-    const existsResults =
-      await pipeline.exec();
-
-    const renewPipeline =
-      this.redis.pipeline();
-
-    geographicallyValidOrders.forEach(
-      (order, index) => {
-        const existsResult =
-          existsResults?.[index];
-
-        const exists =
-          Array.isArray(existsResult)
-            ? Number(existsResult[1]) === 1
-            : false;
-
-        if (!exists) {
-          return;
-        }
-
-        const pendingKey =
-          `order:${order.order_id}:pending:${driverId}`;
-
-        renewPipeline.expire(
-          pendingKey,
-          this.TTL_SECONDS,
-        );
-      },
-    );
-
-    await renewPipeline.exec();
-
     // ---------------------------------------------------------
-    // 9. Get item summaries
+    // 9. Get item summaries (FIXED: removed duplicate call)
     // ---------------------------------------------------------
-
-    const orderIds =
-      geographicallyValidOrders.map(
-        (order) => order.order_id,
-      );
-
-    const itemsSummary =
-      await this.getOrderItemsSummary(orderIds);
+    const orderIds = geographicallyValidOrders.map((o) => o.order_id);
+    let itemsSummary: Record<string, any[]> = {};
+    
+    try {
+      itemsSummary = await this.getOrderItemsSummary(orderIds);
+    } catch (error) {
+      this.logger.error(`Failed to get order items summary: ${error}`);
+    }
 
     // ---------------------------------------------------------
     // 10. Return orders
     // ---------------------------------------------------------
-
-    return geographicallyValidOrders.map(
-      (order) => ({
-        ...order,
-
-        // Make sure distance is always a number.
-        distance_meters: Number(
-          order.distance_meters,
-        ),
-
-        distance_km:
-          Number(order.distance_meters) / 1000,
-
-        items:
-          itemsSummary[order.order_id] || [],
-      }),
-    );
+    return geographicallyValidOrders.map((order) => ({
+      ...order,
+      distance_meters: Number(order.distance_meters),
+      distance_km: Number(order.distance_meters) / 1000,
+      items: itemsSummary[order.order_id] || [],
+    }));
   }
 
 
@@ -1260,113 +1130,119 @@ export class DriverService {
   }
 
 
-  async declineOrder(
-    orderId: string,
+   async declineOrder(
     driverId: string,
+    orderId: string,
     reason?: string,
-  ) {
-    // Guard against missing IDs
+  ): Promise<{ success: boolean; note?: string }> {
     if (!orderId || !driverId) {
       throw new BadRequestException('orderId and driverId are required');
     }
 
-    const allowedStatuses: OrderStatus[] = [
-      OrderStatus.ORDER_ACCEPTED,
-      OrderStatus.ORDER_ASSIGNED,
-      OrderStatus.PICKED_UP,
-    ];
+    const pendingKey = `order:${orderId}:pending:${driverId}`;
+    const notifiedKey = `order:${orderId}:notified_drivers`;
+    const driverSetKey = `order:${orderId}:pending_drivers`;
 
+    // 1. Fast atomic claim
+    const claimed = await this.redis.del(pendingKey);
+    if (claimed === 0) {
+      this.logger.debug(
+        `Driver ${driverId} decline for ${orderId}: no pending key; ignoring`,
+      );
+      return { success: true, note: 'ALREADY_RESOLVED' };
+    }
+
+    // 2. Clean up all Redis state (including the keys you missed)
+    await this.redis.srem(notifiedKey, driverId);
+    await this.redis.srem(driverSetKey, driverId);
+    await this.redis.srem(`driver:${driverId}:pending_claims`, orderId);
+
+    // 3. Remember the decline
+    await this.redis.sadd(`driver:${driverId}:declined`, orderId);
+    await this.redis.expire(`driver:${driverId}:declined`, 3600);
+
+    // 4. Cancel this driver's timeout
+    await this.assignmentQueue
+      .remove(`timeout-${orderId}-${driverId}`)
+      .catch(() => {});
+
+    // 5. Transaction: safely reset order if still ACCEPTED
     const result = await this.prisma.$transaction(async (tx) => {
-      // 1. Fetch the order and its ID explicitly
       const order = await tx.order.findUnique({
         where: { id: orderId },
-        select: {
-          id: true, // ← explicitly select the ID
-          orderStatus: true,
-          driverAssignment: { select: { driverId: true } },
-        },
+        select: { orderStatus: true, dispatchRadiusMeters: true },
       });
 
-      if (!order) {
-        throw new NotFoundException('Order not found');
+      if (!order) throw new NotFoundException('Order not found');
+
+      // If the order is no longer ACCEPTED, just log and exit (no retry)
+      if (order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+        await tx.orderActivityLog.create({
+          data: {
+            orderId,
+            actorId: driverId,
+            actorRole: Role.DISPATCHER,
+            action: 'DRIVER_DECLINED',
+            reason: reason ?? 'Order status changed before decline',
+          },
+        });
+        return { ok: true, wasAccepted: false };
       }
 
-      if (!allowedStatuses.includes(order.orderStatus)) {
-        throw new BadRequestException(
-          `Order is in status "${order.orderStatus}" and cannot be declined.`,
-        );
-      }
-
-      if (
-        order.orderStatus === OrderStatus.ORDER_ASSIGNED &&
-        order.driverAssignment?.driverId !== driverId
-      ) {
-        throw new ForbiddenException(
-          'This driver is not assigned to this order',
-        );
-      }
-
-      const previousStatus = order.orderStatus;
-
-      // 2. Update order using the ID from the fetched record
-      await tx.order.update({
-        where: { id: order.id }, // ← use order.id, not the parameter
-        data: { orderStatus: OrderStatus.ORDER_ACCEPTED },
-      });
-
-      // 3. Clear driver assignment
+      // Order is still ACCEPTED — ensure the DB matches the Redis state
+      // (This handles the case where an admin manually assigned, but the driver declined)
       await tx.driverAssignment.updateMany({
-        where: { orderId: order.id, driverId },
-        data: {
-          driverId: null,
-          assignmentStatus: 'PENDING',
-        },
+        where: { orderId, driverId },
+        data: { assignmentStatus: AssignmentStatus.PENDING, driverId: null },
       });
 
-      // 4. Bring driver back online
-      await tx.driverProfile.update({
-        where: { userId: driverId },
-        data: { status: 'ONLINE' },
+      await tx.driverProfile.updateMany({
+        where: { userId: driverId, status: DriverStatus.BUSY },
+        data: { status: DriverStatus.ONLINE },
       });
 
-      // 5. Log activity
       await tx.orderActivityLog.create({
         data: {
-          orderId: order.id,
+          orderId,
           actorId: driverId,
           actorRole: Role.DISPATCHER,
           action: 'DRIVER_DECLINED',
-          reason: reason || 'No reason provided',
-          metadata: { previousStatus, timestamp: new Date().toISOString() },
+          fromStatus: OrderStatus.ORDER_ACCEPTED,
+          toStatus: OrderStatus.ORDER_ACCEPTED,
+          reason: reason ?? null,
         },
       });
 
-      return { orderId: order.id, driverId, previousStatus };
+      return { ok: true, wasAccepted: true, radius: order.dispatchRadiusMeters };
     });
 
-    // --- Redis cleanup (unchanged, but wrap in try/catch) ---
-    try {
-      const redis = this.redis;
-      if (redis) {
-        await redis.srem(`order:${result.orderId}:candidates`, driverId);
-        const assignedKey = `order:${result.orderId}:driver`;
-        const current = await redis.get(assignedKey);
-        if (current === driverId) await redis.del(assignedKey);
-        await redis.del(`driver:${driverId}:active_order`);
-      }
-
-      await this.assignmentQueue
-        .removeJobScheduler(`eta-${result.orderId}`)
-        .catch((err) => this.logger.warn(`Failed to remove ETA scheduler`, err));
-
-      this.logger.log(
-        `Driver ${driverId} declined order ${result.orderId} from ${result.previousStatus}`,
-      );
-    } catch (redisErr) {
-      this.logger.error(`Redis cleanup failed for order ${result.orderId}`, redisErr);
+    // 6. Post-transaction logic
+    if (!result.wasAccepted) {
+      this.driverGateway.emitOrderRemoved(driverId, orderId);
+      return { success: true, note: 'ORDER_NO_LONGER_ACCEPTED' };
     }
 
-    return { success: true, orderId: result.orderId };
+    // 7. If no one else is pending, trigger retry ladder
+    const remaining = await this.redis.scard(driverSetKey);
+    if (remaining === 0) {
+      await this.redis.del(`order:${orderId}:dispatch_lock`).catch(() => {});
+      await this.assignmentQueue.add(
+        'retry-driver-search',
+        {
+          orderId,
+          radius: result.radius ?? 5000,
+          attempt: 1,
+        },
+        {
+          delay: 1000,
+          jobId: `decline-retry-${orderId}-${Date.now()}`,
+          removeOnComplete: true,
+        },
+      );
+    }
+
+    this.driverGateway.emitOrderRemoved(driverId, orderId);
+    return { success: true };
   }
 
   async declineOrderNew(

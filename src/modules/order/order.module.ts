@@ -16,9 +16,6 @@ import { QUEUES } from '../../shared/constants';
   imports: [
     RedisModule,
     BullModule.registerQueue(
-      // { name: 'order-events' },
-      // { name: 'notification' },
-      // { name: 'assignment' }, 
       { name: QUEUES.ORDER_EVENTS },
       { name: QUEUES.NOTIFICATION },
       { name: QUEUES.ASSIGNMENT },

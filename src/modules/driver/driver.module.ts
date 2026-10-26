@@ -21,9 +21,6 @@ import { QUEUES } from '../../shared/constants';
 @Module({
   imports: [
     BullModule.registerQueue(
-      //  { name: 'order-events' },
-      // { name: 'driver-notification' },
-      // { name: 'driver-assignment' },
       { name: QUEUES.ORDER_EVENTS },
       { name: QUEUES.DRIVER_NOTIFICATION },
       { name: QUEUES.DRIVER_ASSIGNMENT }
@@ -33,7 +30,8 @@ import { QUEUES } from '../../shared/constants';
     forwardRef(() => NotificationModule),
     forwardRef(() => AuthModule),
     forwardRef(() => RatingModule),
-    PaymentModule
+    PaymentModule,
+    
   ],
   controllers: [DriverController, DriverEarningsController,
     DriverWalletController],

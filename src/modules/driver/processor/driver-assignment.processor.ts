@@ -9,7 +9,6 @@ import { PushNotificationService } from '../../../modules/notification/push-noti
 import { OrderStatus } from '@prisma/client';
 import { QUEUES } from '../../../shared/constants';
 
-//@Processor('driver-assignment')
 @Processor(QUEUES.DRIVER_ASSIGNMENT)
 export class DriverAssignmentProcessor extends WorkerHost {
   private readonly logger = new Logger(DriverAssignmentProcessor.name);
@@ -17,7 +16,6 @@ export class DriverAssignmentProcessor extends WorkerHost {
   constructor(
     private driverAssignmentService: DriverAssignmentService,
     public readonly prisma: PrismaService,
-    //@InjectQueue('driver-assignment') public assignmentQueue: Queue,
     @InjectQueue(QUEUES.DRIVER_ASSIGNMENT) public assignmentQueue: Queue,
 
     private pushNotificationService: PushNotificationService,
@@ -31,6 +29,8 @@ export class DriverAssignmentProcessor extends WorkerHost {
         return this.driverAssignmentService.findAndNotifyDrivers(
           job.data.orderId,
           job.data.vendorLocation,
+          job.data.radiusMeters,
+          job.data.attempt
         );
       case 'assignment-timeout': {
         const { orderId } = job.data;
@@ -320,10 +320,46 @@ export class DriverAssignmentProcessor extends WorkerHost {
     return false;
   }
 
+private async handleDriverTimeout(job: Job<{ orderId: string; driverId: string }>) {
+    const { orderId, driverId } = job.data;
+    const service = this.driverAssignmentService;
+
+    const pendingKey = `order:${orderId}:pending:${driverId}`;
+    const driverPendingSet = `driver:${driverId}:pending_claims`;
+
+    // Atomic claim
+    const claimed = await service.redis.del(pendingKey);
+    if (!claimed) {
+      this.logger.debug(`Timeout for driver ${driverId}, order ${orderId} ignored – key already claimed`);
+      return;
+    }
+
+    await service.redis.srem(driverPendingSet, orderId);
+    await service.redis.srem(`order:${orderId}:pending_drivers`, driverId);
+
+    // DB check before proceeding
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { orderStatus: true },
+    });
+    if (!order || order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+      this.logger.debug(`Order ${orderId} is no longer ACCEPTED; not notifying next driver`);
+      return;
+    }
+
+    service.driverGateway?.emitRequestTimeout(driverId, orderId);
+
+    /////
+    const remaining = await service.redis.scard(`order:${orderId}:pending_drivers`);
+    this.logger.log(`Driver ${driverId} timed out for order ${orderId}. Remaining pending drivers: ${remaining}`);
+    if (remaining === 0) {
+      this.logger.warn(`No remaining pending drivers for order ${orderId}. Escalating to handleNoDrivers.`);
+      await service.tryNextDriver(orderId);
+    }
+  }
 
 
-
-  private async handleDriverTimeout(job: Job<{ orderId: string; driverId: string }>) {
+  private async handleDriverTimeoutOld(job: Job<{ orderId: string; driverId: string }>) {
     const { orderId, driverId } = job.data;
     const service = this.driverAssignmentService;
 

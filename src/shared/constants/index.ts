@@ -52,12 +52,6 @@ export const QUEUES = {
     ASSIGNMENT: '{assignment}',
     GEOCODE_STORE: '{geocode-store}',
     GEOCODE_STORE_JOB: '{geocode-store-job}',
-    // SEARCH_AND_NOTIFY: '{search-and-notify}',
-    // NOTIFY_DRIVER: '{notify-driver}',
-    // DRIVER_RESPONSE_TIMEOUT: '{driver-response-timeout}',
-    // ASSIGNMENT_TIMEOUT: '{assignment-timeout}',
-    // UPDATE_ETA: '{update-eta}',
-    // RETRY_DRIVER_SEARCH: '{retry-driver-search}',
 } as const;
 
 export type QueueName = typeof QUEUES[keyof typeof QUEUES];
