@@ -9,7 +9,7 @@ const { io } = require("socket.io-client");
 const SERVER_URL = "wss://backend-service-1rc7.onrender.com";
 
 const DRIVER_ID = "a8fb9168-b6bf-4ef9-9135-12f8b4bd69a2";
-const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhOGZiOTE2OC1iNmJmLTRlZjktOTEzNS0xMmY4YjRiZDY5YTIiLCJlbWFpbCI6ImNyaWRlZHJpdmVyQGdtYWlsLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc5MzA5NjM3MiwiZXhwIjoxNzkzMDk5OTcyfQ.-U9wRI3wLTXf1u5L6UMf33Tmb9jMTauq4LnjDkdjWKc"
+const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhOGZiOTE2OC1iNmJmLTRlZjktOTEzNS0xMmY4YjRiZDY5YTIiLCJlbWFpbCI6ImNyaWRlZHJpdmVyQGdtYWlsLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc5MzEwODk0MiwiZXhwIjoxNzkzMTEyNTQyfQ.S4FDCWbnE9utgev20MRTXVoWhGantHG-hDWX11wWXds"
 // --- Local State (mimics the mobile app) ---
 let orderList = [];
 
@@ -63,6 +63,8 @@ driverSocket.on("sync-orders", (payload) => {
     payload.orders.forEach((order) => orderList.push(order));
   }
 
+  console.log(`📦 Orders synced: ${orderList.length} orders received`);
+  console.dir(payload.orders, { depth: null });
   printState("sync-orders (Hard Reset)");
 });
 
@@ -79,6 +81,8 @@ driverSocket.on("new-order-request", (payload) => {
     }
   });
 
+  console.log(`📦 Orders merged: ${incoming.length} new orders received`);
+  console.dir(incoming, { depth: null });
   printState("new-order-request (Merged)");
 });
 

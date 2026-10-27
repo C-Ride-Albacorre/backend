@@ -156,6 +156,41 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
    * orders to the client immediately so their UI is populated.
    */
   private async syncDriverState(client: Socket, driverId: string) {
+  try {
+    const profile = await this.driverService.getDriverProfileForSync(driverId);
+    
+    // 🚨 ADD THESE LOGS
+    this.logger.log(
+      `[syncDriverState] driver=${driverId} profile=${JSON.stringify(profile)}`,
+    );
+
+    if (!profile || profile.status !== DriverStatus.ONLINE || !profile.latitude || !profile.longitude) {
+      this.logger.warn(
+        `[syncDriverState] Cannot sync: status=${profile?.status} lat=${profile?.latitude} lng=${profile?.longitude}`,
+      );
+      return;
+    }
+
+    const orders = await this.driverService.findAvailableOrders(
+      driverId,
+      profile.latitude,
+      profile.longitude,
+      20,
+    );
+
+    // 🚨 ADD THIS
+    this.logger.log(
+      `[syncDriverState] Found ${orders.length} orders for ${driverId}`,
+    );
+
+    // ... rest of the method ...
+  } catch (error) {
+    this.logger.error(`[syncDriverState] failed for ${driverId}: ${error}`);
+    client.emit('sync-orders', { type: 'order-batch', orders: [] });
+  }
+}
+
+  private async syncDriverStatebk(client: Socket, driverId: string) {
     try {
       // 1. Get driver profile (to get lat/lng and status)
       const profile = await this.driverService.getDriverProfileForSync(driverId);
@@ -208,7 +243,7 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('sync-orders', { type: 'order-batch', orders: [] });
     }
   }
-  
+
   handleDisconnect(client: Socket) {
     const driverId = client.data.driverId;
     if (driverId) {
