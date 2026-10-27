@@ -25,13 +25,29 @@ export class DriverAssignmentProcessor extends WorkerHost {
 
   async process(job: Job): Promise<any> {
     switch (job.name) {
-      case 'search-and-notify':
-        return this.driverAssignmentService.findAndNotifyDrivers(
-          job.data.orderId,
-          job.data.vendorLocation,
-          job.data.radiusMeters,
-          job.data.attempt
-        );
+      // case 'search-and-notify':
+      //   return this.driverAssignmentService.findAndNotifyDrivers(
+      //     job.data.orderId,
+      //     job.data.vendorLocation,
+      //     job.data.radiusMeters,
+      //     job.data.attempt
+      //   );
+      case 'search-and-notify': {
+        try {
+          return await this.driverAssignmentService.findAndNotifyDrivers(
+            job.data.orderId,
+            job.data.vendorLocation,
+            job.data.radiusMeters,
+            job.data.attempt,
+          );
+        } catch (err) {
+          this.logger.error(
+            `search-and-notify failed for ${job.data.orderId}: ${err instanceof Error ? err.stack : err
+            }`,
+          );
+          throw err;
+        }
+      }
       case 'assignment-timeout': {
         const { orderId } = job.data;
         const service = this.driverAssignmentService;
@@ -56,9 +72,30 @@ export class DriverAssignmentProcessor extends WorkerHost {
         break;
       }
 
+      // case 'retry-driver-search': {
+      //   const { orderId, radius, attempt } = job.data;
+      //   await this.driverAssignmentService.tryNextDriver(orderId, radius, attempt);
+      //   break;
+      // }
+
       case 'retry-driver-search': {
         const { orderId, radius, attempt } = job.data;
-        await this.driverAssignmentService.tryNextDriver(orderId, radius, attempt);
+        this.logger.log(
+          `retry-driver-search worker picked up order ${orderId} attempt=${attempt}`,
+        );
+        try {
+          await this.driverAssignmentService.tryNextDriver(
+            orderId,
+            radius,
+            attempt,
+          );
+        } catch (err) {
+          this.logger.error(
+            `retry-driver-search failed for ${orderId} attempt=${attempt}: ${err instanceof Error ? err.stack : err
+            }`,
+          );
+          throw err;   // let BullMQ retry (it has `attempts: 3` on the add)
+        }
         break;
       }
 
@@ -320,7 +357,7 @@ export class DriverAssignmentProcessor extends WorkerHost {
     return false;
   }
 
-private async handleDriverTimeout(job: Job<{ orderId: string; driverId: string }>) {
+  private async handleDriverTimeout(job: Job<{ orderId: string; driverId: string }>) {
     const { orderId, driverId } = job.data;
     const service = this.driverAssignmentService;
 
