@@ -265,6 +265,17 @@ export class DriverAssignmentService {
       `Finding nearby drivers for order ${orderId} radius=${radiusMeters}m attempt=${attempt}`,
     );
 
+     const drivers = await this.getNearbyDrivers(
+        vendorLocation.lat,
+        vendorLocation.lng,
+        radiusMeters,
+      );
+
+      if (!drivers.length) {
+        await this.handleNoDrivers(orderId, attempt);
+        return;
+      }
+
     const dispatchLockKey = `order:${orderId}:dispatch_lock`;
     try {
       const locked = await this.redis.set(
@@ -281,16 +292,7 @@ export class DriverAssignmentService {
         return;
       }
 
-      const drivers = await this.getNearbyDrivers(
-        vendorLocation.lat,
-        vendorLocation.lng,
-        radiusMeters,
-      );
-
-      if (!drivers.length) {
-        await this.handleNoDrivers(orderId, attempt);
-        return;
-      }
+     
 
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
@@ -1396,7 +1398,7 @@ export class DriverAssignmentService {
   }
 
 
-async handleNoDrivers(orderId: string, attempt: number = 1): Promise<void> {
+async handleNoDriverslatest(orderId: string, attempt: number = 1): Promise<void> {
   this.logger.warn(
     `No drivers found for order ${orderId}, attempt ${attempt}`,
   );
@@ -1498,6 +1500,143 @@ async handleNoDrivers(orderId: string, attempt: number = 1): Promise<void> {
     this.logger.warn(
       `emitOrderStatus(UNACCEPTED) failed for ${orderId}: ` +
         `${err instanceof Error ? err.message : err}`,
+    );
+  }
+}
+
+async handleNoDrivers(orderId: string, attempt: number = 1): Promise<void> {
+  this.logger.warn(
+    `handleNoDrivers called for ${orderId}, attempt=${attempt}`,
+  );
+
+  const maxRetries = this.retryRadiiMeters.length;
+
+  // ---- retry ladder ----
+  if (attempt <= maxRetries) {
+    const radius = this.retryRadiiMeters[attempt - 1];
+
+    try {
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: { dispatchRadiusMeters: radius },
+      });
+
+      await this.redis.del(`order:${orderId}:dispatch_lock`).catch(() => {});
+
+      this.logger.log(
+        `Retrying driver search for ${orderId} at ${radius}m (attempt ${attempt})`,
+      );
+      await this.assignmentQueue.add(
+        'retry-driver-search',
+        { orderId, radius, attempt: attempt + 1 },
+        {
+          delay: 30_000,
+          jobId: `retry-${orderId}-${attempt}`,
+          removeOnComplete: true,
+        },
+      );
+    } catch (err) {
+      this.logger.error(
+        `handleNoDrivers retry ladder failed for ${orderId} at attempt ${attempt}: ${
+          err instanceof Error ? err.stack : err
+        }`,
+      );
+      throw err;  // let BullMQ retry the job
+    }
+    return;
+  }
+
+  // ---- retries exhausted → UNACCEPTED ----
+  this.logger.error(
+    `No drivers after ${maxRetries} retries for ${orderId}; marking UNACCEPTED`,
+  );
+
+  let marked = false;
+  try {
+    marked = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.order.updateMany({
+        where: { id: orderId, orderStatus: OrderStatus.ORDER_ACCEPTED },
+        data: {
+          orderStatus: OrderStatus.UNACCEPTED,
+          unacceptedAt: new Date(),
+          statusHistory: {
+            push: {
+              status: OrderStatus.UNACCEPTED,
+              timestamp: new Date().toISOString(),
+              note: 'NO_DRIVERS_AFTER_RETRIES',
+              actorId: 'system',
+              actorRole: 'SYSTEM',
+            },
+          },
+        },
+      });
+      if (updated.count !== 1) return false;
+
+      await tx.driverAssignment.updateMany({
+        where: { orderId, assignmentStatus: AssignmentStatus.PENDING },
+        data: { assignmentStatus: AssignmentStatus.FAILED },
+      });
+
+      await tx.orderActivityLog.create({
+        data: {
+          orderId,
+          actorId: 'system',
+          actorRole: 'SYSTEM' as any,
+          action: 'NO_DRIVERS_AFTER_RETRIES',
+          toStatus: OrderStatus.UNACCEPTED,
+          reason: 'No available drivers after multiple attempts',
+        },
+      });
+
+      return true;
+    });
+  } catch (err) {
+    // 🚨 This is where you'll now SEE the real error instead of silence.
+    this.logger.error(
+      `Failed to mark ${orderId} as UNACCEPTED: ${
+        err instanceof Error ? err.stack : err
+      }`,
+    );
+    throw err;
+  }
+
+  if (!marked) {
+    this.logger.debug(
+      `Order ${orderId} already resolved; skipping UNACCEPTED side-effects`,
+    );
+    return;
+  }
+
+  // Drain pending candidates (which also emits order-removed)
+  await this.drainPendingCandidates(orderId);
+
+  // Notify admins (best-effort)
+  try {
+    await this.notificationService.sendUnacceptedAlert(orderId);
+  } catch (err) {
+    this.logger.error(
+      `sendUnacceptedAlert failed for ${orderId}: ${
+        err instanceof Error ? err.message : err
+      }`,
+    );
+  }
+
+  // Emit UNACCEPTED status to customer
+  try {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { statusHistory: true },
+    });
+    this.mapGateway.emitOrderStatus(
+      orderId,
+      OrderStatus.UNACCEPTED,
+      order?.statusHistory ?? [],
+    );
+  } catch (err) {
+    this.logger.warn(
+      `emitOrderStatus(UNACCEPTED) failed for ${orderId}: ${
+        err instanceof Error ? err.message : err
+      }`,
     );
   }
 }
@@ -2119,8 +2258,41 @@ async handleNoDrivers(orderId: string, attempt: number = 1): Promise<void> {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+async drainPendingCandidates(orderId: string): Promise<void> {
+  try {
+    const candidates = await this.redis.smembers(
+      `order:${orderId}:pending_drivers`,
+    );
 
-  async drainPendingCandidates(orderId: string): Promise<void> {
+    // Notify each candidate that the order is no longer available
+    for (const d of candidates) {
+      this.driverGateway.emitOrderRemoved(d, orderId);
+      await this.assignmentQueue
+        .remove(`timeout-${orderId}-${d}`)
+        .catch(() => {});
+    }
+
+    if (candidates.length) {
+      const pipeline = this.redis.pipeline();
+      for (const d of candidates) {
+        pipeline.del(`order:${orderId}:pending:${d}`);
+        pipeline.srem(`driver:${d}:pending_claims`, orderId);
+      }
+      pipeline.del(`order:${orderId}:pending_drivers`);
+      await pipeline.exec();
+    }
+
+    await this.redis.del(`order:${orderId}:dispatch_lock`).catch(() => {});
+  } catch (err) {
+    this.logger.warn(
+      `drainPendingCandidates(${orderId}) failed: ${
+        err instanceof Error ? err.message : err
+      }`,
+    );
+  }
+}
+
+  async drainPendingCandidatesbk(orderId: string): Promise<void> {
     try {
       const candidates = await this.redis.smembers(
         `order:${orderId}:pending_drivers`,
