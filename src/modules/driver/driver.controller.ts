@@ -112,7 +112,7 @@ STEP 1 – Personal Information
 STEP 2 – Vehicle Information
 --------------------------------
 {
-  "vehicleType": "CAR",
+  "vehicleTypeConfigId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "vehicleMake": "Toyota",
   "vehicleModel": "Corolla",
   "year": 2020,

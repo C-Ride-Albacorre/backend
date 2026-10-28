@@ -87,4 +87,10 @@ export class DriverOnboardingDto {
   @IsString()
   @IsNotEmpty()
   licensePlate: string;
+
+  // ---------- Step 3 (optional notes) ----------
+  @ApiProperty({ example: 'Any additional info', required: false })
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

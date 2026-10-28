@@ -101,6 +101,23 @@ export class DriverService {
 
       case 2:
         // Step 2: Vehicle Information → UPDATE profile
+        if (!dto.vehicleTypeConfigId) {
+          throw new BadRequestException('vehicleTypeConfigId is required');
+        }
+
+        const config = await this.prisma.vehicleTypeConfig.findUnique({
+          where: { id: dto.vehicleTypeConfigId },
+          select: { id: true, isActive: true },
+        });
+
+        if (!config || !config.isActive) {
+          throw new BadRequestException(
+            'Invalid or inactive vehicle type configuration',
+          );
+        }
+
+
+        /////
         await this.prisma.driverProfile.update({
           where: { userId: driverId },
           data: {
@@ -596,7 +613,7 @@ export class DriverService {
     driverLng: number,
     radiusKm: number = this.DEFAULT_RADIUS_KM,
   ) {
-      console.log(
+    console.log(
       `[AVAILABLE ORDERS] driver=${driverId} ` +
       `lat=${driverLat} lng=${driverLng} radius=${radiusKm}km`,
     );
@@ -819,7 +836,7 @@ export class DriverService {
     // ---------------------------------------------------------
     const orderIds = geographicallyValidOrders.map((o) => o.order_id);
     let itemsSummary: Record<string, any[]> = {};
-    
+
     try {
       itemsSummary = await this.getOrderItemsSummary(orderIds);
     } catch (error) {
@@ -1140,7 +1157,7 @@ export class DriverService {
   }
 
 
-   async declineOrder(
+  async declineOrder(
     driverId: string,
     orderId: string,
     reason?: string,
@@ -1174,7 +1191,7 @@ export class DriverService {
     // 4. Cancel this driver's timeout
     await this.assignmentQueue
       .remove(`timeout-${orderId}-${driverId}`)
-      .catch(() => {});
+      .catch(() => { });
 
     // 5. Transaction: safely reset order if still ACCEPTED
     const result = await this.prisma.$transaction(async (tx) => {
@@ -1235,7 +1252,7 @@ export class DriverService {
     // 7. If no one else is pending, trigger retry ladder
     const remaining = await this.redis.scard(driverSetKey);
     if (remaining === 0) {
-      await this.redis.del(`order:${orderId}:dispatch_lock`).catch(() => {});
+      await this.redis.del(`order:${orderId}:dispatch_lock`).catch(() => { });
       await this.assignmentQueue.add(
         'retry-driver-search',
         {
