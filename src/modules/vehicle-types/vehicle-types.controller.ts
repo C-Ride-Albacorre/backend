@@ -44,6 +44,13 @@ export class VehicleTypesController {
     return this.vehicleTypesService.getDashboardStats();
   }
 
+  @Get('enums')
+  @ApiOperation({ summary: 'Get the VehicleType enum values' })
+  @ApiOkResponse({ type: VehicleTypeEnumResponseDto })
+  getEnums(): VehicleTypeEnumResponseDto {
+    return { vehicleTypes: this.vehicleTypesService.getEnumValues() };
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a specific vehicle type configuration by ID' })
   findOne(@Param('id') id: string) {
@@ -63,11 +70,6 @@ export class VehicleTypesController {
   }
 
   
-  @Get('enums')
-  @ApiOperation({ summary: 'Get the VehicleType enum values' })
-  @ApiOkResponse({ type: VehicleTypeEnumResponseDto })
-  getEnums(): VehicleTypeEnumResponseDto {
-    return { vehicleTypes: this.vehicleTypesService.getEnumValues() };
-  }
+
 
 }
