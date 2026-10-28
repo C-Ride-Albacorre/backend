@@ -1,6 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { DriverService } from './driver.service';
-import { DriverController, DriverEarningsController, DriverWalletController } from './driver.controller';
+import { DriverController, DriverEarningsController, DriverWalletController, VehicleTypeController } from './driver.controller';
 import { UserModule } from '../user/user.module';
 import { BullModule } from '@nestjs/bullmq';
 import { OrderModule } from '../order/order.module';
@@ -17,6 +17,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { DriverEarningsService } from './driver-earnings-service';
 import { PaymentModule } from '../payment/payment.module';
 import { QUEUES } from '../../shared/constants';
+import { VehicleTypeService } from './vehicle-type.service';
 
 @Module({
   imports: [
@@ -31,13 +32,12 @@ import { QUEUES } from '../../shared/constants';
     forwardRef(() => AuthModule),
     forwardRef(() => RatingModule),
     PaymentModule,
-    
   ],
   controllers: [DriverController, DriverEarningsController,
-    DriverWalletController],
+    DriverWalletController, VehicleTypeController],
   providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService, DriverAssignmentProcessor, DriverNotificationProcessor, DriverEarningsService,
-    WalletService],
+    WalletService, VehicleTypeService],
   exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService, DriverEarningsService,
-    WalletService],
+    WalletService, VehicleTypeService],
 })
 export class DriverModule { }
