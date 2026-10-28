@@ -256,6 +256,221 @@ export class DriverAssignmentService {
   }
 
   async findAndNotifyDrivers(
+  orderId: string,
+  vendorLocation: { lat: number; lng: number },
+  radiusMeters: number = this.DEFAULT_RADIUS_METERS,
+  attempt: number = 1,
+): Promise<void> {
+  this.logger.log(
+    `Finding nearby drivers for order ${orderId} radius=${radiusMeters}m attempt=${attempt}`,
+  );
+
+  const drivers = await this.getNearbyDrivers(
+    vendorLocation.lat,
+    vendorLocation.lng,
+    radiusMeters,
+  );
+
+  if (!drivers.length) {
+    await this.handleNoDrivers(orderId, attempt);
+    return;
+  }
+
+  const dispatchLockKey = `order:${orderId}:dispatch_lock`;
+  try {
+    const locked = await this.redis.set(
+      dispatchLockKey,
+      '1',
+      'EX',
+      120,
+      'NX',
+    );
+    if (!locked) {
+      this.logger.log(
+        `Dispatch lock already held for order ${orderId}; skipping`,
+      );
+      return;
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { store: true } } },
+    });
+    if (!order) {
+      this.logger.error(`Order ${orderId} vanished mid-dispatch`);
+      return;
+    }
+
+    // 🚨 FIX 1: Check if the triggering order is stale BEFORE dispatching
+    const MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
+    const orderAge = Date.now() - order.createdAt.getTime();
+    
+    if (orderAge > MAX_AGE_MS) {
+      this.logger.warn(
+        `Order ${orderId} is too old (${Math.round(orderAge / 60000)}m) — skipping dispatch`,
+      );
+      // Optionally: mark this order as UNACCEPTED directly
+      await this.handleNoDrivers(orderId, 999); 
+      return;
+    }
+
+    const store = order.items[0]?.store;
+
+    const currentOrderPayload = {
+      orderId,
+      orderNumber: order.orderNumber,
+      orderStatus: order.orderStatus,
+      orderType: order.orderType ?? 'VENDOR',
+      rn: 1,
+      totalAmount: order.totalAmount,
+      deliveryFee: order.deliveryFee,
+      pickupLocation: order.pickupLocation,
+      dropoffLocation: order.dropoffLocation,
+      createdAt: order.createdAt,
+      storeId: store?.id?.toString() ?? '',
+      storeName: store?.storeName ?? 'Store',
+      storeLogo: (store as any)?.storeLogo ?? '',
+      storeLat: store?.latitude ?? vendorLocation.lat,
+      storeLng: store?.longitude ?? vendorLocation.lng,
+      distanceMeters: Number(
+        Helper.calculateDistance(vendorLocation, {
+          lat: store?.latitude ?? vendorLocation.lat,
+          lng: store?.longitude ?? vendorLocation.lng,
+        }) * 1000,
+      ),
+      items: [] as any[],
+    };
+
+    // Seed the current order's claim keys for every nearby driver.
+    const seedPipeline = this.redis.pipeline();
+    for (const driver of drivers) {
+      const pendingKey = `order:${orderId}:pending:${driver.userId}`;
+      seedPipeline.setex(pendingKey, this.TTL_SECONDS, 'pending');
+      seedPipeline.sadd(`driver:${driver.userId}:pending_claims`, orderId);
+      seedPipeline.sadd(`order:${orderId}:pending_drivers`, driver.userId);
+    }
+    await seedPipeline.exec();
+
+    for (const driver of drivers) {
+      let otherOrders: any[] = [];
+      try {
+        otherOrders = await this.driverService.findAvailableOrders(
+          driver.userId,
+          driver.lat,
+          driver.lng,
+          radiusMeters / 1000,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Fallback lookup failed for driver ${driver.userId}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+
+      const byId = new Map<string, any>();
+      byId.set(orderId, currentOrderPayload);
+      for (const o of otherOrders) {
+        if (!byId.has(o.order_id)) byId.set(o.order_id, o);
+      }
+
+      // 🚨 FIX 2: Filter the final batch to remove anything older than 30 mins
+      // This ensures `otherOrders` from the fallback are also filtered.
+      const batch = Array.from(byId.values())
+        .filter((o) => {
+          const createdAt = o.createdAt instanceof Date 
+            ? o.createdAt 
+            : new Date(o.created_at ?? o.createdAt);
+          return (Date.now() - createdAt.getTime()) <= MAX_AGE_MS;
+        })
+        .map((o) => ({
+          orderId: o.order_id ?? o.orderId,
+          orderNumber: o.order_number ?? o.orderNumber,
+          orderStatus: o.order_status ?? o.orderStatus,
+          orderType: o.order_type ?? o.orderType ?? 'VENDOR',
+          rn: Number(o.rn ?? 1),
+          totalAmount: Number(o.total_amount ?? o.totalAmount),
+          deliveryFee: Number(o.delivery_fee ?? o.deliveryFee),
+          pickupLocation: o.pickup_location ?? o.pickupLocation,
+          dropoffLocation: o.dropoff_location ?? o.dropoffLocation,
+          createdAt: o.created_at ?? o.createdAt,
+          storeId: o.store_id ?? o.storeId,
+          storeName: o.store_name ?? o.storeName,
+          storeLogo: o.store_logo ?? o.storeLogo,
+          storeLat: Number(o.store_lat ?? o.storeLat),
+          storeLng: Number(o.store_lng ?? o.storeLng),
+          distanceMeters: Number(o.distance_meters ?? o.distanceMeters),
+          items: o.items ?? [],
+        }));
+
+      if (batch.length === 0) {
+        this.logger.log(`No valid batch for driver ${driver.userId}, skipping emit`);
+        continue;
+      }
+
+      const sent = await this.driverGateway.emitOrderBatch(
+        driver.userId,
+        batch,
+      );
+      
+      if (!sent) {
+        this.logger.log(
+          `Driver ${driver.userId} offline; push fallback will deliver`,
+        );
+      }
+
+      for (const o of batch) {
+        await this.notificationQueue.add(
+          'notify-driver',
+          {
+            driverId: driver.userId,
+            orderId: o.orderId,
+            vendorLocation: { lat: o.storeLat, lng: o.storeLng },
+            storeName: o.storeName,
+            totalAmount: o.totalAmount,
+            orderNumber: o.orderNumber,
+          },
+          {
+            jobId: `notify-${o.orderId}-${driver.userId}`,
+            attempts: 2,
+            backoff: 1000,
+            removeOnComplete: true,
+          },
+        );
+
+        await this.assignmentQueue.add(
+          'driver-response-timeout',
+          { orderId: o.orderId, driverId: driver.userId },
+          {
+            delay: this.TTL_SECONDS * 1000,
+            jobId: `timeout-${o.orderId}-${driver.userId}`,
+            removeOnComplete: true,
+          },
+        );
+      }
+    }
+
+    await this.assignmentQueue.add(
+      'assignment-timeout',
+      { orderId },
+      {
+        delay: this.TTL_SECONDS * 1000,
+        jobId: `assignment-timeout-${orderId}`,
+        removeOnComplete: true,
+      },
+    );
+
+    this.logger.log(
+      `Notified ${drivers.length} drivers for order ${orderId}`,
+    );
+  } catch (error) {
+    this.logger.error(
+      `Failed dispatch for ${orderId}`,
+      error instanceof Error ? error.stack : String(error),
+    );
+    throw error;
+  }
+}
+
+  async findAndNotifyDriversbk(
     orderId: string,
     vendorLocation: { lat: number; lng: number },
     radiusMeters: number = this.DEFAULT_RADIUS_METERS,
