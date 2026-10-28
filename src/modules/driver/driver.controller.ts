@@ -55,6 +55,9 @@ import { DriverEarningsQueryDto } from './dto/driver-earnings-query.dto';
 import { RequestPayoutDto } from './dto/request-payout.dto';
 import { PaginationDto } from './dto/pagination.dto';
 import { Throttle } from '@nestjs/throttler';
+import { VehicleTypeConfigOptionDto } from './dto/vehicle-type-config-response.dto';
+import { VehicleTypeService } from './vehicle-type.service';
+import { VehicleTypeEnumResponseDto } from './dto/vehicle-type-enum.dto';
 
 @ApiTags('Driver')
 @Controller('driver')
@@ -651,5 +654,28 @@ export class DriverWalletController {
   @ApiOperation({ summary: 'Wallet transaction history (uses existing service)' })
   async transactions(@Req() req, @Query() q: PaginationDto) {
     return this.walletService.getTransactions(req.user.id, q.page, q.limit);
+  }
+}
+
+@ApiTags('Driver - Vehicle Types')
+@Controller('vehicle-types')
+export class VehicleTypeController {
+  constructor(private readonly vehicleTypeService: VehicleTypeService) {}
+
+  @Get('configs')
+  @ApiOperation({
+    summary:
+      'Get active VehicleTypeConfig options (id + name) for driver onboarding dropdown',
+  })
+  @ApiQuery({
+    name: 'location',
+    required: false,
+    description: 'Filter by location, e.g. Lagos Island',
+  })
+  @ApiOkResponse({ type: [VehicleTypeConfigOptionDto] })
+  async getConfigs(
+    @Query('location') location?: string,
+  ): Promise<VehicleTypeConfigOptionDto[]> {
+    return this.vehicleTypeService.getActiveConfigs(location);
   }
 }

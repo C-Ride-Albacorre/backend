@@ -104,7 +104,8 @@ export class DriverService {
         await this.prisma.driverProfile.update({
           where: { userId: driverId },
           data: {
-            vehicleType: dto.vehicleType!,
+            //vehicleType: dto.vehicleType!,
+            vehicleTypeConfigId: dto.vehicleTypeConfigId!,
             vehicleMake: dto.vehicleMake!,
             vehicleModel: dto.vehicleModel!,
             year: dto.year!,

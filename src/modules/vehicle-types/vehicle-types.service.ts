@@ -124,4 +124,9 @@ export class VehicleTypesService {
             where: { id },
         });
     }
+
+    
+  getEnumValues(): VehicleType[] {
+    return Object.values(VehicleType);
+  }
 }
