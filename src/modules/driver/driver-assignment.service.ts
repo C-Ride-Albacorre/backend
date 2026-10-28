@@ -1563,7 +1563,7 @@ export class DriverAssignmentService {
               timestamp: new Date().toISOString(),
               note: 'NO_DRIVERS_AFTER_RETRIES',
               actorId: 'system',
-              
+              actorRole: 'DISPATCHER',
             },
           },
         },
@@ -1579,7 +1579,7 @@ export class DriverAssignmentService {
         data: {
           orderId,
           actorId: 'system',
-          actorRole: 'SYSTEM' as any,
+          actorRole: 'DISPATCHER' as any,
           action: 'NO_DRIVERS_AFTER_RETRIES',
           toStatus: OrderStatus.CANCELLED,
           reason: 'No available drivers after multiple attempts',
@@ -1663,7 +1663,7 @@ async handleNoDriverslatest(orderId: string, attempt: number = 1): Promise<void>
             timestamp: new Date().toISOString(),
             note: 'NO_DRIVERS_AFTER_RETRIES',
             actorId: 'system',
-            actorRole: 'SYSTEM',
+            actorRole: 'DISPATCHER',
           },
         },
       },
@@ -1679,7 +1679,7 @@ async handleNoDriverslatest(orderId: string, attempt: number = 1): Promise<void>
       data: {
         orderId,
         actorId: 'system',
-        actorRole: 'SYSTEM' as any,
+        actorRole: 'DISPATCHER' as any,
         action: 'NO_DRIVERS_AFTER_RETRIES',
         toStatus: OrderStatus.UNACCEPTED,
         reason: 'No available drivers after multiple attempts',
@@ -1780,7 +1780,7 @@ async handleNoDrivers(orderId: string, attempt: number = 1): Promise<void> {
               timestamp: new Date().toISOString(),
               note: 'NO_DRIVERS_AFTER_RETRIES',
               actorId: 'system',
-              actorRole: 'SYSTEM',
+              actorRole: 'DISPATCHER',
             },
           },
         },
@@ -1796,7 +1796,7 @@ async handleNoDrivers(orderId: string, attempt: number = 1): Promise<void> {
         data: {
           orderId,
           actorId: 'system',
-          actorRole: 'SYSTEM' as any,
+          actorRole: 'DISPATCHER' as any,
           action: 'NO_DRIVERS_AFTER_RETRIES',
           toStatus: OrderStatus.UNACCEPTED,
           reason: 'No available drivers after multiple attempts',
