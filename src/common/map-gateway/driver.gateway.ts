@@ -20,6 +20,7 @@ import { DriverService } from '../../modules/driver/driver.service';
 import { BatchOrder } from '../../shared/types';
 
 
+
 @WebSocketGateway({
   namespace: 'driver',
   cors: {
@@ -42,6 +43,32 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly driverService: DriverService,
     private jwtService: JwtService,
   ) { }
+
+
+  private buildSyncPayload(orders: any[]) {
+  return {
+    type: 'order-batch',
+    orders: orders.map((o) => ({
+      order_id: o.order_id,
+      order_number: o.order_number,
+      order_status: o.order_status,
+      total_amount: o.total_amount,
+      delivery_fee: o.delivery_fee,
+      pickup_location: o.pickup_location,
+      dropoff_location: o.dropoff_location,
+      created_at: o.created_at,
+      store_id: o.store_id,
+      store_name: o.store_name,
+      store_logo: o.store_logo,
+      store_lat: o.store_lat,
+      store_lng: o.store_lng,
+      distance_meters: o.distance_meters,
+      order_type: o.order_type,
+      rn: '1',
+      items: o.items,
+    })),
+  };
+}
 
   // driver.gateway.ts
 
@@ -190,59 +217,7 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 }
 
-  private async syncDriverStatebk(client: Socket, driverId: string) {
-    try {
-      // 1. Get driver profile (to get lat/lng and status)
-      const profile = await this.driverService.getDriverProfileForSync(driverId);
-      
-      if (!profile || profile.status !== DriverStatus.ONLINE || !profile.latitude || !profile.longitude) {
-        this.logger.warn(`Cannot sync orders: Driver ${driverId} is offline or has no location`);
-        return;
-      }
 
-      // 2. Fetch all available orders using the existing fallback logic
-      const orders = await this.driverService.findAvailableOrders(
-        driverId,
-        profile.latitude,
-        profile.longitude,
-        20, // Maximum radius; the service clamps to order-specific radius anyway
-      );
-
-      // 3. Format and emit the batch
-      const batchPayload = {
-        type: 'order-batch',
-        orders: orders.map((o) => ({
-          order_id: o.order_id,
-          order_number: o.order_number,
-          order_status: o.order_status,
-          total_amount: o.total_amount,
-          delivery_fee: o.delivery_fee,
-          pickup_location: o.pickup_location,
-          dropoff_location: o.dropoff_location,
-          created_at: o.created_at,
-          store_id: o.store_id,
-          store_name: o.store_name,
-          store_logo: o.store_logo,
-          store_lat: o.store_lat,
-          store_lng: o.store_lng,
-          distance_meters: o.distance_meters,
-          order_type: o.order_type,
-          rn: '1',
-          items: o.items,
-        })),
-      };
-
-      // 4. Emit the event
-      client.emit('sync-orders', batchPayload);
-      
-      this.logger.log(`Synced ${orders.length} orders to driver ${driverId} on connect`);
-
-    } catch (error) {
-      this.logger.error(`Failed to sync orders for driver ${driverId}: ${error}`);
-      // Optional: Emit an empty batch so the app knows the sync finished but found nothing
-      client.emit('sync-orders', { type: 'order-batch', orders: [] });
-    }
-  }
 
   handleDisconnect(client: Socket) {
     const driverId = client.data.driverId;
@@ -399,28 +374,8 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     );
     if (!actionable.length) return false;
 
-    const payload = {
-      type: 'order-batch',
-      orders: actionable.map((o) => ({
-        order_id: o.orderId,
-        order_number: o.orderNumber,
-        order_status: 'ORDER_ACCEPTED',
-        total_amount: o.totalAmount,
-        delivery_fee: o.deliveryFee,
-        pickup_location: o.pickupLocation,
-        dropoff_location: o.dropoffLocation,
-        created_at: o.createdAt,
-        store_id: o.storeId,
-        store_name: o.storeName,
-        store_logo: o.storeLogo,
-        store_lat: o.storeLat,
-        store_lng: o.storeLng,
-        distance_meters: o.distanceMeters,
-        order_type: o.orderType,
-        rn: '1',
-        items: o.items,
-      })),
-    };
+
+    const payload = this.buildSyncPayload(orders);
 
     this.server.to(socketId).emit('new-order-request', payload);
     this.logger.log(
@@ -681,4 +636,59 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(room).emit('active-order', { order: payload });
     this.logger.log(`Sent assigned order to driver ${driverId}: ${payload ? payload.order_id : 'none'}`);
   }
+
+
+  // src/modules/driver/driver.gateway.ts
+
+@SubscribeMessage('request-sync')
+async handleRequestSync(
+  @ConnectedSocket() client: Socket,
+  @MessageBody() body: { lat?: number; lng?: number },
+) {
+  const driverId = client.data.driverId as string;
+  if (!driverId) {
+    this.logger.warn('request-sync: no driverId in socket data');
+    return;
+  }
+
+  try {
+    // Prefer coordinates sent by the client (they may have moved),
+    // otherwise fall back to the stored driver profile location.
+    let lat = body?.lat;
+    let lng = body?.lng;
+
+    if (lat == null || lng == null) {
+      const profile = await this.driverService.getDriverProfileForSync(driverId);
+      if (!profile?.latitude || !profile?.longitude) {
+        client.emit('sync-orders', { type: 'order-batch', orders: [] });
+        return;
+      }
+      lat = profile.latitude;
+      lng = profile.longitude;
+    }
+
+    // Same call your handleConnection uses.
+    const orders = await this.driverService.findAvailableOrders(
+      driverId,
+      lat,
+      lng,
+      20, // max radius; SQL clamps to per-order dispatchRadiusMeters
+    );
+
+    const payload = this.buildSyncPayload(orders);
+
+    client.emit('sync-orders', payload);
+    this.logger.log(
+      `request-sync: emitted ${orders.length} orders to driver ${driverId}`,
+    );
+  } catch (err) {
+    this.logger.error(
+      `request-sync failed for driver ${driverId}: ${
+        err instanceof Error ? err.stack : err
+      }`,
+    );
+    // Fail-soft: send empty so the client stops showing the spinner
+    client.emit('sync-orders', { type: 'order-batch', orders: [] });
+  }
+}
 }
