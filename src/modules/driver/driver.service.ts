@@ -58,8 +58,8 @@ export class DriverService {
     @InjectQueue(QUEUES.DRIVER_ASSIGNMENT) private assignmentQueue: Queue,
     @Inject(forwardRef(() => DriverGateway))
     public readonly driverGateway: DriverGateway,
-    private readonly driverAssignment: DriverAssignmentService
-  ) {
+    @Inject(forwardRef(() => DriverAssignmentService))
+    private readonly driverAssignment: DriverAssignmentService) {
     this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');
     if (!this.googleMapsApiKey) {
       this.logger.warn(
@@ -1157,115 +1157,137 @@ export class DriverService {
     };
   }
 
-async declineOrder(
-  driverId: string,
-  orderId: string,
-  reason?: string,
-): Promise<{ success: boolean; note?: string }> {
-  if (!orderId || !driverId) {
-    throw new BadRequestException('orderId and driverId are required');
-  }
+  async declineOrder(
+    driverId: string,
+    orderId: string,
+    reason?: string,
+  ): Promise<{ success: boolean; note?: string }> {
+    if (!orderId || !driverId) {
+      throw new BadRequestException('orderId and driverId are required');
+    }
 
-  const pendingKey = `order:${orderId}:pending:${driverId}`;
-  const driverPendingSet = `driver:${driverId}:pending_claims`;
-  const pendingDriversKey = `order:${orderId}:pending_drivers`;
+    const pendingKey = `order:${orderId}:pending:${driverId}`;
+    const driverPendingSet = `driver:${driverId}:pending_claims`;
+    const pendingDriversKey = `order:${orderId}:pending_drivers`;
 
-  // 1. Fast atomic claim (idempotency)
-  const claimed = await this.redis.del(pendingKey);
-  const wasPending = claimed > 0;
-  if (wasPending) {
-    await this.redis.srem(driverPendingSet, orderId);
-    await this.redis.srem(pendingDriversKey, driverId);
-  }
+    // 1. Fast atomic claim (idempotency)
+    const claimed = await this.redis.del(pendingKey);
+    const wasPending = claimed > 0;
+    if (wasPending) {
+      await this.redis.srem(driverPendingSet, orderId);
+      await this.redis.srem(pendingDriversKey, driverId);
+    }
 
-  // 2. DB transaction — handle both ORDER_ACCEPTED and ORDER_ASSIGNED
-  let result: {
-    ok: true;
-    outcome: 'CANDIDATE_DECLINED' | 'UNASSIGNED' | 'NO_OP';
-    radius?: number;
-  };
-  try {
-    result = await this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({
-        where: { id: orderId },
-        select: {
-          orderStatus: true,
-          dispatchRadiusMeters: true,
-          driverId: true,
-        },
-      });
-      if (!order) throw new NotFoundException('Order not found');
+    // 2. DB transaction — handle both ORDER_ACCEPTED and ORDER_ASSIGNED
+    let result: {
+      ok: true;
+      outcome: 'CANDIDATE_DECLINED' | 'UNASSIGNED' | 'NO_OP';
+      radius?: number;
+    };
+    try {
+      result = await this.prisma.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: {
+            orderStatus: true,
+            dispatchRadiusMeters: true,
+            driverId: true,
+          },
+        });
+        if (!order) throw new NotFoundException('Order not found');
 
-      // ─── Case 1: order is no longer in a state we can act on ───
-      if (
-        order.orderStatus !== OrderStatus.ORDER_ACCEPTED &&
-        order.orderStatus !== OrderStatus.ORDER_ASSIGNED
-      ) {
+        // ─── Case 1: order is no longer in a state we can act on ───
+        if (
+          order.orderStatus !== OrderStatus.ORDER_ACCEPTED &&
+          order.orderStatus !== OrderStatus.ORDER_ASSIGNED
+        ) {
+          await tx.orderActivityLog.create({
+            data: {
+              orderId,
+              actorId: driverId,
+              actorRole: Role.DISPATCHER,
+              action: 'DRIVER_DECLINED',
+              reason: reason ?? `Order status ${order.orderStatus}`,
+            },
+          });
+          return { ok: true as const, outcome: 'NO_OP' as const };
+        }
+
+        // ─── Case 2: order is ORDER_ASSIGNED ───
+        //     This is an "unassign". Only the assigned driver can do this.
+        if (order.orderStatus === OrderStatus.ORDER_ASSIGNED) {
+          if (order.driverId !== driverId) {
+            throw new ForbiddenException(
+              `Driver ${driverId} is not assigned to order ${orderId}`,
+            );
+          }
+
+          // Revert to ORDER_ACCEPTED so it can be re-dispatched.
+          await tx.order.update({
+            where: { id: orderId },
+            data: {
+              orderStatus: OrderStatus.ORDER_ACCEPTED,
+              driverId: null,
+              driverAssignedAt: null,
+              statusHistory: {
+                push: {
+                  status: OrderStatus.ORDER_ACCEPTED,
+                  timestamp: new Date().toISOString(),
+                  note: 'DRIVER_UNASSIGNED',
+                  actorId: driverId,
+                  actorRole: Role.DISPATCHER,
+                  reason: reason ?? null,
+                },
+              },
+            },
+          });
+
+          // Clear the assignment record.
+          await tx.driverAssignment.updateMany({
+            where: { orderId, driverId },
+            data: {
+              assignmentStatus: AssignmentStatus.PENDING,
+              driverId: null,
+              assignedAt: null,
+              etaSeconds: null,
+            },
+          });
+
+          // Driver back to ONLINE.
+          await tx.driverProfile.updateMany({
+            where: { userId: driverId, status: DriverStatus.BUSY },
+            data: { status: DriverStatus.ONLINE },
+          });
+
+          await tx.orderActivityLog.create({
+            data: {
+              orderId,
+              actorId: driverId,
+              actorRole: Role.DISPATCHER,
+              action: 'DRIVER_UNASSIGNED',
+              fromStatus: OrderStatus.ORDER_ASSIGNED,
+              toStatus: OrderStatus.ORDER_ACCEPTED,
+              reason: reason ?? null,
+            },
+          });
+
+          return {
+            ok: true as const,
+            outcome: 'UNASSIGNED' as const,
+            radius: order.dispatchRadiusMeters ?? undefined,
+          };
+        }
+
+        // ─── Case 3: order is ORDER_ACCEPTED ───
+        //     Driver is only a candidate — nothing to reset in the DB.
+        //     The Redis cleanup already happened above.
         await tx.orderActivityLog.create({
           data: {
             orderId,
             actorId: driverId,
             actorRole: Role.DISPATCHER,
             action: 'DRIVER_DECLINED',
-            reason: reason ?? `Order status ${order.orderStatus}`,
-          },
-        });
-        return { ok: true as const, outcome: 'NO_OP' as const };
-      }
-
-      // ─── Case 2: order is ORDER_ASSIGNED ───
-      //     This is an "unassign". Only the assigned driver can do this.
-      if (order.orderStatus === OrderStatus.ORDER_ASSIGNED) {
-        if (order.driverId !== driverId) {
-          throw new ForbiddenException(
-            `Driver ${driverId} is not assigned to order ${orderId}`,
-          );
-        }
-
-        // Revert to ORDER_ACCEPTED so it can be re-dispatched.
-        await tx.order.update({
-          where: { id: orderId },
-          data: {
-            orderStatus: OrderStatus.ORDER_ACCEPTED,
-            driverId: null,
-            driverAssignedAt: null,
-            statusHistory: {
-              push: {
-                status: OrderStatus.ORDER_ACCEPTED,
-                timestamp: new Date().toISOString(),
-                note: 'DRIVER_UNASSIGNED',
-                actorId: driverId,
-                actorRole: Role.DISPATCHER,
-                reason: reason ?? null,
-              },
-            },
-          },
-        });
-
-        // Clear the assignment record.
-        await tx.driverAssignment.updateMany({
-          where: { orderId, driverId },
-          data: {
-            assignmentStatus: AssignmentStatus.PENDING,
-            driverId: null,
-            assignedAt: null,
-            etaSeconds: null,
-          },
-        });
-
-        // Driver back to ONLINE.
-        await tx.driverProfile.updateMany({
-          where: { userId: driverId, status: DriverStatus.BUSY },
-          data: { status: DriverStatus.ONLINE },
-        });
-
-        await tx.orderActivityLog.create({
-          data: {
-            orderId,
-            actorId: driverId,
-            actorRole: Role.DISPATCHER,
-            action: 'DRIVER_UNASSIGNED',
-            fromStatus: OrderStatus.ORDER_ASSIGNED,
+            fromStatus: OrderStatus.ORDER_ACCEPTED,
             toStatus: OrderStatus.ORDER_ACCEPTED,
             reason: reason ?? null,
           },
@@ -1273,252 +1295,47 @@ async declineOrder(
 
         return {
           ok: true as const,
-          outcome: 'UNASSIGNED' as const,
+          outcome: 'CANDIDATE_DECLINED' as const,
           radius: order.dispatchRadiusMeters ?? undefined,
         };
-      }
-
-      // ─── Case 3: order is ORDER_ACCEPTED ───
-      //     Driver is only a candidate — nothing to reset in the DB.
-      //     The Redis cleanup already happened above.
-      await tx.orderActivityLog.create({
-        data: {
-          orderId,
-          actorId: driverId,
-          actorRole: Role.DISPATCHER,
-          action: 'DRIVER_DECLINED',
-          fromStatus: OrderStatus.ORDER_ACCEPTED,
-          toStatus: OrderStatus.ORDER_ACCEPTED,
-          reason: reason ?? null,
-        },
       });
-
-      return {
-        ok: true as const,
-        outcome: 'CANDIDATE_DECLINED' as const,
-        radius: order.dispatchRadiusMeters ?? undefined,
-      };
-    });
-  } catch (err) {
-    // Restore Redis claim if we had taken it
-    if (wasPending) {
-      await this.redis.setex(pendingKey, 300, 'pending').catch(() => {});
-      await this.redis.sadd(driverPendingSet, orderId).catch(() => {});
-      await this.redis.sadd(pendingDriversKey, driverId).catch(() => {});
-    }
-    this.logger.error(
-      `declineOrder transaction failed for ${orderId}/${driverId}`,
-      err,
-    );
-    throw err;
-  }
-
-  // 3. Post-commit: Redis cleanup, ETA cancel, retry wave
-  await this.redis.sadd(`driver:${driverId}:declined`, orderId);
-  await this.redis.expire(`driver:${driverId}:declined`, 3600);
-  await this.assignmentQueue
-    .remove(`timeout-${orderId}-${driverId}`)
-    .catch(() => {});
-
-  if (result.outcome === 'UNASSIGNED') {
-    // Cancel ETA + navigation, then re-dispatch
-    await this.driverAssignment
-      .removeEtaScheduler(orderId)
-      .catch((err) =>
-        this.logger.warn(`removeEtaScheduler failed: ${err.message}`),
+    } catch (err) {
+      // Restore Redis claim if we had taken it
+      if (wasPending) {
+        await this.redis.setex(pendingKey, 300, 'pending').catch(() => { });
+        await this.redis.sadd(driverPendingSet, orderId).catch(() => { });
+        await this.redis.sadd(pendingDriversKey, driverId).catch(() => { });
+      }
+      this.logger.error(
+        `declineOrder transaction failed for ${orderId}/${driverId}`,
+        err,
       );
+      throw err;
+    }
 
-    await this.redis.del(`order:${orderId}:dispatch_lock`).catch(() => {});
+    // 3. Post-commit: Redis cleanup, ETA cancel, retry wave
+    await this.redis.sadd(`driver:${driverId}:declined`, orderId);
+    await this.redis.expire(`driver:${driverId}:declined`, 3600);
     await this.assignmentQueue
-      .remove(`assignment-timeout-${orderId}`)
-      .catch(() => {});
+      .remove(`timeout-${orderId}-${driverId}`)
+      .catch(() => { });
 
-    this.logger.log(
-      `Driver ${driverId} unassigned from ${orderId}; re-dispatching`,
-    );
-    await this.assignmentQueue.add(
-      'retry-driver-search',
-      {
-        orderId,
-        radius: result.radius ?? 5000,
-        attempt: 1,
-      },
-      {
-        delay: 1000,
-        jobId: `unassign-retry-${orderId}-${Date.now()}`,
-        removeOnComplete: true,
-      },
-    );
-  } else if (result.outcome === 'CANDIDATE_DECLINED') {
-    // Only re-dispatch if no one else is pending
-    const remaining = await this.redis.scard(pendingDriversKey);
-    if (remaining === 0) {
-      this.logger.log(
-        `Last candidate declined ${orderId}; triggering retry wave`,
-      );
-      await this.redis.del(`order:${orderId}:dispatch_lock`).catch(() => {});
+    if (result.outcome === 'UNASSIGNED') {
+      // Cancel ETA + navigation, then re-dispatch
+      await this.driverAssignment
+        .removeEtaScheduler(orderId)
+        .catch((err) =>
+          this.logger.warn(`removeEtaScheduler failed: ${err.message}`),
+        );
+
+      await this.redis.del(`order:${orderId}:dispatch_lock`).catch(() => { });
       await this.assignmentQueue
         .remove(`assignment-timeout-${orderId}`)
-        .catch(() => {});
-      await this.assignmentQueue.add(
-        'retry-driver-search',
-        { orderId, radius: result.radius ?? 5000, attempt: 1 },
-        {
-          delay: 1000,
-          jobId: `decline-retry-${orderId}-${Date.now()}`,
-          removeOnComplete: true,
-        },
-      );
-    }
-  }
+        .catch(() => { });
 
-  // 4. Always tell the declining driver's UI to drop the order
-  this.driverGateway.emitOrderRemoved(driverId, orderId);
-
-  return { success: true };
-}  
-
-async declineOrderold(
-  driverId: string,
-  orderId: string,
-  reason?: string,
-): Promise<{ success: boolean; note?: string }> {
-  if (!orderId || !driverId) {
-    throw new BadRequestException('orderId and driverId are required');
-  }
-
-  const pendingKey = `order:${orderId}:pending:${driverId}`;
-  const driverPendingSet = `driver:${driverId}:pending_claims`;
-  const pendingDriversKey = `order:${orderId}:pending_drivers`;  // ← FIXED
-
-  // 1. Fast atomic claim — only one worker wins.
-  const claimed = await this.redis.del(pendingKey);
-  if (claimed === 0) {
-    this.logger.debug(
-      `Driver ${driverId} decline for ${orderId}: no pending key; ignoring`,
-    );
-    return { success: true, note: 'ALREADY_RESOLVED' };
-  }
-
-  // 2. DB transaction FIRST — do not touch Redis beyond the claim yet.
-  let result: { ok: true; wasAccepted: boolean; radius?: number };
-  try {
-    result = await this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({
-        where: { id: orderId },
-        select: {
-          orderStatus: true,
-          dispatchRadiusMeters: true,
-          statusHistory: true,
-        },
-      });
-      if (!order) throw new NotFoundException('Order not found');
-
-      // If not ACCEPTED anymore, just log and return — no retry should fire.
-      if (order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
-        await tx.orderActivityLog.create({
-          data: {
-            orderId,
-            actorId: driverId,
-            actorRole: Role.DISPATCHER,   // ← FIXED: was DISPATCHER
-            action: 'DRIVER_DECLINED',
-            reason: reason ?? 'Order status changed before decline',
-          },
-        });
-        return { ok: true as const, wasAccepted: false };
-      }
-
-      // Still ACCEPTED: reset assignment + driver status.
-      await tx.driverAssignment.updateMany({
-        where: { orderId, driverId },
-        data: {
-          assignmentStatus: AssignmentStatus.PENDING,
-          driverId: null,
-        },
-      });
-
-      await tx.driverProfile.updateMany({
-        where: { userId: driverId, status: DriverStatus.BUSY },
-        data: { status: DriverStatus.ONLINE },
-      });
-
-      // Push a status-history entry so the admin portal can see the decline.
-      await tx.order.update({
-        where: { id: orderId },
-        data: {
-          statusHistory: {
-            push: {
-              status: OrderStatus.ORDER_ACCEPTED,
-              timestamp: new Date().toISOString(),
-              note: 'DRIVER_DECLINED',
-              actorId: driverId,
-              actorRole: Role.DISPATCHER,
-              reason: reason ?? null,
-            },
-          },
-        },
-      });
-
-      await tx.orderActivityLog.create({
-        data: {
-          orderId,
-          actorId: driverId,
-          actorRole: Role.DISPATCHER,   
-          action: 'DRIVER_DECLINED',
-          fromStatus: OrderStatus.ORDER_ACCEPTED,
-          toStatus: OrderStatus.ORDER_ACCEPTED,
-          reason: reason ?? null,
-        },
-      });
-
-      return {
-        ok: true as const,
-        wasAccepted: true,
-        radius: order.dispatchRadiusMeters ?? undefined,
-      };
-    });
-  } catch (err) {
-    // DB failed. Restore the Redis claim so the driver can retry or the
-    // timeout can fire correctly.
-    this.logger.error(
-      `declineOrder transaction failed for ${orderId}/${driverId}`,
-      err,
-    );
-    await this.redis.setex(pendingKey, 300, 'pending').catch(() => {});
-    await this.redis.sadd(driverPendingSet, orderId).catch(() => {});
-    await this.redis.sadd(pendingDriversKey, driverId).catch(() => {});
-    throw err;
-  }
-
-  // 3. DB committed. Now clean Redis.
-  await this.redis.srem(driverPendingSet, orderId);
-  await this.redis.srem(pendingDriversKey, driverId);
-
-  // Remember the decline so the fallback won't resurface it for an hour.
-  await this.redis.sadd(`driver:${driverId}:declined`, orderId);
-  await this.redis.expire(`driver:${driverId}:declined`, 3600);
-
-  // Cancel this driver's per-driver timeout job.
-  await this.assignmentQueue
-    .remove(`timeout-${orderId}-${driverId}`)
-    .catch(() => {});
-
-  // 4. Post-commit: only re-dispatch if the order is genuinely still ACCEPTED.
-  if (result.wasAccepted) {
-    const remaining = await this.redis.scard(pendingDriversKey);
-    if (remaining === 0) {
       this.logger.log(
-        `Last candidate declined order ${orderId}; triggering retry wave`,
+        `Driver ${driverId} unassigned from ${orderId}; re-dispatching`,
       );
-      await this.redis
-        .del(`order:${orderId}:dispatch_lock`)
-        .catch(() => {});
-
-      // Cancel any orphaned global timeout before re-dispatching.
-      await this.assignmentQueue
-        .remove(`assignment-timeout-${orderId}`)
-        .catch(() => {});
-
       await this.assignmentQueue.add(
         'retry-driver-search',
         {
@@ -1528,18 +1345,201 @@ async declineOrderold(
         },
         {
           delay: 1000,
-          jobId: `decline-retry-${orderId}-${Date.now()}`,
+          jobId: `unassign-retry-${orderId}-${Date.now()}`,
           removeOnComplete: true,
         },
       );
+    } else if (result.outcome === 'CANDIDATE_DECLINED') {
+      // Only re-dispatch if no one else is pending
+      const remaining = await this.redis.scard(pendingDriversKey);
+      if (remaining === 0) {
+        this.logger.log(
+          `Last candidate declined ${orderId}; triggering retry wave`,
+        );
+        await this.redis.del(`order:${orderId}:dispatch_lock`).catch(() => { });
+        await this.assignmentQueue
+          .remove(`assignment-timeout-${orderId}`)
+          .catch(() => { });
+        await this.assignmentQueue.add(
+          'retry-driver-search',
+          { orderId, radius: result.radius ?? 5000, attempt: 1 },
+          {
+            delay: 1000,
+            jobId: `decline-retry-${orderId}-${Date.now()}`,
+            removeOnComplete: true,
+          },
+        );
+      }
     }
+
+    // 4. Always tell the declining driver's UI to drop the order
+    this.driverGateway.emitOrderRemoved(driverId, orderId);
+
+    return { success: true };
   }
 
-  // 5. Update the declining driver's UI (they should drop the order).
-  this.driverGateway.emitOrderRemoved(driverId, orderId);
+  async declineOrderold(
+    driverId: string,
+    orderId: string,
+    reason?: string,
+  ): Promise<{ success: boolean; note?: string }> {
+    if (!orderId || !driverId) {
+      throw new BadRequestException('orderId and driverId are required');
+    }
 
-  return { success: true };
-}
+    const pendingKey = `order:${orderId}:pending:${driverId}`;
+    const driverPendingSet = `driver:${driverId}:pending_claims`;
+    const pendingDriversKey = `order:${orderId}:pending_drivers`;  // ← FIXED
+
+    // 1. Fast atomic claim — only one worker wins.
+    const claimed = await this.redis.del(pendingKey);
+    if (claimed === 0) {
+      this.logger.debug(
+        `Driver ${driverId} decline for ${orderId}: no pending key; ignoring`,
+      );
+      return { success: true, note: 'ALREADY_RESOLVED' };
+    }
+
+    // 2. DB transaction FIRST — do not touch Redis beyond the claim yet.
+    let result: { ok: true; wasAccepted: boolean; radius?: number };
+    try {
+      result = await this.prisma.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: {
+            orderStatus: true,
+            dispatchRadiusMeters: true,
+            statusHistory: true,
+          },
+        });
+        if (!order) throw new NotFoundException('Order not found');
+
+        // If not ACCEPTED anymore, just log and return — no retry should fire.
+        if (order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+          await tx.orderActivityLog.create({
+            data: {
+              orderId,
+              actorId: driverId,
+              actorRole: Role.DISPATCHER,   // ← FIXED: was DISPATCHER
+              action: 'DRIVER_DECLINED',
+              reason: reason ?? 'Order status changed before decline',
+            },
+          });
+          return { ok: true as const, wasAccepted: false };
+        }
+
+        // Still ACCEPTED: reset assignment + driver status.
+        await tx.driverAssignment.updateMany({
+          where: { orderId, driverId },
+          data: {
+            assignmentStatus: AssignmentStatus.PENDING,
+            driverId: null,
+          },
+        });
+
+        await tx.driverProfile.updateMany({
+          where: { userId: driverId, status: DriverStatus.BUSY },
+          data: { status: DriverStatus.ONLINE },
+        });
+
+        // Push a status-history entry so the admin portal can see the decline.
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            statusHistory: {
+              push: {
+                status: OrderStatus.ORDER_ACCEPTED,
+                timestamp: new Date().toISOString(),
+                note: 'DRIVER_DECLINED',
+                actorId: driverId,
+                actorRole: Role.DISPATCHER,
+                reason: reason ?? null,
+              },
+            },
+          },
+        });
+
+        await tx.orderActivityLog.create({
+          data: {
+            orderId,
+            actorId: driverId,
+            actorRole: Role.DISPATCHER,
+            action: 'DRIVER_DECLINED',
+            fromStatus: OrderStatus.ORDER_ACCEPTED,
+            toStatus: OrderStatus.ORDER_ACCEPTED,
+            reason: reason ?? null,
+          },
+        });
+
+        return {
+          ok: true as const,
+          wasAccepted: true,
+          radius: order.dispatchRadiusMeters ?? undefined,
+        };
+      });
+    } catch (err) {
+      // DB failed. Restore the Redis claim so the driver can retry or the
+      // timeout can fire correctly.
+      this.logger.error(
+        `declineOrder transaction failed for ${orderId}/${driverId}`,
+        err,
+      );
+      await this.redis.setex(pendingKey, 300, 'pending').catch(() => { });
+      await this.redis.sadd(driverPendingSet, orderId).catch(() => { });
+      await this.redis.sadd(pendingDriversKey, driverId).catch(() => { });
+      throw err;
+    }
+
+    // 3. DB committed. Now clean Redis.
+    await this.redis.srem(driverPendingSet, orderId);
+    await this.redis.srem(pendingDriversKey, driverId);
+
+    // Remember the decline so the fallback won't resurface it for an hour.
+    await this.redis.sadd(`driver:${driverId}:declined`, orderId);
+    await this.redis.expire(`driver:${driverId}:declined`, 3600);
+
+    // Cancel this driver's per-driver timeout job.
+    await this.assignmentQueue
+      .remove(`timeout-${orderId}-${driverId}`)
+      .catch(() => { });
+
+    // 4. Post-commit: only re-dispatch if the order is genuinely still ACCEPTED.
+    if (result.wasAccepted) {
+      const remaining = await this.redis.scard(pendingDriversKey);
+      if (remaining === 0) {
+        this.logger.log(
+          `Last candidate declined order ${orderId}; triggering retry wave`,
+        );
+        await this.redis
+          .del(`order:${orderId}:dispatch_lock`)
+          .catch(() => { });
+
+        // Cancel any orphaned global timeout before re-dispatching.
+        await this.assignmentQueue
+          .remove(`assignment-timeout-${orderId}`)
+          .catch(() => { });
+
+        await this.assignmentQueue.add(
+          'retry-driver-search',
+          {
+            orderId,
+            radius: result.radius ?? 5000,
+            attempt: 1,
+          },
+          {
+            delay: 1000,
+            jobId: `decline-retry-${orderId}-${Date.now()}`,
+            removeOnComplete: true,
+          },
+        );
+      }
+    }
+
+    // 5. Update the declining driver's UI (they should drop the order).
+    this.driverGateway.emitOrderRemoved(driverId, orderId);
+
+    return { success: true };
+  }
 
 
   /**
