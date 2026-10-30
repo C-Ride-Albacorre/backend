@@ -83,10 +83,6 @@ export class CreateProductDto {
   @IsString()
   productName: string;
 
-  // @ApiProperty()
-  // @IsString()
-  // productCategory: string;
-
   @ApiProperty()
   @IsString()
   sku: string;
