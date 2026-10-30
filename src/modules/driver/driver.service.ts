@@ -1158,8 +1158,8 @@ export class DriverService {
   }
 
   async declineOrder(
-    driverId: string,
     orderId: string,
+    driverId: string,
     reason?: string,
   ): Promise<{ success: boolean; note?: string }> {
     if (!orderId || !driverId) {
