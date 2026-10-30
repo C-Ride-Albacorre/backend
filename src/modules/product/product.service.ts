@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   CreateProductDto,
   UpdateProductDto,
@@ -7,7 +7,7 @@ import {
 } from './dto/product.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProductType } from '@prisma/client';
 
 @Injectable()
 export class ProductService {
@@ -16,7 +16,7 @@ export class ProductService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
-  ) { }
+  ) {}
 
   /**
    * Create a new product (SINGLE or VARIABLE)
@@ -49,8 +49,8 @@ export class ProductService {
     // ✅ IMPORTANT: explicitly type this
     const data: Prisma.ProductUncheckedCreateInput = {
       productName: dto.productName,
-      // productCategory: dto.productCategory,
-      sku: dto.sku,
+      //sku: dto.sku,
+      ...(dto.sku && { sku: dto.sku }),
       description: dto.description,
       productType: dto.productType,
       stockStatus: dto.stockStatus,
@@ -69,44 +69,15 @@ export class ProductService {
       },
     };
 
-    // const product = await this.prisma.product.create({
-    //   data,
-    //   include: {
-    //     productImages: true,
-    //   },
-    // });
-    let product;
-
-    try {
-      product = await this.prisma.product.create({
-        data,
-        include: {
-          productImages: true,
-        },
-      });
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        const target = error.meta?.target;
-
-        if (Array.isArray(target) && target.includes('sku')) {
-          throw new ConflictException(
-            `A product with SKU "${dto.sku}" already exists.`,
-          );
-        }
-
-        throw new ConflictException(
-          'A record with the provided unique field already exists.',
-        );
-      }
-
-      throw error;
-    }
+    const product = await this.prisma.product.create({
+      data,
+      include: {
+        productImages: true,
+      },
+    });
 
     // If VARIABLE product, create variants
-    if (dto.productType === 'VARIABLE' && dto.variants?.length) {
+    if (dto.productType === ProductType.VARIABLE && dto.variants?.length) {
       await this.createVariants(product.id, dto.variants);
     }
 
@@ -217,93 +188,93 @@ export class ProductService {
    * Update product
    */
   async updateProduct(
-    productId: string,
-    storeId: string,
-    userId: string,
-    dto: UpdateProductDto,
-    newImages?: Express.Multer.File[],
-  ) {
-    // Verify ownership
-    const product = await this.prisma.product.findFirst({
-      where: {
-        id: productId,
-        storeId,
-        store: {
-          userId,
-        },
+  productId: string,
+  storeId: string,
+  userId: string,
+  dto: UpdateProductDto,
+  newImages?: Express.Multer.File[],
+) {
+  // Verify ownership
+  const product = await this.prisma.product.findFirst({
+    where: {
+      id: productId,
+      storeId,
+      store: {
+        userId,
       },
-      include: {
-        productImages: true,
-      },
-    });
+    },
+    include: {
+      productImages: true,
+    },
+  });
 
-    if (!product) {
-      throw new NotFoundException('Product not found or access denied');
-    }
-
-    // Replace images if new ones were uploaded
-    if (newImages && newImages.length > 0) {
-      // Upload images to Cloudinary
-      const uploadedImages = await Promise.all(
-        newImages.map(async (file) => {
-          const uploaded = await this.cloudinaryService.uploadLogo(file);
-
-          return {
-            imageUrl: uploaded.secure_url,
-          };
-        }),
-      );
-
-      // Delete existing image records
-      await this.prisma.productImage.deleteMany({
-        where: {
-          productId,
-        },
-      });
-
-      // Save newly uploaded images
-      await this.prisma.productImage.createMany({
-        data: uploadedImages.map((image, index) => ({
-          productId,
-          imageUrl: image.imageUrl,
-          isPrimary: index === 0,
-          displayOrder: index,
-        })),
-      });
-    }
-
-    // Update product
-    const updatedProduct = await this.prisma.product.update({
-      where: {
-        id: productId,
-      },
-      data: {
-        productName: dto.productName,
-        subcategoryId: dto.subcategoryId,
-        description: dto.description,
-        stockStatus: dto.stockStatus,
-        productStatus: dto.productStatus,
-        basePrice: dto.basePrice,
-        stockQuantity: dto.stockQuantity,
-        lowStockThreshold: dto.lowStockThreshold,
-      },
-      include: {
-        productImages: {
-          orderBy: {
-            displayOrder: 'asc',
-          },
-        },
-        variants: true,
-        addons: true,
-      },
-    });
-
-    return {
-      success: true,
-      message: 'Product updated successfully',
-      product: updatedProduct,
-    };
+  if (!product) {
+    throw new NotFoundException('Product not found or access denied');
   }
+
+  // Replace images if new ones were uploaded
+  if (newImages && newImages.length > 0) {
+    // Upload images to Cloudinary
+    const uploadedImages = await Promise.all(
+      newImages.map(async (file) => {
+        const uploaded = await this.cloudinaryService.uploadLogo(file);
+
+        return {
+          imageUrl: uploaded.secure_url,
+        };
+      }),
+    );
+
+    // Delete existing image records
+    await this.prisma.productImage.deleteMany({
+      where: {
+        productId,
+      },
+    });
+
+    // Save newly uploaded images
+    await this.prisma.productImage.createMany({
+      data: uploadedImages.map((image, index) => ({
+        productId,
+        imageUrl: image.imageUrl,
+        isPrimary: index === 0,
+        displayOrder: index,
+      })),
+    });
+  }
+
+  // Update product
+  const updatedProduct = await this.prisma.product.update({
+    where: {
+      id: productId,
+    },
+    data: {
+      productName: dto.productName,
+      subcategoryId: dto.subcategoryId,
+      description: dto.description,
+      stockStatus: dto.stockStatus,
+      productStatus: dto.productStatus,
+      basePrice: dto.basePrice,
+      stockQuantity: dto.stockQuantity,
+      lowStockThreshold: dto.lowStockThreshold,
+    },
+    include: {
+      productImages: {
+        orderBy: {
+          displayOrder: 'asc',
+        },
+      },
+      variants: true,
+      addons: true,
+    },
+  });
+
+  return {
+    success: true,
+    message: 'Product updated successfully',
+    product: updatedProduct,
+  };
+}
 
   async updateProductbk(
     productId: string,
