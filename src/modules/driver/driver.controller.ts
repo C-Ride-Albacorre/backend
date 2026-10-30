@@ -395,6 +395,7 @@ STEP 3 – Final Step: Review (Optional save before uploads)
     @Body('reason') reason: string,
     @GetUser() driver: User,
   ) {
+    
     await this.driverService.declineOrder(orderId, driver.id, reason);
 
     return { message: 'Declined' };
