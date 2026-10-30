@@ -191,7 +191,7 @@ model OperatingHour {
 model Product {
   id                String         @id @default(uuid())
   productName       String
-  sku               String         @unique
+  sku               String?         @unique
   description       String?
   productType       ProductType    @default(SINGLE)
   stockStatus       StockStatus    @default(IN_STOCK)

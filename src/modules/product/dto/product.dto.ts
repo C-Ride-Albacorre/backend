@@ -9,7 +9,7 @@ import {
   IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ProductType, StockStatus, ProductStatus } from '@prisma/client';
 
 export class CreateVariantDto {
@@ -83,9 +83,10 @@ export class CreateProductDto {
   @IsString()
   productName: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  sku: string;
+  sku?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
