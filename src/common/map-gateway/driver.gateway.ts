@@ -45,7 +45,7 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) { }
 
 
-  private buildSyncPayload(orders: any[]) {
+  private buildSyncPayloadold(orders: any[]) {
   return {
     type: 'order-batch',
     orders: orders.map((o) => ({
@@ -70,6 +70,30 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
   };
 }
 
+private buildSyncPayload(orders: any[]) {
+  return {
+    type: 'order-batch',
+    orders: orders.map((o) => ({
+      order_id: o.order_id ?? o.orderId,
+      order_number: o.order_number ?? o.orderNumber,
+      order_status: o.order_status ?? o.orderStatus,
+      total_amount: o.total_amount ?? o.totalAmount,
+      delivery_fee: o.delivery_fee ?? o.deliveryFee,
+      pickup_location: o.pickup_location ?? o.pickupLocation,
+      dropoff_location: o.dropoff_location ?? o.dropoffLocation,
+      created_at: o.created_at ?? o.createdAt,
+      store_id: o.store_id ?? o.storeId,
+      store_name: o.store_name ?? o.storeName,
+      store_logo: o.store_logo ?? o.storeLogo,
+      store_lat: o.store_lat ?? o.storeLat,
+      store_lng: o.store_lng ?? o.storeLng,
+      distance_meters: o.distance_meters ?? o.distanceMeters,
+      order_type: o.order_type ?? o.orderType ?? 'VENDOR',
+      rn: '1',
+      items: o.items ?? [],
+    })),
+  };
+}
   // driver.gateway.ts
 
   private async formatAssignedOrderPayload(order: any) {

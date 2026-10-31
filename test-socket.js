@@ -7,9 +7,8 @@
 const { io } = require("socket.io-client");
 
 const SERVER_URL = "wss://backend-service-1rc7.onrender.com";
-
-const DRIVER_ID = "a8fb9168-b6bf-4ef9-9135-12f8b4bd69a2";
-const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhOGZiOTE2OC1iNmJmLTRlZjktOTEzNS0xMmY4YjRiZDY5YTIiLCJlbWFpbCI6ImNyaWRlZHJpdmVyQGdtYWlsLmNvbSIsInJvbGUiOiJESVNQQVRDSEVSIiwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc5MzEwODk0MiwiZXhwIjoxNzkzMTEyNTQyfQ.S4FDCWbnE9utgev20MRTXVoWhGantHG-hDWX11wWXds"
+const DRIVER_ID = "86803b0d-ce33-4ae1-90ea-6f2f8e07fcec";
+const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI4NjgwM2IwZC1jZTMzLTRhZTEtOTBlYS02ZjJmOGUwN2ZjZWMiLCJlbWFpbCI6ImVkaW9tb2FiYXNpb0BnbWFpbC5jb20iLCJyb2xlIjoiRElTUEFUQ0hFUiIsInR5cGUiOiJhY2Nlc3MiLCJpYXQiOjE3OTM0MTUwNzQsImV4cCI6MTc5MzQxODY3NH0.ZaZkdnLBkA_5Bt9hnXvdwFPgPG7OXqQeiIr5TZPAvfc"
 // --- Local State (mimics the mobile app) ---
 let orderList = [];
 
@@ -23,7 +22,7 @@ function printState(action) {
     console.log("   (empty screen)");
   } else {
     orderList.forEach((o, idx) => {
-      console.log(`   [${idx + 1}] ID: ${o.order_id.substring(0, 8)}... | #${o.order_number} | ₦${o.total_amount} | Store: ${o.store_name}`);
+      console.log(`   [${idx + 1}]  #${o.order_number} | ₦${o.total_amount} | Store: ${o.store_name}`);
     });
   }
   console.log(`============================================================\n`);
