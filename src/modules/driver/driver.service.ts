@@ -1222,6 +1222,22 @@ export class DriverService {
             );
           }
 
+          // A driver with an order already picked up must complete it before
+          // unassigning another order.
+          const pickupOrder = await tx.order.findFirst({
+            where: {
+              driverId,
+              orderStatus: OrderStatus.PICKED_UP,
+              id: { not: orderId },
+            },
+            select: { id: true },
+          });
+          if (pickupOrder) {
+            throw new ConflictException(
+              'You cannot decline an order while you have an order picked up',
+            );
+          }
+
           // Revert to ORDER_ACCEPTED so it can be re-dispatched.
           await tx.order.update({
             where: { id: orderId },
