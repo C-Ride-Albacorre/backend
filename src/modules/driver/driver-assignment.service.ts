@@ -777,6 +777,7 @@ export class DriverAssignmentService {
           data: {
             orderStatus: OrderStatus.ORDER_ASSIGNED,
             driverAssignedAt: new Date(),
+            driverId,                              // ← ADD THIS
             statusHistory: {
               push: {
                 status: OrderStatus.ORDER_ASSIGNED,
