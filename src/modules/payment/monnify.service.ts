@@ -34,6 +34,7 @@ export class MonnifyService {
   private accessToken: string | null = null;
   private tokenExpiry: Date | null = null;
 
+private tokenPromise: Promise<string> | null = null; // ← mutex
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
@@ -52,7 +53,56 @@ export class MonnifyService {
 
   // ==================== AUTHENTICATION ====================
 
-  private async getAccessToken(): Promise<string> {
+
+private async getAccessToken(): Promise<string> {
+  // Fast path: cached & valid
+  if (this.accessToken && this.tokenExpiry && this.tokenExpiry > new Date()) {
+    return this.accessToken;
+  }
+
+  // Mutex: if a refresh is in-flight, wait for it instead of firing another login
+  if (this.tokenPromise) {
+    return this.tokenPromise;
+  }
+
+  this.tokenPromise = (async () => {
+    try {
+      this.logger.log('Fetching Monnify access token');
+      const auth = Buffer.from(`${this.apiKey}:${this.secretKey}`).toString('base64');
+      const response = await axios.post(
+        `${this.baseUrl}/api/v1/auth/login`,
+        {},
+        { headers: { Authorization: `Basic ${auth}` }, timeout: 10000 },
+      );
+
+      if (!response.data?.requestSuccessful) {
+        throw new Error('Monnify login failed');
+      }
+
+      this.accessToken = response.data.responseBody.accessToken;
+      // 45 min buffer — Monnify tokens are 60 min; leave 15 min safety margin
+      this.tokenExpiry = new Date(Date.now() + 45 * 60 * 1000);
+      return this.accessToken!;
+    } catch (error) {
+      this.logger.error(
+        `Failed to get access token: ${error instanceof Error ? error.stack : String(error)}`,
+      );
+      throw new HttpException('Payment service unavailable', HttpStatus.SERVICE_UNAVAILABLE);
+    } finally {
+      this.tokenPromise = null; // release mutex
+    }
+  })();
+
+  return this.tokenPromise;
+}
+
+/** Force a cache clear so the next call refetches. */
+private invalidateToken() {
+  this.accessToken = null;
+  this.tokenExpiry = null;
+}
+
+  private async getAccessTokenOld(): Promise<string> {
     this.logger.log('Fetching Monnify access token');
     if (this.accessToken && this.tokenExpiry && this.tokenExpiry > new Date()) {
       return this.accessToken;
@@ -73,7 +123,8 @@ export class MonnifyService {
 
       if (response.data.requestSuccessful) {
         this.accessToken = response.data.responseBody.accessToken;
-        this.tokenExpiry = new Date(Date.now() + 55 * 60 * 1000); // 55 minutes
+        //this.tokenExpiry = new Date(Date.now() + 55 * 60 * 1000); // 55 minutes
+        this.tokenExpiry = new Date(Date.now() + 50 * 60 * 1000); // 50 minutes (or 45)
         return this.accessToken;
       } else {
         throw new Error('Monnify login failed');
@@ -88,8 +139,138 @@ export class MonnifyService {
   }
 
   // ==================== PAYMENT INITIALIZATION (FIXED RACE CONDITION) ====================
+private async postToMonnify<T = any>(url: string, payload: any, timeoutMs = 15000): Promise<T> {
+  const attempt = async (): Promise<T> => {
+    const token = await this.getAccessToken();
+    return (await axios.post(url, payload, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: timeoutMs,
+    })).data;
+  };
+
+  try {
+    return await attempt();
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      this.logger.warn('Monnify 401 — refreshing token and retrying once');
+      this.invalidateToken();
+      return await attempt(); // one retry with fresh token
+    }
+    throw error;
+  }
+}
 
   async initializePayment(
+  userId: string,
+  dto: InitializePaymentDto,
+): Promise<MonnifyPaymentResponse> {
+  this.logger.log(`Initializing payment for order: ${dto.orderId}`);
+
+  const allowedMethods = ['CARD', 'ACCOUNT_TRANSFER', 'USSD'];
+  if (!dto.paymentMethod || !allowedMethods.includes(dto.paymentMethod)) {
+    throw new BadRequestException('Invalid or missing payment method');
+  }
+
+  // ---------- PHASE 1: short transaction — reserve the reference ----------
+  const reservation = await this.prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT 1 FROM "Order" WHERE id = ${dto.orderId} FOR UPDATE`;
+
+    const order = await tx.order.findUnique({ where: { id: dto.orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.userId !== userId) throw new ForbiddenException('Order does not belong to user');
+    if (order.paymentReference) {
+      throw new BadRequestException('Payment already initialized for this order');
+    }
+    if (order.paymentStatus !== PaymentStatus.PENDING) {
+      throw new BadRequestException('Payment already processed');
+    }
+
+    const user = await tx.user.findUnique({ where: { id: userId } });
+    if (!user) throw new BadRequestException('User not found');
+
+    const customerEmail = dto.email?.trim() || user.email?.trim();
+    if (!customerEmail) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'EMAIL_REQUIRED_FOR_PAYMENT',
+        message: 'Please provide your email address to continue with payment.',
+      });
+    }
+
+    if (!user.email?.trim()) {
+      await tx.user.update({ where: { id: userId }, data: { email: customerEmail } });
+    }
+
+    const paymentReference = `PAY-${randomUUID()}`;
+
+    // Reserve: set paymentReference now, monnifyReference later
+    await tx.order.update({
+      where: { id: order.id },
+      data: { paymentReference },
+    });
+
+    return { order, user, customerEmail, paymentReference };
+  });
+
+  const { order, user, customerEmail, paymentReference } = reservation;
+
+  // ---------- PHASE 2: external call (no DB lock held) ----------
+  const payload = {
+    amount: order.totalAmount,
+    customerName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
+    customerEmail,
+    paymentReference,
+    paymentDescription: `Order ${order.orderNumber}`,
+    currencyCode: 'NGN',
+    contractCode: this.contractCode,
+    redirectUrl:
+      dto.callbackUrl ||
+      `${this.configService.get('BACKEND_URI')}/api/v1/payment/callback`,
+    paymentMethods: [dto.paymentMethod],
+  };
+
+  try {
+    const data = await this.postToMonnify<any>(
+      `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
+      payload,
+    );
+    if (!data?.requestSuccessful) {
+      throw new Error(data?.responseMessage || 'Monnify initialization failed');
+    }
+
+    const monnifyReference = data.responseBody.transactionReference;
+
+    // ---------- PHASE 3: short transaction — persist monnifyReference ----------
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: { monnifyReference },
+    });
+
+    return data as MonnifyPaymentResponse;
+  } catch (error) {
+    // Roll back the reservation so the user can retry
+    await this.prisma.order
+      .update({
+        where: { id: order.id },
+        data: { paymentReference: null },
+      })
+      .catch((e) => this.logger.error(`Failed to release reservation: ${e.message}`));
+
+    if (axios.isAxiosError(error)) {
+      this.logger.error(`Monnify HTTP ${error.response?.status}: ${JSON.stringify(error.response?.data)}`);
+    } else {
+      this.logger.error(error instanceof Error ? error.message : String(error));
+    }
+
+    throw new HttpException(
+      this.extractMonnifyErrorMessage(error),
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}
+
+
+  async initializePaymentBk(
     userId: string,
     dto: InitializePaymentDto,
   ): Promise<MonnifyPaymentResponse> {
@@ -749,8 +930,29 @@ export class MonnifyService {
 
 
   // In monnify.service.ts
+async initializeTransaction(payload: any): Promise<any> {
+  this.logger.log(`Initializing Monnify transaction: ${JSON.stringify(payload)}`);
+  try {
+    const data = await this.postToMonnify(
+      `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
+      payload,
+    );
+    if (!data?.requestSuccessful) {
+      throw new Error(data?.responseMessage || 'Initialization failed');
+    }
+    return data;
+  } catch (error) {
+    this.logger.error(
+      `Monnify initialization failed: ${axios.isAxiosError(error) ? JSON.stringify(error.response?.data) : String(error)}`,
+    );
+    throw new HttpException(
+      this.extractMonnifyErrorMessage(error),
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}
 
-  async initializeTransaction(payload: any): Promise<any> {
+  async initializeTransactionbk(payload: any): Promise<any> {
     this.logger.log(`Initializing Monnify transaction with payload: ${JSON.stringify(payload)}`);
     const accessToken = await this.getAccessToken();
     try {
