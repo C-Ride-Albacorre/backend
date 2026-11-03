@@ -123,29 +123,61 @@ export class AuthController {
   }
 
   //CUSTOMER
+  // @Post('/customer/signup')
+  // @ApiOperation({ summary: 'Sign up a new customer' })
+  // @ApiBody({
+  //   type: CreateCustomerDto,
+  //   description: 'Sign up a new customer',
+  //   required: true,
+  //   schema: {
+  //     example: { email: 'user@example.com', password: 'password' },
+  //   },
+  // })
+  // @ApiResponse({
+  //   status: 201,
+  //   description: 'User successfully registered',
+  //   type: ApiResponseDto<AuthResponseDto>,
+  // })
+  // @ApiResponse({
+  //   status: 400,
+  //   description: 'Validation or bad request error',
+  //   type: ApiErrorResponseDto,
+  // })
+  // async registerCustomer(@Body() dto: CreateCustomerDto) {
+  //   return this.authService.registerCustomer(dto);
+  // }
+
   @Post('/customer/signup')
-  @ApiOperation({ summary: 'Sign up a new customer' })
-  @ApiBody({
-    type: CreateCustomerDto,
-    description: 'Sign up a new customer',
-    required: true,
-    schema: {
-      example: { email: 'user@example.com', password: 'password' },
-    },
-  })
-  @ApiResponse({
-    status: 201,
-    description: 'User successfully registered',
-    type: ApiResponseDto<AuthResponseDto>,
-  })
-  @ApiResponse({
-    status: 400,
-    description: 'Validation or bad request error',
-    type: ApiErrorResponseDto,
-  })
-  async registerCustomer(@Body() dto: CreateCustomerDto) {
-    return this.authService.registerCustomer(dto);
-  }
+@ApiOperation({ summary: 'Sign up a new customer' })
+@ApiHeader({
+  name: 'x-session-id',
+  required: false,
+  description: 'Guest session ID used to merge cart after signup/verification',
+})
+@ApiBody({
+  type: CreateCustomerDto,
+  description: 'Sign up a new customer',
+  required: true,
+  schema: {
+    example: { email: 'user@example.com', password: 'password' },
+  },
+})
+@ApiResponse({
+  status: 201,
+  description: 'User successfully registered',
+  type: ApiResponseDto<AuthResponseDto>,
+})
+@ApiResponse({
+  status: 400,
+  description: 'Validation or bad request error',
+  type: ApiErrorResponseDto,
+})
+async registerCustomer(
+  @Body() dto: CreateCustomerDto,
+  @Headers('x-session-id') sessionId?: string,
+) {
+  return this.authService.registerCustomer(dto, sessionId);
+}
 
   @Post('/customer/verify')
   @ApiOperation({ summary: 'Verify registration OTP' })
@@ -647,7 +679,7 @@ STEP 4 – Bank Details
   // Google OAuth routes (frontend flow)
 
   // Initiates Google OAuth redirect
-  @Get('google')
+  @Get('googleOld')
   @UseGuards(GoogleAuthGuard) // Passport Google strategy
   @ApiOperation({ summary: 'Login with Google OAuth' })
   @ApiQuery({
@@ -656,15 +688,98 @@ STEP 4 – Bank Details
     description: 'Role of the user (e.g., VENDOR or CUSTOMER)',
     example: 'VENDOR',
   })
-  async googleLogin() {
+async googleLoginOld() {
     this.logger.log('Google OAuth login initiated');
     return; // Passport will handle the redirect automatically
+}
+
+@Get('google')
+@UseGuards(GoogleAuthGuard) // Passport Google strategy
+@ApiOperation({ summary: 'Initiate Google OAuth (web + mobile)' })
+@ApiQuery({
+  name: 'role',
+  required: true,
+  description: 'Role of the user (VENDOR or CUSTOMER)',
+  example: 'VENDOR',
+})
+@ApiQuery({
+  name: 'redirect_uri',
+  required: false,
+  description:
+    'Mobile deep link callback (e.g. yourapp://oauth/callback). Omit for web.',
+  example: 'yourapp://oauth/callback',
+})
+async googleLogin() {
+  this.logger.log('Google OAuth login initiated');
+  // Passport handles the redirect.
+  // The GoogleAuthGuard reads `role` and `redirect_uri` from the query
+  // and encodes them into the OAuth `state` parameter.
+  return;
+}
+
+@Get('google/callback')
+@UseGuards(GoogleAuthGuard)
+@ApiOperation({ summary: 'Google OAuth callback handler' })
+async googleCallback(
+  @OAuthUser() googleUser: OAuthUser,
+  @Req() req: Request,
+  @Res() res: Response,
+) {
+  this.logger.debug(`OAuth callback - Role: ${googleUser.requestedRole}`);
+
+  // Parse state (Passport puts it on req.query.state)
+  let redirectUri: string | null = null;
+  const rawState = (req.query as any).state as string | undefined;
+  if (rawState) {
+    try {
+      const decoded = JSON.parse(Buffer.from(rawState, 'base64').toString());
+      redirectUri = decoded.redirectUri || null;
+    } catch {}
   }
 
-  @Get('google/callback')
+  const authResponse = await this.authService.handleOAuthCallback(
+    googleUser,
+    OAuthProviderType.GOOGLE,
+    googleUser.requestedRole as UserRole,
+  );
+
+  // Build params once
+  const params = new URLSearchParams();
+  params.append('success', 'true');
+  params.append('accessToken', authResponse.accessToken);
+  if (authResponse.refreshToken) params.append('refreshToken', authResponse.refreshToken);
+  params.append('verificationToken', authResponse.verificationToken);
+  params.append('userId', authResponse.user.id);
+  params.append('isPhoneVerified', String(authResponse.user.isPhoneVerified));
+  params.append('isEmailVerified', String(authResponse.user.isEmailVerified));
+  params.append('onboardingStatus', String(authResponse.user.onboardingStatus));
+  params.append('onboardingStep', String(authResponse.user.onboardingStep));
+  params.append('userRole', String(authResponse.user.role));
+  params.append('error', String(authResponse.error));
+  params.append('message', String(authResponse.message));
+
+  // 🟢 MOBILE: deep link (scheme or https universal link)
+  const isMobileDeepLink =
+    redirectUri &&
+    (redirectUri.startsWith('http') || /^[a-z][a-z0-9+.-]*:\/\//i.test(redirectUri));
+
+  if (isMobileDeepLink) {
+    this.logger.debug(`Redirecting to mobile: ${redirectUri}`);
+    return res.redirect(`${redirectUri}?${params.toString()}`);
+  }
+
+  // 🟢 WEB: existing logic
+  const frontendUrl = this.getFrontendUrl();
+  const redirectUrl = new URL(`${frontendUrl}/google/callback`);
+  params.forEach((value, key) => redirectUrl.searchParams.append(key, value));
+
+  return res.redirect(redirectUrl.toString());
+}
+
+  @Get('google/callback/old')
   @UseGuards(GoogleAuthGuard)
   @ApiOperation({ summary: 'Google OAuth callback handler' })
-  async googleCallback(
+  async googleCallbackOld(
     @OAuthUser() googleUser: OAuthUser,
     @Res() res: Response,
   ) {
