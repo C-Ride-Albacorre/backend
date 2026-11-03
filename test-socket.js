@@ -112,7 +112,7 @@ const { io } = require("socket.io-client");
 const SERVER_URL = "wss://backend-service-1rc7.onrender.com";
  
 const DRIVER_ID = "86803b0d-ce33-4ae1-90ea-6f2f8e07fcec";
-const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI4NjgwM2IwZC1jZTMzLTRhZTEtOTBlYS02ZjJmOGUwN2ZjZWMiLCJlbWFpbCI6ImVkaW9tb2FiYXNpb0BnbWFpbC5jb20iLCJyb2xlIjoiRElTUEFUQ0hFUiIsInR5cGUiOiJhY2Nlc3MiLCJpYXQiOjE3OTM1NTgzNjMsImV4cCI6MTc5MzU2MTk2M30.fUW1ldHkRVpw3VghdiVEAHgnsMFSL7dc7WqQI8SDwhg"
+const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI4NjgwM2IwZC1jZTMzLTRhZTEtOTBlYS02ZjJmOGUwN2ZjZWMiLCJlbWFpbCI6ImVkaW9tb2FiYXNpb0BnbWFpbC5jb20iLCJyb2xlIjoiRElTUEFUQ0hFUiIsInR5cGUiOiJhY2Nlc3MiLCJpYXQiOjE3OTM2MjU4ODQsImV4cCI6MTc5MzYyOTQ4NH0.MAaXDNq4XIsOuFU_FT-YPB6xjdN3QTubsjO28F3967s"
 let orderList = [];
  
 // --- Helper to render the current state ---

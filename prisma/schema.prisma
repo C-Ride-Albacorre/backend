@@ -61,9 +61,11 @@ model User {
   bankAccount           BankAccount?
   ordersAsDriver        Order[]             @relation("OrderDriver")
   ordersAssignedByAdmin Order[]             @relation("OrderAssignedByAdmin")
+  pendingSessionId      String?             @map("pending_session_id")
 
   @@index([email])
   @@index([phoneNumber])
+  @@index([pendingSessionId])
 }
 
 model VerificationAttempt {
