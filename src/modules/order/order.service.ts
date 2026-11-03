@@ -1142,6 +1142,204 @@ export class OrderService {
     };
   }
 
+
+  // src/modules/order/order.service.ts
+
+async getVendorStoresWithOrders(
+  vendorId: string,
+  filters: {
+    status?: OrderStatus;
+    page?: number;
+    limit?: number;
+  },
+) {
+  // 1. Fetch vendor stores
+  const stores = await this.prisma.store.findMany({
+    where: { userId: vendorId },
+    select: {
+      id: true,
+      storeName: true,
+      storeAddress: true,
+      storeLogo: true,
+      status: true,
+      latitude: true,
+      longitude: true,
+    },
+  });
+
+  if (!stores.length) {
+    return {
+      stores: [],
+      summary: { totalStores: 0, totalOrders: 0 },
+    };
+  }
+
+  const storeIds = stores.map((s) => s.id);
+
+  // 2. Pagination
+  const page = Math.max(Number(filters.page) || 1, 1);
+  const limit = Math.min(Number(filters.limit) || 20, 100);
+
+  // 3. Base where clause
+  const baseWhere = {
+    paymentStatus: PaymentStatus.PAID,
+    items: { some: { storeId: { in: storeIds } } },
+    ...(filters.status && { orderStatus: filters.status }),
+  };
+
+  // 4. Fetch orders (paginated) + per-store & per-status counts in parallel
+  const [orders, total, perStoreCounts, perStatusCounts] = await Promise.all([
+    this.prisma.order.findMany({
+      where: baseWhere,
+      include: {
+        items: {
+          where: { storeId: { in: storeIds } },
+          include: {
+            store: true,
+            variant: true,
+            product: { include: { productImages: true } },
+          },
+        },
+        user: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    this.prisma.order.count({ where: baseWhere }),
+
+    // Counts per store (respects status filter)
+    this.prisma.orderItem.groupBy({
+      by: ['storeId'],
+      where: {
+        storeId: { in: storeIds },
+        order: baseWhere, // nested relation filter
+      },
+      _count: { orderId: true },
+      _sum: { totalPrice: true },
+    }),
+
+    // Counts per status (respects store filter but NOT status filter, so vendor sees breakdown)
+    this.prisma.order.groupBy({
+      by: ['orderStatus'],
+      where: {
+        paymentStatus: PaymentStatus.PAID,
+        items: { some: { storeId: { in: storeIds } } },
+      },
+      _count: { id: true },
+    }),
+  ]);
+
+  // 5. Build lookup maps
+  const perStoreMap = new Map(
+    perStoreCounts.map((c) => [
+      c.storeId,
+      { orderCount: c._count.orderId, subtotal: c._sum.totalPrice ?? 0 },
+    ]),
+  );
+
+  const perStatusMap: Record<string, number> = {};
+  perStatusCounts.forEach((s) => {
+    perStatusMap[s.orderStatus] = s._count.id;
+  });
+
+  // 6. Group paginated orders by store
+  const ordersByStore = new Map<string, any[]>();
+  orders.forEach((order) => {
+    const vendorItems = order.items;
+    if (!vendorItems.length) return;
+
+    const storeId = vendorItems[0].storeId!;
+    if (!ordersByStore.has(storeId)) ordersByStore.set(storeId, []);
+
+    const vendorSubtotal = vendorItems.reduce(
+      (sum, i) => sum + i.totalPrice,
+      0,
+    );
+    const vendorQuantity = vendorItems.reduce(
+      (sum, i) => sum + i.quantity,
+      0,
+    );
+
+    ordersByStore.get(storeId)!.push({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      orderCode: order.orderCode,
+      createdAt: order.createdAt,
+      orderStatus: order.orderStatus,
+      paymentStatus: order.paymentStatus,
+      user: {
+        firstName: order.user.firstName,
+        lastName: order.user.lastName,
+        email: order.user.email,
+        phone: order.user.phoneNumber,
+        countryCode: order.user.countryCode,
+        isVerified: order.user.isVerified,
+        profilePicture: order.user.profilePicture,
+      },
+      items: vendorItems.map((item) => ({
+        id: item.id,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        product: item.product
+          ? {
+              id: item.product.id,
+              productName: item.product.productName,
+              image: item.product.productImages?.[0]?.imageUrl ?? null,
+            }
+          : null,
+        variant: item.variant,
+        store: item.store,
+      })),
+      vendorSummary: {
+        itemCount: vendorItems.length,
+        totalQuantity: vendorQuantity,
+        subtotal: vendorSubtotal,
+      },
+    });
+  });
+
+  // 7. Compose response
+  const storesWithOrders = stores.map((store) => {
+    const stats = perStoreMap.get(store.id) ?? {
+      orderCount: 0,
+      subtotal: 0,
+    };
+    const storeOrders = ordersByStore.get(store.id) ?? [];
+
+    // Break down statuses for this specific store
+    const statusBreakdown: Record<string, number> = {};
+    storeOrders.forEach((o) => {
+      statusBreakdown[o.orderStatus] =
+        (statusBreakdown[o.orderStatus] ?? 0) + 1;
+    });
+
+    return {
+      store,
+      orderCount: stats.orderCount,
+      subtotal: stats.subtotal,
+      statusBreakdown,
+      orders: storeOrders,
+    };
+  });
+
+  return {
+    stores: storesWithOrders,
+    summary: {
+      totalStores: stores.length,
+      totalOrders: total,
+    },
+    globalStatusBreakdown: perStatusMap,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
+
   async getVendorOrdersWithoutStatus(
     vendorId: string,
     filters: { status?: string, page?: number; limit?: number },
