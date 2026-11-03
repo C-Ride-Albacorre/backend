@@ -109,6 +109,7 @@ export interface DriverEarningsDashboard {
     earningsInPeriod: number;      // period-scoped
     totalEarnings: number;         // = wallet.totalOnCard (kept for compat)
     deliveries: number;
+    deliveriesForToday: number;   // ← ADDED
     tipsEarned: number;
     bonuses: number;
     onlineHours: number;
@@ -181,16 +182,6 @@ export class DriverEarningsService {
   const onlineHours = cappedSeconds / 3600;
   const avgPerHour = onlineHours > 0 ? agg.totalEarnings / onlineHours : 0;
 
-  // ─────────────────────────────────────────────────────────────
-  // Wallet math:
-  //   availableBalance = wallet.balance (unchanged, real money)
-  //   periodEarnings   = earnings for the selected filter
-  //   totalOnCard      = availableBalance + periodEarnings
-  // ─────────────────────────────────────────────────────────────
-  const periodEarnings = Helper.round2(agg.totalEarnings);
-  const totalOnCard = Helper.round2(wallet.availableBalance + periodEarnings);
-
-  // ── Breakdown strategy per period ─────────────────────────────
   let breakdown: DriverEarningsDashboard['breakdown'] = [];
   let weeklyAggregation: DriverEarningsDashboard['weeklyAggregation'];
 
@@ -208,25 +199,22 @@ export class DriverEarningsService {
     }
   }
 
+  const periodEarnings = Helper.round2(agg.totalEarnings);
+
   return {
     period: { start, end, type: period },
     wallet: {
-      /** Real wallet balance — not the total on card. */
       availableBalance: wallet.availableBalance,
-      /** Pending earnings inside the hold window. */
       pendingBalance: wallet.pendingBalance,
-      /** NEW: today's earnings, independent of `period`. */
       todayEarnings: wallet.todayEarnings,
-      /** availableBalance + earningsInPeriod (big card number). */
-      totalOnCard,
+      totalOnCard: Helper.round2(wallet.availableBalance + periodEarnings),
       currency: wallet.currency,
     },
     summary: {
-      /** Earnings within the selected period. */
       earningsInPeriod: periodEarnings,
-      /** Same as totalOnCard — kept for backward compat / big card. */
-      totalEarnings: totalOnCard,
+      totalEarnings: periodEarnings,
       deliveries: agg.deliveries,
+      deliveriesForToday: wallet.todayDeliveries, // ← ADDED
       tipsEarned: Helper.round2(agg.tips),
       bonuses: Helper.round2(agg.bonuses),
       onlineHours: Helper.round2(onlineHours),
@@ -237,6 +225,86 @@ export class DriverEarningsService {
     ...(weeklyAggregation ? { weeklyAggregation } : {}),
   };
 }
+//   async getDashboard2(
+//   driverId: string,
+//   period: EarningsPeriod,
+//   from?: Date,
+//   to?: Date,
+// ): Promise<DriverEarningsDashboard> {
+//   const { start, end } = this.resolveRange(period, from, to);
+
+//   const [wallet, agg, activeSeconds, performanceMetrics] = await Promise.all([
+//     this.getWalletSnapshot(driverId),
+//     this.aggregate(driverId, start, end),
+//     this.onlineHours.getActiveSecondsForRange(driverId, start, end),
+//     this.getPerformanceMetrics(driverId),
+//   ]);
+
+//   const cappedSeconds = Math.min(
+//     activeSeconds,
+//     PERFORMANCE_RULES.MAX_ONLINE_HOURS_PER_DAY *
+//       Math.max(1, this.daysBetween(start, end)) *
+//       3600,
+//   );
+//   const onlineHours = cappedSeconds / 3600;
+//   const avgPerHour = onlineHours > 0 ? agg.totalEarnings / onlineHours : 0;
+
+//   // ─────────────────────────────────────────────────────────────
+//   // Wallet math:
+//   //   availableBalance = wallet.balance (unchanged, real money)
+//   //   periodEarnings   = earnings for the selected filter
+//   //   totalOnCard      = availableBalance + periodEarnings
+//   // ─────────────────────────────────────────────────────────────
+//   const periodEarnings = Helper.round2(agg.totalEarnings);
+//   const totalOnCard = Helper.round2(wallet.availableBalance + periodEarnings);
+
+//   // ── Breakdown strategy per period ─────────────────────────────
+//   let breakdown: DriverEarningsDashboard['breakdown'] = [];
+//   let weeklyAggregation: DriverEarningsDashboard['weeklyAggregation'];
+
+//   if (period === EarningsPeriod.TODAY) {
+//     breakdown = await this.getPerDeliveryBreakdown(
+//       driverId,
+//       start,
+//       end,
+//       cappedSeconds,
+//     );
+//   } else {
+//     breakdown = await this.getDailyBreakdown(driverId, start, end);
+//     if (period === EarningsPeriod.MONTH) {
+//       weeklyAggregation = this.buildWeeklyAggregation(breakdown, start, end);
+//     }
+//   }
+
+//   return {
+//     period: { start, end, type: period },
+//     wallet: {
+//       /** Real wallet balance — not the total on card. */
+//       availableBalance: wallet.availableBalance,
+//       /** Pending earnings inside the hold window. */
+//       pendingBalance: wallet.pendingBalance,
+//       /** NEW: today's earnings, independent of `period`. */
+//       todayEarnings: wallet.todayEarnings,
+//       /** availableBalance + earningsInPeriod (big card number). */
+//       totalOnCard,
+//       currency: wallet.currency,
+//     },
+//     summary: {
+//       /** Earnings within the selected period. */
+//       earningsInPeriod: periodEarnings,
+//       /** Same as totalOnCard — kept for backward compat / big card. */
+//       totalEarnings: totalOnCard,
+//       deliveries: agg.deliveries,
+//       tipsEarned: Helper.round2(agg.tips),
+//       bonuses: Helper.round2(agg.bonuses),
+//       onlineHours: Helper.round2(onlineHours),
+//       avgEarningsPerHour: Helper.round2(avgPerHour),
+//     },
+//     performance: performanceMetrics,
+//     breakdown,
+//     ...(weeklyAggregation ? { weeklyAggregation } : {}),
+//   };
+// }
 
 
 //  async getDashboardOld(
@@ -644,7 +712,7 @@ export class DriverEarningsService {
     };
   }
 
-  private async getWalletSnapshot(driverId: string) {
+  private async getWalletSnapshotold2(driverId: string) {
   const wallet = await this.prisma.wallet.findUnique({
     where: { userId: driverId },
     select: { balance: true, currency: true },
@@ -681,6 +749,45 @@ export class DriverEarningsService {
     /** Today's earnings, independent of the dashboard's selected period. */
     todayEarnings: Helper.round2(todayAgg._sum.totalAmount ?? 0),
     currency: wallet?.currency ?? 'NGN',
+  };
+}
+
+private async getWalletSnapshot(driverId: string) {
+  const { start: todayStart, end: todayEnd } = this.resolveRange(
+    EarningsPeriod.TODAY,
+  );
+
+  const [wallet, pending, todayAgg] = await Promise.all([
+    this.prisma.wallet.findUnique({
+      where: { userId: driverId },
+      select: { balance: true, currency: true },
+    }),
+    this.prisma.walletTransaction.aggregate({
+      where: {
+        wallet: { userId: driverId },
+        status: 'PENDING',
+        type: 'CREDIT',
+      },
+      _sum: { amount: true },
+    }),
+    // Notice we use aggregate for sum and count together
+    this.prisma.driverEarning.aggregate({
+      where: {
+        driverId,
+        earnedAt: { gte: todayStart, lte: todayEnd },
+        status: { in: ['EARNED', 'CLEARED'] },
+      },
+      _sum: { totalAmount: true },
+      _count: { id: true },     // ← ADDED: count of earnings
+    }),
+  ]);
+
+  return {
+    availableBalance: Helper.round2(wallet?.balance ?? 0),
+    pendingBalance:   Helper.round2(pending._sum.amount ?? 0),
+    todayEarnings:    Helper.round2(todayAgg._sum.totalAmount ?? 0),
+    todayDeliveries:  todayAgg._count.id ?? 0,   // ← ADDED
+    currency:         wallet?.currency ?? 'NGN',
   };
 }
   // ═════════════════════════════════════════════════════════════════
