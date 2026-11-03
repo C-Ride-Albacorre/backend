@@ -296,70 +296,11 @@ export class AuthService {
     };
   }
 
-  async loginOld(dto: { email: string; password: string }) {
-    // Find super admin by email
-    const admin = await this.prisma.user.findFirst({
-      where: {
-        email: dto.email,
-        role: {
-          in: [UserRole.SUPER_ADMIN, UserRole.ADMIN], // <-- allow both roles
-        },
-      },
-    });
-
-    if (!admin) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    // Check password
-    const isPasswordValid = await Helper.compareHashedText(
-      dto.password,
-      admin.password,
-    );
-
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    if (!admin.isActive) {
-      throw new ForbiddenException('Admin account is inactive');
-    }
-
-    // -------------------------------------------------
-    // STEP 1: Send OTP for verification
-    // -------------------------------------------------
-
-    await this.verificationService.sendOtp({
-      identifier: admin.email,
-      purpose: VerificationPurpose.TWO_FACTOR,
-    });
-
-    this.logger.log(`Admin OTP sent: ${admin.email}`);
-
-    // const auth = await this.generateAuthResponse(admin);
-
-    const identifier = null;
-    const verificationMethod = null;
-
-    const auth = await this.generateAuthResponse(
-      admin,
-      identifier,
-      verificationMethod,
-    );
-
-    return {
-      accessToken: auth.accessToken,
-      refreshToken: auth.refreshToken,
-      status: 'OTP_REQUIRED',
-      requiresVerification: true,
-      verificationIdentifier: admin.email,
-    };
-  }
 
   /**
    * Register customer with automatic OTP
    */
-  async registerCustomer(dto: CreateCustomerDto): Promise<RegisterResponseDto> {
+  async registerCustomerold(dto: CreateCustomerDto): Promise<RegisterResponseDto> {
     const registrationResponse = await this.userService.createCustomer(dto);
 
     const { user, requiresVerification } = registrationResponse;
@@ -384,6 +325,34 @@ export class AuthService {
     };
   }
 
+  async registerCustomer(
+  dto: CreateCustomerDto,
+  sessionId?: string,
+): Promise<RegisterResponseDto> {
+  // Pass sessionId down to createCustomer
+  const registrationResponse = await this.userService.createCustomer(dto, sessionId);
+
+  const { user, requiresVerification } = registrationResponse;
+
+  let verificationToken: string | null = null;
+
+  if (user && requiresVerification) {
+    verificationToken = this.jwtService.sign(
+      { sub: user.id, type: 'verify' },
+      { expiresIn: '10m' },
+    );
+  }
+
+  return {
+    accessToken: '', // ❌ NEVER issue here
+    verificationToken,
+    status: registrationResponse.status,
+    requiresVerification,
+    registrationMethod: registrationResponse.registrationMethod,
+    verificationIdentifier: registrationResponse.verificationIdentifier,
+    role: registrationResponse.user?.role as any,
+  };
+}
 
   /**
    * Verify OTP during registration

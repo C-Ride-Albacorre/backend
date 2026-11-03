@@ -53,84 +53,8 @@ export class UserService {
   /**
    * Create a new customer with automatic OTP verification
    */
-  async createCustomerbk(dto: Partial<User>): Promise<PendingVerificationDto> {
-    if (dto.referralCode) {
-      const existing = await this.prisma.user.findUnique({
-        where: { referralCode: dto.referralCode },
-      });
-      if (existing) {
-        throw new BadRequestException('Referral code already exists');
-      }
-    }
 
-    // Normalize phone
-    if (dto.phoneNumber) {
-      const phone = parsePhoneNumberFromString(
-        dto.phoneNumber,
-        (dto.countryCode || 'NG') as CountryCode,
-      );
-
-      if (!phone || !phone.isValid()) {
-        throw new BadRequestException('Invalid phone number');
-      }
-
-      dto.phoneNumber = phone.format('E.164');
-    }
-
-    const registrationInput = dto.email || dto.phoneNumber;
-    const registrationMethod = Helper.getRegistrationMethod(registrationInput);
-
-    const existingUser = await this.userRepository.findExistingUser(
-      dto.email,
-      dto.phoneNumber,
-    );
-
-    // ❌ BLOCK verified users completely
-    if (existingUser || existingUser?.isVerified) {
-      throw new ConflictException('User already exists. Please log in.');
-    }
-
-    // 🔁 Existing unverified → resend OTP
-    if (existingUser) {
-      await this.sendVerificationOtp(existingUser);
-
-      return {
-        status: RegistrationStatus.PENDING_VERIFICATION,
-        requiresVerification: true,
-        registrationMethod,
-        verificationIdentifier: registrationInput,
-        user: existingUser,
-        isNewUser: true,
-      };
-    }
-
-    // 🆕 New user
-    const hashedPassword = await Helper.hashText(dto.password);
-
-    const user = await this.userRepository.create({
-      ...dto,
-      phoneNumber: dto.phoneNumber,
-      countryCode: dto.countryCode,
-      password: hashedPassword,
-      role: UserRole.CUSTOMER,
-      isActive: true,
-      isVerified: false,
-      lastLoginAt: null,
-    });
-
-    await this.sendVerificationOtp(user);
-
-    return {
-      status: RegistrationStatus.NEW,
-      requiresVerification: true,
-      registrationMethod,
-      verificationIdentifier: registrationInput,
-      user,
-      isNewUser: true, 
-    };
-  }
-
-  async createCustomer(dto: Partial<User>): Promise<PendingVerificationDto> {
+async createCustomerOld(dto: Partial<User>): Promise<PendingVerificationDto> {
   if (dto.referralCode) {
     const existing = await this.prisma.user.findUnique({
       where: { referralCode: dto.referralCode },
@@ -219,7 +143,109 @@ export class UserService {
     isNewUser: true,
   };
 }
+async createCustomer(
+  dto: Partial<User>,
+  sessionId?: string,
+): Promise<PendingVerificationDto> {
+  if (dto.referralCode) {
+    const existing = await this.prisma.user.findUnique({
+      where: { referralCode: dto.referralCode },
+    });
+    if (existing) {
+      throw new BadRequestException('Referral code already exists');
+    }
+  }
 
+  // Normalize phone
+  if (dto.phoneNumber) {
+    const phone = parsePhoneNumberFromString(
+      dto.phoneNumber,
+      (dto.countryCode || 'NG') as CountryCode,
+    );
+    if (!phone || !phone.isValid()) {
+      throw new BadRequestException('Invalid phone number');
+    }
+    dto.phoneNumber = phone.format('E.164');
+  }
+
+  const registrationInput = dto.email || dto.phoneNumber;
+  const registrationMethod = Helper.getRegistrationMethod(registrationInput);
+
+  const existingUser = await this.userRepository.findExistingUser(
+    dto.email,
+    dto.phoneNumber,
+  );
+
+  // 🔁 Existing unverified → resend OTP, refresh pending session
+  if (existingUser && !existingUser.isVerified) {
+    await this.ensureWalletExists(existingUser.id);
+
+    // Refresh the pending session so it's used on verification
+    if (sessionId) {
+      await this.prisma.user.update({
+        where: { id: existingUser.id },
+        data: { pendingSessionId: sessionId.trim() || null },
+      });
+    }
+
+    await this.sendVerificationOtp(existingUser);
+
+    return {
+      status: RegistrationStatus.PENDING_VERIFICATION,
+      requiresVerification: true,
+      registrationMethod,
+      verificationIdentifier: registrationInput,
+      user: existingUser,
+      isNewUser: true,
+    };
+  }
+
+  // ❌ Already verified user
+  if (existingUser?.isVerified) {
+    throw new ConflictException('User already exists. Please log in.');
+  }
+
+  // 🆕 New user – hash password
+  const hashedPassword = await Helper.hashText(dto.password);
+
+  // Create user + wallet + store pendingSessionId atomically
+  const { user } = await this.prisma.$transaction(async (tx) => {
+    const createdUser = await this.userRepository.create(
+      {
+        ...dto,
+        phoneNumber: dto.phoneNumber,
+        countryCode: dto.countryCode,
+        password: hashedPassword,
+        role: UserRole.CUSTOMER,
+        isActive: true,
+        isVerified: false,
+        lastLoginAt: null,
+      },
+    );
+
+    await tx.user.update({
+      where: { id: createdUser.id },
+      data: { pendingSessionId: sessionId?.trim() || null },
+    });
+
+    await tx.wallet.create({
+      data: { userId: createdUser.id, balance: 0, currency: 'NGN' },
+    });
+
+    return { user: createdUser };
+  });
+
+  await this.sendVerificationOtp(user);
+
+  return {
+    status: RegistrationStatus.NEW,
+    requiresVerification: true,
+    registrationMethod,
+    verificationIdentifier: registrationInput,
+    user,
+    isNewUser: true,
+  };
+}
 /**
  * Ensure a wallet exists for the given user. Idempotent.
  * Used for the "resend OTP" path and any legacy users.
@@ -1117,44 +1143,7 @@ const user = await this.userRepository.findExistingUser(
       throw error;
     }
   }
-  /**
-   * Attach OAuth provider to existing user
-   */
-  private async attachOAuthProvider(
-    userId: string,
-    provider: OAuthProviderType,
-    providerId: string,
-  ): Promise<void> {
-    this.logger.debug(
-      `Attaching OAuth provider ${provider}:${providerId} to user: ${userId}`,
-    );
 
-    try {
-      await this.prisma.oAuthProvider.create({
-        data: {
-          userId,
-          provider,
-          providerId,
-        },
-      });
-
-      this.logger.log(
-        `OAuth provider attached successfully to user: ${userId}`,
-      );
-    } catch (error) {
-      // If provider already exists, log and continue
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        this.logger.warn(`OAuth provider already exists for user: ${userId}`);
-        return;
-      }
-
-      this.logger.error(
-        `Failed to attach OAuth provider: ${error instanceof Error ? error.message : String(error)}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      throw error;
-    }
-  }
 
   async updatePassword(userId: string, hashedPassword: string) {
     return this.prisma.user.update({

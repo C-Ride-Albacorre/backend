@@ -11,7 +11,7 @@ import {
 import { DriverStep2Dto } from './dto/step2-driver.dto';
 import { DriverStep3MetadataDto } from './dto/step3-driver.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
-import { UserRole, UserStatus } from '../../shared/enums';
+import { DriverDocumentType, UserRole, UserStatus } from '../../shared/enums';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
 import { OnBoardingStatus, Prisma, Role, VehicleType } from '@prisma/client';
 import { DriverOnboardingDto } from './dto/driver-onboarding.dto';
@@ -29,12 +29,6 @@ import Helper from '../../shared/utils/helpers';
 import { QUEUES } from '../../shared/constants';
 import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import { DriverAssignmentService } from './driver-assignment.service';
-
-export enum DriverDocumentType {
-  DRIVER_LICENSE = 'DRIVER_LICENSE',
-  VEHICLE_INSURANCE = 'VEHICLE_INSURANCE',
-  VEHICLE_REGISTRATION = 'VEHICLE_REGISTRATION',
-}
 
 
 @Injectable()
@@ -89,9 +83,6 @@ export class DriverService {
         await this.prisma.driverProfile.create({
           data: {
             userId: driverId,
-            // fullName: dto.fullName!,
-            //phoneNumber: dto.phoneNumber!,
-            //email: dto.email!,
             address: dto.address!,
             city: dto.city!,
             state: dto.state!,
@@ -336,88 +327,7 @@ export class DriverService {
     return driver;
   }
 
-  /**
-   * Save Step 1: Personal Information
-   */
-  // async saveStep1(driverId: string, dto: DriverStep1Dto) {
-  //   this.logger.log(`Saving step 1 for driver: ${driverId}`);
-
-  //   const driver = await this.validateDriverForOnboarding(driverId);
-
-  //   // Check sequential order
-  //   if ((driver.onboardingStep ?? 0) > 1) {
-  //     throw new ConflictException('Already completed step 1');
-  //   }
-
-  //   // Check if email or phone already exists for active users
-  //   const existingUser = await this.prisma.user.findFirst({
-  //     where: {
-  //       OR: [{ email: dto.email }, { phoneNumber: dto.phoneNumber }],
-  //       NOT: { id: driverId },
-  //       //status: { not: 'DELETED' },
-  //     },
-  //   });
-
-  //   if (existingUser) {
-  //     throw new ConflictException('Email or phone number already in use');
-  //   }
-
-  //   // Update user basic info
-  //   await this.prisma.user.update({
-  //     where: { id: driverId },
-  //     data: {
-  //       email: dto.email,
-  //       phoneNumber: dto.phoneNumber,
-  //       firstName: dto.firstName,
-  //       lastName: dto.lastName,
-  //       // firstName: dto.fullName.split(' ')[0],
-  //       // lastName: dto.fullName.split(' ').slice(1).join(' ') || '',
-  //       onboardingStep: 1,
-  //       onboardingStatus: OnBoardingStatus.IN_PROGRESS,
-  //       status: UserStatus.PENDING_DOCUMENTS,
-  //     },
-  //   });
-
-  //   // Create or update driver profile
-  //   await this.prisma.driverProfile.upsert({
-  //     where: { userId: driverId },
-  //     create: {
-  //       userId: driverId,
-  //       firstName: dto.firstName,
-  //       lastName: dto.lastName,
-  //       phoneNumber: dto.phoneNumber,
-  //       email: dto.email,
-  //       address: dto.address,
-  //       city: dto.city,
-  //       state: dto.state,
-  //       country: dto.country || 'NG',
-  //       postalCode: dto.postalCode,
-  //       // user: {
-  //       //   connect: { id: driverId },
-  //       // },
-  //     },
-  //     update: {
-  //       firstName: dto.firstName,
-  //       lastName: dto.lastName,
-  //       phoneNumber: dto.phoneNumber,
-  //       email: dto.email,
-  //       address: dto.address,
-  //       city: dto.city,
-  //       state: dto.state,
-  //       country: dto.country || 'NG',
-  //       postalCode: dto.postalCode,
-  //     },
-  //   });
-
-  //   return {
-  //     success: true,
-  //     message: 'Step 1 completed successfully',
-  //     onboardingStep: 1,
-  //     onboardingStatus: OnBoardingStatus.IN_PROGRESS,
-  //     nextStep: 2,
-  //   };
-  // }
-
+ 
   /**
    * Save Step 2: Vehicle Information
    */
@@ -1394,168 +1304,6 @@ export class DriverService {
     return { success: true };
   }
 
-  async declineOrderold(
-    driverId: string,
-    orderId: string,
-    reason?: string,
-  ): Promise<{ success: boolean; note?: string }> {
-    if (!orderId || !driverId) {
-      throw new BadRequestException('orderId and driverId are required');
-    }
-
-    const pendingKey = `order:${orderId}:pending:${driverId}`;
-    const driverPendingSet = `driver:${driverId}:pending_claims`;
-    const pendingDriversKey = `order:${orderId}:pending_drivers`;  // ← FIXED
-
-    // 1. Fast atomic claim — only one worker wins.
-    const claimed = await this.redis.del(pendingKey);
-    if (claimed === 0) {
-      this.logger.debug(
-        `Driver ${driverId} decline for ${orderId}: no pending key; ignoring`,
-      );
-      return { success: true, note: 'ALREADY_RESOLVED' };
-    }
-
-    // 2. DB transaction FIRST — do not touch Redis beyond the claim yet.
-    let result: { ok: true; wasAccepted: boolean; radius?: number };
-    try {
-      result = await this.prisma.$transaction(async (tx) => {
-        const order = await tx.order.findUnique({
-          where: { id: orderId },
-          select: {
-            orderStatus: true,
-            dispatchRadiusMeters: true,
-            statusHistory: true,
-          },
-        });
-        if (!order) throw new NotFoundException('Order not found');
-
-        // If not ACCEPTED anymore, just log and return — no retry should fire.
-        if (order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
-          await tx.orderActivityLog.create({
-            data: {
-              orderId,
-              actorId: driverId,
-              actorRole: Role.DISPATCHER,   // ← FIXED: was DISPATCHER
-              action: 'DRIVER_DECLINED',
-              reason: reason ?? 'Order status changed before decline',
-            },
-          });
-          return { ok: true as const, wasAccepted: false };
-        }
-
-        // Still ACCEPTED: reset assignment + driver status.
-        await tx.driverAssignment.updateMany({
-          where: { orderId, driverId },
-          data: {
-            assignmentStatus: AssignmentStatus.PENDING,
-            driverId: null,
-          },
-        });
-
-        await tx.driverProfile.updateMany({
-          where: { userId: driverId, status: DriverStatus.BUSY },
-          data: { status: DriverStatus.ONLINE },
-        });
-
-        // Push a status-history entry so the admin portal can see the decline.
-        await tx.order.update({
-          where: { id: orderId },
-          data: {
-            statusHistory: {
-              push: {
-                status: OrderStatus.ORDER_ACCEPTED,
-                timestamp: new Date().toISOString(),
-                note: 'DRIVER_DECLINED',
-                actorId: driverId,
-                actorRole: Role.DISPATCHER,
-                reason: reason ?? null,
-              },
-            },
-          },
-        });
-
-        await tx.orderActivityLog.create({
-          data: {
-            orderId,
-            actorId: driverId,
-            actorRole: Role.DISPATCHER,
-            action: 'DRIVER_DECLINED',
-            fromStatus: OrderStatus.ORDER_ACCEPTED,
-            toStatus: OrderStatus.ORDER_ACCEPTED,
-            reason: reason ?? null,
-          },
-        });
-
-        return {
-          ok: true as const,
-          wasAccepted: true,
-          radius: order.dispatchRadiusMeters ?? undefined,
-        };
-      });
-    } catch (err) {
-      // DB failed. Restore the Redis claim so the driver can retry or the
-      // timeout can fire correctly.
-      this.logger.error(
-        `declineOrder transaction failed for ${orderId}/${driverId}`,
-        err,
-      );
-      await this.redis.setex(pendingKey, 300, 'pending').catch(() => { });
-      await this.redis.sadd(driverPendingSet, orderId).catch(() => { });
-      await this.redis.sadd(pendingDriversKey, driverId).catch(() => { });
-      throw err;
-    }
-
-    // 3. DB committed. Now clean Redis.
-    await this.redis.srem(driverPendingSet, orderId);
-    await this.redis.srem(pendingDriversKey, driverId);
-
-    // Remember the decline so the fallback won't resurface it for an hour.
-    await this.redis.sadd(`driver:${driverId}:declined`, orderId);
-    await this.redis.expire(`driver:${driverId}:declined`, 3600);
-
-    // Cancel this driver's per-driver timeout job.
-    await this.assignmentQueue
-      .remove(`timeout-${orderId}-${driverId}`)
-      .catch(() => { });
-
-    // 4. Post-commit: only re-dispatch if the order is genuinely still ACCEPTED.
-    if (result.wasAccepted) {
-      const remaining = await this.redis.scard(pendingDriversKey);
-      if (remaining === 0) {
-        this.logger.log(
-          `Last candidate declined order ${orderId}; triggering retry wave`,
-        );
-        await this.redis
-          .del(`order:${orderId}:dispatch_lock`)
-          .catch(() => { });
-
-        // Cancel any orphaned global timeout before re-dispatching.
-        await this.assignmentQueue
-          .remove(`assignment-timeout-${orderId}`)
-          .catch(() => { });
-
-        await this.assignmentQueue.add(
-          'retry-driver-search',
-          {
-            orderId,
-            radius: result.radius ?? 5000,
-            attempt: 1,
-          },
-          {
-            delay: 1000,
-            jobId: `decline-retry-${orderId}-${Date.now()}`,
-            removeOnComplete: true,
-          },
-        );
-      }
-    }
-
-    // 5. Update the declining driver's UI (they should drop the order).
-    this.driverGateway.emitOrderRemoved(driverId, orderId);
-
-    return { success: true };
-  }
 
 
   /**
@@ -1747,56 +1495,6 @@ export class DriverService {
     };
   }
 
-
-
-
-  async confirmDeliverybk(orderId: string, driverId: string) {
-    // Verify that the driver is assigned to this order
-    const assignment = await this.prisma.driverAssignment.findUnique({
-      where: { orderId },
-      select: { driverId: true, assignmentStatus: true },
-    });
-
-    if (!assignment || assignment.driverId !== driverId) {
-      throw new BadRequestException('You are not assigned to this order');
-    }
-    if (assignment.assignmentStatus !== AssignmentStatus.ASSIGNED) {
-      throw new BadRequestException('Order not in assigned state');
-    }
-
-    // Use the state machine to transition
-    await this.orderService.transition(orderId, OrderStatus.DELIVERED, {
-      actorId: driverId,
-      actorRole: Role.DISPATCHER,
-    });
-
-    // Update driver profile: total deliveries +1, set status back to ONLINE
-    await this.prisma.driverProfile.update({
-      where: { userId: driverId },
-      data: {
-        status: DriverStatus.ONLINE,
-        totalDeliveries: { increment: 1 },
-      },
-    });
-
-    // Update driver assignment record
-    await this.prisma.driverAssignment.update({
-      where: { orderId },
-      data: {
-        deliveryConfirmedAt: new Date(), assignmentStatus: AssignmentStatus.EXPIRED
-
-      },
-    });
-
-    // Trigger customer rating request (async – fire and forget)
-    this.requestCustomerRating(orderId).catch((err) =>
-      this.logger.error(`Failed to request rating for order ${orderId}`, err),
-    );
-
-
-    this.logger.log(`Order ${orderId} delivered by driver ${driverId}`);
-    return { success: true, message: 'Order delivered successfully' };
-  }
 
   /**
    * Private helper: send a push/in-app notification to the customer asking for rating.

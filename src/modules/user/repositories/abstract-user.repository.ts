@@ -12,6 +12,7 @@ export abstract class AbstractUserRepository {
   abstract findExistingUser(
     email?: string,
     phoneNumber?: string,
+    
   ): Promise<User | null>;
   abstract create(userData: Partial<User>): Promise<User>;
   abstract update(id: string, userData: Partial<User>): Promise<User>;

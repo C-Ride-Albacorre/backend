@@ -1,7 +1,7 @@
 // rating.service.ts
 import { Injectable, Logger, BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Role, RatingStatus } from '@prisma/client';
+import { Role } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { PrismaService } from '../../shared/services/prisma.service';
@@ -15,7 +15,6 @@ export class RatingService {
   constructor(
     private prisma: PrismaService,
     private pushService: PushNotificationService,
-    //@InjectQueue('rating-reminders') private reminderQueue: Queue, // BullMQ queue
     @InjectQueue(QUEUES.RATING_REMINDERS) private reminderQueue: Queue, // BullMQ queue
     
   ) {}
