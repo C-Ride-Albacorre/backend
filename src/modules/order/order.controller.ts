@@ -96,6 +96,56 @@ export class OrderController {
   }
 
 
+@Get('stores/orders')
+@ApiOperation({
+  summary: 'List vendor stores with orders',
+  description:
+    'Retrieve all stores belonging to the authenticated vendor along with their orders.',
+})
+@ApiQuery({
+  name: 'status',
+  required: false,
+  type: String,
+  example: 'ORDER_ASSIGNED',
+  description: 'Filter orders by status',
+})
+@ApiQuery({
+  name: 'page',
+  required: false,
+  type: Number,
+  example: 1,
+  description: 'Page number',
+})
+@ApiQuery({
+  name: 'limit',
+  required: false,
+  type: Number,
+  example: 10,
+  description: 'Number of records per page',
+})
+@ApiResponse({
+  status: 200,
+  description: 'Vendor stores with orders retrieved successfully',
+})
+@ApiResponse({
+  status: 403,
+  description: 'Forbidden - User is not a vendor',
+})
+async getStoresWithOrders(
+  @GetUser() user: any,
+  @Query('status') status?: OrderStatus,
+  @Query('page') page?: number,
+  @Query('limit') limit?: number,
+) {
+  if (user.role !== Role.VENDOR) throw new ForbiddenException();
+
+  return this.orderService.getVendorStoresWithOrders(user.id, {
+    status,
+    page,
+    limit,
+  });
+}
+
   @Get(":id")
   @ApiOperation({
     summary: "Get single vendor order",
