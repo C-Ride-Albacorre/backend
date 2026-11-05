@@ -122,8 +122,11 @@ private initializeFirebase(): void {
     } catch (error) {
       // Handle invalid token (e.g., uninstalled app)
       if (
-        error.code === 'messaging/invalid-registration-token' ||
-        error.code === 'messaging/registration-token-not-registered'
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error.code === 'messaging/invalid-registration-token' ||
+          error.code === 'messaging/registration-token-not-registered')
       ) {
         this.logger.warn(
           `Invalid FCM token for driver ${driverId}, removing from DB`,

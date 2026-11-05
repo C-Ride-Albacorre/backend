@@ -13,6 +13,7 @@ import { CartModule } from '../cart/cart.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { WalletService } from '../wallet/wallet.service';
 import { PaymentModule } from '../payment/payment.module';
+import { GoogleTokenVerifier } from './google-token-verifier.service';
 
 @Module({
   imports: [
@@ -38,7 +39,8 @@ import { PaymentModule } from '../payment/payment.module';
     GoogleAuthGuard,
     GoogleStrategy,
     VerificationCacheService,
+    GoogleTokenVerifier
   ],
-  exports: [AuthService, JwtModule],
+  exports: [AuthService, JwtModule, GoogleTokenVerifier],
 })
 export class AuthModule {}
