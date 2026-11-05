@@ -7,6 +7,7 @@ import {
   Get,
   Query,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -27,6 +28,8 @@ import { Roles } from '../../common/decorators/role.decorator';
 import { UserRole } from '../../shared/enums';
 import { VendorActionDto } from './dto/vendor-action.dto';
 import { VendorOrderDto } from './dto/vendor-order.dto';
+import { ListVendorStoresQueryDto } from './dto/list-vendor-stores-query.dto';
+import { ListStoreOrdersQueryDto } from './dto/list-store-orders-query.dto';
 
 // export class VendorActionDto {
 //   action: 'ACCEPT' | 'DECLINE';
@@ -96,55 +99,87 @@ export class OrderController {
   }
 
 
-@Get('stores/orders')
-@ApiOperation({
-  summary: 'List vendor stores with orders',
-  description:
-    'Retrieve all stores belonging to the authenticated vendor along with their orders.',
-})
-@ApiQuery({
-  name: 'status',
-  required: false,
-  type: String,
-  example: 'ORDER_ASSIGNED',
-  description: 'Filter orders by status',
-})
-@ApiQuery({
-  name: 'page',
-  required: false,
-  type: Number,
-  example: 1,
-  description: 'Page number',
-})
-@ApiQuery({
-  name: 'limit',
-  required: false,
-  type: Number,
-  example: 10,
-  description: 'Number of records per page',
-})
-@ApiResponse({
-  status: 200,
-  description: 'Vendor stores with orders retrieved successfully',
-})
-@ApiResponse({
-  status: 403,
-  description: 'Forbidden - User is not a vendor',
-})
-async getStoresWithOrders(
-  @GetUser() user: any,
-  @Query('status') status?: OrderStatus,
-  @Query('page') page?: number,
-  @Query('limit') limit?: number,
-) {
-  if (user.role !== Role.VENDOR) throw new ForbiddenException();
+// @Get('stores/orders')
+// @ApiOperation({
+//   summary: 'List vendor stores with orders',
+//   description:
+//     'Retrieve all stores belonging to the authenticated vendor along with their orders.',
+// })
+// @ApiQuery({
+//   name: 'status',
+//   required: false,
+//   type: String,
+//   example: 'ORDER_ASSIGNED',
+//   description: 'Filter orders by status',
+// })
+// @ApiQuery({
+//   name: 'page',
+//   required: false,
+//   type: Number,
+//   example: 1,
+//   description: 'Page number',
+// })
+// @ApiQuery({
+//   name: 'limit',
+//   required: false,
+//   type: Number,
+//   example: 10,
+//   description: 'Number of records per page',
+// })
+// @ApiResponse({
+//   status: 200,
+//   description: 'Vendor stores with orders retrieved successfully',
+// })
+// @ApiResponse({
+//   status: 403,
+//   description: 'Forbidden - User is not a vendor',
+// })
+// async getStoresWithOrders(
+//   @GetUser() user: any,
+//   @Query('status') status?: OrderStatus,
+//   @Query('page') page?: number,
+//   @Query('limit') limit?: number,
+// ) {
+//   if (user.role !== Role.VENDOR) throw new ForbiddenException();
 
-  return this.orderService.getVendorStoresWithOrders(user.id, {
-    status,
-    page,
-    limit,
-  });
-}
+//   return this.orderService.getVendorStoresWithOrders(user.id, {
+//     status,
+//     page,
+//     limit,
+//   });
+// }
+
+@Get('stores')
+  @ApiOperation({ summary: 'List stores owned by the authenticated vendor' })
+  @ApiOkResponse({ description: 'Paginated list of vendor stores' })
+  async listStores(
+    @GetUser() user: any,
+    @Query() query: ListVendorStoresQueryDto,
+  ) {
+    if (user.role !== Role.VENDOR) throw new ForbiddenException();
+    return this.orderService.listVendorStores(user.id, query);
+  }
+
+ @Get('store/:id')
+  @ApiOperation({
+    summary:
+      'Get one vendor store with its paginated orders and status breakdown',
+  })
+  @ApiParam({ name: 'id', description: 'Store UUID' })
+  @ApiOkResponse({ description: 'Store details with its orders' })
+  async getStore(
+    @GetUser() user: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: ListStoreOrdersQueryDto,
+  ) {
+    if (user.role !== Role.VENDOR) throw new ForbiddenException();
+    return this.orderService.getStoreWithOrders(
+      user.id,
+      id,
+      query,
+    );
+  }
+
 
   @Get(":id")
   @ApiOperation({
