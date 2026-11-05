@@ -29,7 +29,8 @@ export class DriverNotificationProcessor extends WorkerHost {
         type: 'delivery_request',
       },
       priority: 'high',
-      sound: 'notification.wav',
+      sound: 'default',
+      //sound: 'notification.wav',
     });
   }
 }

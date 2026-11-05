@@ -65,6 +65,7 @@ import { AddPhoneDto } from './dto/add-phone-number.dto';
 import { CreateAdminDto } from '../admin/dto/create-admin.dto';
 import { ResendVerificationTokenDto } from './dto/resend-token-expiry.dto';
 import { WalletService } from '../wallet/wallet.service';
+import { GoogleMobileLoginDto } from './dto/google-mobile-login.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -830,6 +831,22 @@ async googleCallback(
 
     return res.redirect(redirectUrl.toString());
   }
+
+
+@Post('google/mobile')
+@HttpCode(HttpStatus.OK)
+@ApiOperation({
+  summary: 'Login / register with a Google ID token (native mobile)',
+  description:
+    'Verifies a Google ID token obtained from a native SDK (GoogleSignin.signIn). ' +
+    'Returns the same response shape as the redirect callback flow.',
+})
+@ApiResponse({ status: 200, description: 'Login successful' })
+@ApiResponse({ status: 401, description: 'Invalid Google ID token' })
+@ApiResponse({ status: 403, description: 'Suspended account or role mismatch' })
+async googleMobileLogin(@Body() dto: GoogleMobileLoginDto) {
+  return this.authService.loginWithGoogleIdToken(dto);
+}
 
   // Google OAuth routes (frontend flow)
   // Initiates Google OAuth redirect

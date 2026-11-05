@@ -55,6 +55,7 @@
     "express-useragent": "^1.0.15",
     "fast-levenshtein": "^3.0.0",
     "firebase-admin": "^13.10.0",
+    "google-auth-library": "^10.9.1",
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
     "ioredis": "^5.10.1",
