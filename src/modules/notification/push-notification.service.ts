@@ -32,32 +32,6 @@ export class PushNotificationService {
     }
   }
 
-  // private initializeFirebase(): void {
-  //   try {
-  //     const projectId = this.configService.get('FIREBASE_PROJECT_ID');
-  //     const privateKey = this.configService
-  //       .get('FIREBASE_PRIVATE_KEY')
-  //       ?.replace(/\\n/g, '\n');
-  //     const clientEmail = this.configService.get('FIREBASE_CLIENT_EMAIL');
-
-  //     if (!projectId || !privateKey || !clientEmail) {
-  //       throw new Error('Missing Firebase credentials in environment');
-  //     }
-      
-
-  //     admin.initializeApp({
-  //       credential: admin.credential.cert({
-  //         projectId,
-  //         privateKey,
-  //         clientEmail,
-  //       }),
-  //     });
-  //     this.logger.log('Firebase Admin SDK initialized');
-  //   } catch (error) {
-  //     this.logger.error('Failed to initialize Firebase Admin SDK', error);
-  //     this.isEnabled = false; // fallback
-  //   }
-  // }
 private initializeFirebase(): void {
   try {
     const base64 = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
@@ -126,7 +100,7 @@ private initializeFirebase(): void {
         android: {
           priority: payload.priority === 'high' ? 'high' : 'normal',
           notification: {
-            sound: payload.sound || 'default',
+            //sound: payload.sound || 'default',
             channelId: 'delivery_requests',
           },
         },
@@ -154,11 +128,7 @@ private initializeFirebase(): void {
         this.logger.warn(
           `Invalid FCM token for driver ${driverId}, removing from DB`,
         );
-        // await this.prisma.driverProfile
-        //   .update({
-        //     where: { userId: driverId },
-        //     data: { fcmToken: null },
-        //   })
+     
           await this.prisma.user
           .update({
             where: { id: driverId },
@@ -296,20 +266,7 @@ async sendPickupPush(
   });
 }
 
-// async sendToUser(userId: string, payload: PushNotificationPayload): Promise<boolean> {
-//   const user = await this.prisma.user.findUnique({
-//     where: { id: userId },
-//     select: { fcmToken: true },
-//   });
-//   if (!user?.fcmToken) return false;
-//   const message = {
-//     notification: { title: payload.title, body: payload.body },
-//     data: payload.data || {},
-//     token: user.fcmToken,
-//   };
-//   await admin.messaging().send(message);
-//   return true;
-// }
+
 async sendToUser(
   userId: string,
   payload: PushNotificationPayload,

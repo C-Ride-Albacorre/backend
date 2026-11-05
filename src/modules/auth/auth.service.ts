@@ -64,6 +64,8 @@ import { ResendVerificationTokenDto } from './dto/resend-token-expiry.dto';
 import { CartService } from '../cart/cart.service';
 import { RedisService } from '../redis/redis.service';
 import * as crypto from 'crypto';
+import { GoogleMobileLoginDto } from './dto/google-mobile-login.dto';
+import { GoogleTokenVerifier } from './google-token-verifier.service';
 
 @Injectable()
 export class AuthService {
@@ -86,6 +88,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly cartService: CartService,
     private readonly redisService: RedisService,
+    private readonly googleTokenVerifier: GoogleTokenVerifier,
   ) {
     this.refreshTokenSecret = this.config.get<string>('REFRESH_TOKEN_SECRET');
     this.accessTokenExpiresIn = this.config.get<string | number>(
@@ -1711,6 +1714,101 @@ export class AuthService {
       throw error;
     }
   }
+
+
+  ///GOOGLE MOBILE AUTH///
+  // src/auth/auth.service.ts
+async loginWithGoogleIdToken(dto: GoogleMobileLoginDto) {
+  this.logger.log(`Google mobile login: role=${dto.role}`);
+
+  // 1. Verify the token with Google
+  const payload = await this.googleTokenVerifier.verify(dto.idToken);
+
+  // 2. Reuse the EXACT same createOrGetOAuthUser the redirect flow uses
+  const user = await this.userService.createOrGetOAuthUser({
+    email: payload.email.toLowerCase().trim(),
+    firstName: payload.given_name || payload.name || '',
+    lastName: payload.family_name || '',
+    provider: OAuthProviderType.GOOGLE,
+    providerId: payload.sub,
+    profilePicture: payload.picture,
+    role: dto.role,
+  });
+
+  // 3. Migrate guest cart if sessionId was supplied
+  if (dto.sessionId) {
+    try {
+      await this.cartService.mergeGuestCart(user.id, dto.sessionId);
+    } catch (e: any) {
+      this.logger.warn(`Cart migration failed for user ${user.id}: ${e.message}`);
+      // non-fatal — continue with login
+    }
+  }
+
+  // 4. Same blocking rules as the redirect flow
+  if (user.status === 'SUSPENDED' || user.status === 'REJECTED') {
+    throw new ForbiddenException('Your account is not allowed to login');
+  }
+
+  if (user.role !== dto.role) {
+    throw new ForbiddenException(
+      'This account is already registered with a different role',
+    );
+  }
+
+  // 5. Same verification branching the callback uses
+  if (user.role === UserRole.CUSTOMER) {
+    const auth = await this.generateAuthResponse(user, null, null);
+    return {
+      accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
+      user: this.serializeUser(user),
+      nextAction: 'Complete onboarding',
+    };
+  }
+
+  // VENDOR
+  const isFullyVerified = user.isEmailVerified && user.isPhoneVerified;
+  if (!isFullyVerified) {
+    const verificationToken = this.jwtService.sign(
+      { sub: user.id, type: 'verify' },
+      { expiresIn: '10m' },
+    );
+    return {
+      success: true,
+      message: 'Vendor authentication successful. Please complete verification.',
+      verificationToken,
+      user: this.serializeUser(user),
+      nextSteps: [
+        !user.isEmailVerified && 'Verify your email address',
+        !user.isPhoneVerified && 'Verify your phone number',
+      ].filter(Boolean),
+      nextAction: 'Complete verification',
+    };
+  }
+
+  const auth = await this.generateAuthResponse(user, null, null);
+  return {
+    accessToken: auth.accessToken,
+    refreshToken: auth.refreshToken,
+    user: this.serializeUser(user),
+    nextAction: 'Complete onboarding',
+  };
+}
+
+private serializeUser(user: any) {
+  return {
+    id: user.id,
+    email: user.email,
+    phoneNumber: user.phoneNumber,
+    status: user.status,
+    role: user.role,
+    isEmailVerified: user.isEmailVerified,
+    isPhoneVerified: user.isPhoneVerified,
+    onboardingStatus: user.onboardingStatus,
+    onboardingStep: user.onboardingStep ?? 0,
+  };
+}
 
   //////VENDOR//////
   /**
