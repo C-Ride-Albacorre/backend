@@ -101,6 +101,12 @@ export class OrderService {
     string,
     { from: OrderStatus[]; to: OrderStatus; action: string }
   > = {
+      place_order: {
+        from: [OrderStatus.PENDING],
+        to: OrderStatus.ORDER_PLACED,
+        action: 'PLACE_ORDER',
+      },
+
       confirm_payment: {
         from: [OrderStatus.ORDER_PLACED],
         to: OrderStatus.CONFIRMED,
@@ -1432,6 +1438,134 @@ export class OrderService {
      * an order count so the vendor dashboard can show pending work at a glance.
      */
   async listVendorStores(vendorId: string, query: ListVendorStoresQueryDto) {
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 20;
+
+  const where: Prisma.StoreWhereInput = {
+    userId: vendorId,
+    ...(query.status && { status: query.status }),
+    ...(query.orderStatus && {
+      orderItems: {
+        some: {
+          order: {
+            orderStatus: query.orderStatus,
+          },
+        },
+      },
+    }),
+  };
+
+  const [stores, total] = await Promise.all([
+    this.prisma.store.findMany({
+      where,
+      select: {
+        id: true,
+        storeName: true,
+        storeDescription: true,
+        storeAddress: true,
+        storeLogo: true,
+        phoneNumber: true,
+        email: true,
+        status: true,
+        latitude: true,
+        longitude: true,
+        dailyOrderLimit: true,
+        preparationTime: true,
+        createdAt: true,
+        updatedAt: true,
+        category: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    this.prisma.store.count({ where }),
+  ]);
+
+  if (stores.length === 0) {
+    return {
+      data: [],
+      meta: { page, limit, total: 0, totalPages: 0 },
+    };
+  }
+
+const storeIds = stores.map((s) => s.id);
+
+const [paidCounts, confirmedCounts, processingCounts] = await Promise.all([
+  // All paid orders
+  this.prisma.orderItem.groupBy({
+    by: ['storeId'],
+    where: {
+      storeId: { in: storeIds },
+      order: {
+        paymentStatus: PaymentStatus.PAID,
+      },
+    },
+    _count: {
+      orderId: true,
+    },
+  }),
+
+  // Confirmed orders
+  this.prisma.orderItem.groupBy({
+    by: ['storeId'],
+    where: {
+      storeId: { in: storeIds },
+      order: {
+        orderStatus: OrderStatus.CONFIRMED,
+      },
+    },
+    _count: {
+      orderId: true,
+    },
+  }),
+
+  // Processing orders
+  this.prisma.orderItem.groupBy({
+    by: ['storeId'],
+    where: {
+      storeId: { in: storeIds },
+      order: {
+        orderStatus: OrderStatus.ORDER_PROCESSING,
+      },
+    },
+    _count: {
+      orderId: true,
+    },
+  }),
+]);
+
+const paidCountMap = new Map(
+  paidCounts.map((c) => [c.storeId, c._count.orderId]),
+);
+
+const confirmedCountMap = new Map(
+  confirmedCounts.map((c) => [c.storeId, c._count.orderId]),
+);
+
+const processingCountMap = new Map(
+  processingCounts.map((c) => [c.storeId, c._count.orderId]),
+);
+
+const data = stores.map((store) => ({
+  ...store,
+  orderCount: paidCountMap.get(store.id) ?? 0,
+  confirmedOrder: confirmedCountMap.get(store.id) ?? 0,
+  processingOrder: processingCountMap.get(store.id) ?? 0,
+}));
+
+  return {
+    data,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
+
+  async listVendorStoresoOld(vendorId: string, query: ListVendorStoresQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
