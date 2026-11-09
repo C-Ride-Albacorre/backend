@@ -256,18 +256,42 @@ transitions: Record<
     });
 
     // 2. 🔔 EMIT WEBSOCKET EVENT AFTER TRANSACTION COMMITS
-    try {
-      // Ensure we have a history array (if not, fallback to empty)
-      const history = updatedOrder.statusHistory || [];
-      this.mapGateway.emitOrderStatus(orderId, targetStatus, history);
-      this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
-    } catch (error) {
-      // Log but do not throw – status change is already persisted
-      this.logger.error(
-        `Failed to emit order-status for ${orderId}: ${error}`,
-        error,
-      );
-    }
+    // try {
+    //   // Ensure we have a history array (if not, fallback to empty)
+    //   const history = updatedOrder.statusHistory || [];
+    //   this.mapGateway.emitOrderStatus(orderId, targetStatus, history);
+    //   this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
+    // } catch (error) {
+    //   // Log but do not throw – status change is already persisted
+    //   this.logger.error(
+    //     `Failed to emit order-status for ${orderId}: ${error}`,
+    //     error,
+    //   );
+    // }
+    // 2. 🔔 EMIT WEBSOCKET EVENT AFTER TRANSACTION COMMITS
+try {
+  const history = updatedOrder.statusHistory || [];
+
+  // Forward prep metadata if the caller supplied it.
+  const extra: Record<string, unknown> = {};
+  if (context.preparation) {
+    extra.preparation = {
+      preparation_minutes: context.preparation.preparationMinutes,
+      preparation_started_at: context.preparation.preparationStartedAt,
+      preparation_due_at: context.preparation.preparationDueAt,
+      preparation_ready: context.preparation.preparationReady ?? false,
+      store_name: context.preparation.storeName ?? null,
+    };
+  }
+
+  this.mapGateway.emitOrderStatus(orderId, targetStatus, history, extra);
+  this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
+} catch (error) {
+  this.logger.error(
+    `Failed to emit order-status for ${orderId}: ${error}`,
+    error,
+  );
+}
 
     // 3. Return the updated order
     return updatedOrder;
@@ -1977,6 +2001,13 @@ async getVendorStoresWithOrders(
       actorRole: Role.VENDOR,
       respondedAt: now,
       metadata: { preparationMinutes: prepMins },
+      preparation: {
+        preparationMinutes: prepMins,
+        preparationStartedAt: now.toISOString(),
+        preparationDueAt: prepDueAt.toISOString(),
+        preparationReady: false,
+        storeName: store?.storeName ?? null,
+      },
     });
 
     // ── 3. Persist SLA fields (transition() only sets preparationStartedAt) ──
@@ -1985,6 +2016,7 @@ async getVendorStoresWithOrders(
       data: {
         preparationDueAt: prepDueAt,
         preparationTimeoutAt: prepDueAt, // first escalation deadline
+        customerPreparingNotifiedAt: now,
       },
     });
 
@@ -1995,6 +2027,7 @@ async getVendorStoresWithOrders(
       prepMins,
       store?.storeName ?? 'the store',
     );
+    
 
     // Mark notification as sent (dedupe)
     await this.prisma.order.update({

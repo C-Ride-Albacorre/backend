@@ -112,9 +112,27 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.redis.setex(key, 3600, polyline); // 1 hour TTL
   }
 
-  emitOrderStatus(orderId: string, status: OrderStatus, history?: any) {
+  emitOrderStatusOld(orderId: string, status: OrderStatus, history?: any) {
     this.server.to(`order:${orderId}`).emit('order-status', { status, history });
   }
+
+  emitOrderStatus(
+  orderId: string,
+  status: OrderStatus,
+  history?: any,
+  extra?: Record<string, unknown>,
+) {
+  this.server.to(`order:${orderId}`).emit('order-status', {
+    orderId,
+    order_id: orderId,              // snake_case alias for mobile
+    status,
+    order_status: status,           // snake_case alias for mobile
+    history: history ?? [],
+    status_history: history ?? [],
+    updated_at: new Date().toISOString(),
+    ...extra,                       // ← prep metadata flows through here
+  });
+}
 
   emitDriverArrived(orderId: string, leg: 'to-vendor' | 'to-customer') {
     this.server.to(`order:${orderId}`).emit('driver-arrived', { orderId, leg });
