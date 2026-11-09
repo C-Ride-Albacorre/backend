@@ -25,6 +25,7 @@ export class ListVendorStoresQueryDto {
   @Max(100)
   limit?: number = 20;
 
+  @ApiPropertyOptional({ enum: OrderStatus })
   @IsOptional()
   @IsEnum(OrderStatus)
   orderStatus?: OrderStatus;
