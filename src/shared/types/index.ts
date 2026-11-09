@@ -33,4 +33,12 @@ export type TransitionContext = {
   reason?: string;
   metadata?: any;
   respondedAt?: Date;
+
+  preparation?: {
+    preparationMinutes: number;
+    preparationStartedAt: string;  // ISO
+    preparationDueAt: string;      // ISO
+    preparationReady?: boolean;
+    storeName?: string | null;
+  };
 };
