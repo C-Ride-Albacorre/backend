@@ -84,12 +84,6 @@ export class OrderController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-        //console.log('Vendor ID:', user);
-
-    // if (user.role !== Role.VENDOR) {
-    //   throw new ForbiddenException();
-    // }
-
 
     return this.orderService.getVendorOrders(user.id, {
       status,
