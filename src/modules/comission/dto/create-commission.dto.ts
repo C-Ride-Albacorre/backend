@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNotEmpty, IsNumber, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
 
 export class CreateCommissionDto {
@@ -25,6 +25,7 @@ export class CreateCommissionDto {
   vendorCommission: number;
 
   @ApiProperty({ example: 5.0, description: 'Service charge percentage (0–100)' })
+  @IsOptional()
   @IsNumber()
   @Min(0)
   @Max(100)

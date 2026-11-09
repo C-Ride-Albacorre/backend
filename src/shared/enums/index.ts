@@ -74,3 +74,8 @@ export enum DriverDocumentType {
   VEHICLE_REGISTRATION = 'VEHICLE_REGISTRATION',
 }
 
+export enum ApprovalAction {
+  APPROVE = 'APPROVE',
+  REJECT = 'REJECT',
+  SUSPEND = 'SUSPEND',
+}

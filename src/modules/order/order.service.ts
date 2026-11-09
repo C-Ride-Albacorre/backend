@@ -57,46 +57,101 @@ export class OrderService {
     private readonly driverAssignment: DriverAssignmentService,
     private notification: NotificationService,
     @InjectQueue(QUEUES.ORDER_EVENTS) private orderQueue: Queue,
-    private mapGateway: MapGateway 
-
+    private mapGateway: MapGateway,
+    @InjectQueue(QUEUES.PREPARATION) private preparationQueue: Queue, 
   ) { }
 
-  transitions: Record<
-    string,
-    { from: OrderStatus[]; to: OrderStatus; action: string }
-  > = {
-      confirm_payment: {
-        from: [OrderStatus.ORDER_PLACED], // after payment verification
-        to: OrderStatus.CONFIRMED,
-        action: 'CONFIRMED',
-      },
-      vendor_accept: {
-        from: [OrderStatus.CONFIRMED],
-        to: OrderStatus.ORDER_ACCEPTED,
-        action: 'VENDOR_ACCEPT',
-      },
-      assign_driver: {
-        from: [OrderStatus.ORDER_ACCEPTED],
-        to: OrderStatus.ORDER_ASSIGNED,
-        action: 'ASSIGN_DRIVER',
-      },
-      pickup: {
-        from: [OrderStatus.ORDER_ASSIGNED],
-        to: OrderStatus.PICKED_UP,
-        action: 'PICKUP',
-      },
-      deliver: {
-        from: [OrderStatus.PICKED_UP],
-        to: OrderStatus.DELIVERED,
-        action: 'DELIVER',
-      },
-      cancel: {
-        from: [OrderStatus.ORDER_PLACED, OrderStatus.CONFIRMED, OrderStatus.ORDER_ACCEPTED],
-        to: OrderStatus.CANCELLED,
-        action: 'CANCEL',
-      },
-    };
+  // transitions: Record<
+  //   string,
+  //   { from: OrderStatus[]; to: OrderStatus; action: string }
+  // > = {
+  //     confirm_payment: {
+  //       from: [OrderStatus.ORDER_PLACED], // after payment verification
+  //       to: OrderStatus.CONFIRMED,
+  //       action: 'CONFIRMED',
+  //     },
+  //     vendor_accept: {
+  //       from: [OrderStatus.CONFIRMED],
+  //       to: OrderStatus.ORDER_ACCEPTED,
+  //       action: 'VENDOR_ACCEPT',
+  //     },
+  //     assign_driver: {
+  //       from: [OrderStatus.ORDER_ACCEPTED],
+  //       to: OrderStatus.ORDER_ASSIGNED,
+  //       action: 'ASSIGN_DRIVER',
+  //     },
+  //     pickup: {
+  //       from: [OrderStatus.ORDER_ASSIGNED],
+  //       to: OrderStatus.PICKED_UP,
+  //       action: 'PICKUP',
+  //     },
+  //     deliver: {
+  //       from: [OrderStatus.PICKED_UP],
+  //       to: OrderStatus.DELIVERED,
+  //       action: 'DELIVER',
+  //     },
+  //     cancel: {
+  //       from: [OrderStatus.ORDER_PLACED, OrderStatus.CONFIRMED, OrderStatus.ORDER_ACCEPTED],
+  //       to: OrderStatus.CANCELLED,
+  //       action: 'CANCEL',
+  //     },
+  //   };
 
+transitions: Record<
+  string,
+  { from: OrderStatus[]; to: OrderStatus; action: string }
+> = {
+  confirm_payment: {
+    from: [OrderStatus.ORDER_PLACED],
+    to: OrderStatus.CONFIRMED,
+    action: 'CONFIRMED',
+  },
+
+  // NEW: vendor accept now lands in ORDER_PROCESSING, not ORDER_ACCEPTED
+  vendor_accept: {
+    from: [OrderStatus.CONFIRMED],
+    to: OrderStatus.ORDER_PROCESSING,
+    action: 'VENDOR_ACCEPT',
+  },
+
+  // NEW: prep finished (vendor marks ready, or auto-escalation triggers dispatch)
+  prep_ready: {
+    from: [OrderStatus.ORDER_PROCESSING],
+    to: OrderStatus.ORDER_ACCEPTED,
+    action: 'PREP_READY',
+  },
+
+  // EXISTING: driver accepts (unchanged)
+  assign_driver: {
+    from: [OrderStatus.ORDER_ACCEPTED],
+    to: OrderStatus.ORDER_ASSIGNED,
+    action: 'ASSIGN_DRIVER',
+  },
+
+  pickup: {
+    from: [OrderStatus.ORDER_ASSIGNED],
+    to: OrderStatus.PICKED_UP,
+    action: 'PICKUP',
+  },
+
+  deliver: {
+    from: [OrderStatus.PICKED_UP],
+    to: OrderStatus.DELIVERED,
+    action: 'DELIVER',
+  },
+
+  // Vendor can also cancel during prep
+  cancel: {
+    from: [
+      OrderStatus.ORDER_PLACED,
+      OrderStatus.CONFIRMED,
+      OrderStatus.ORDER_PROCESSING,   // ← new
+      OrderStatus.ORDER_ACCEPTED,
+    ],
+    to: OrderStatus.CANCELLED,
+    action: 'CANCEL',
+  },
+};
 
   async transition(
     orderId: string,
@@ -145,7 +200,12 @@ export class OrderService {
       };
 
       // d) Set specialised timestamps based on target status
-      if (targetStatus === OrderStatus.ORDER_ACCEPTED) {
+      if (targetStatus === OrderStatus.ORDER_PROCESSING) {
+        updateData.preparationStartedAt = new Date();
+        // preparationDueAt / preparationTimeoutAt are set by the caller
+        // (see handleVendorAction below) so the caller owns the SLA math.
+      }
+      else if (targetStatus === OrderStatus.ORDER_ACCEPTED) {
         updateData.vendorAcceptedAt = new Date();
       } else if (targetStatus === OrderStatus.ORDER_ASSIGNED) {
         updateData.driverAssignedAt = new Date();
@@ -184,7 +244,7 @@ export class OrderService {
 
 
       // Inside transition, after the transaction and before returning:
-      if (targetStatus === OrderStatus.DELIVERED || targetStatus === OrderStatus.CANCELLED || targetStatus === OrderStatus.PENDING || targetStatus === OrderStatus.CONFIRMED) {
+      if (targetStatus === OrderStatus.DELIVERED || targetStatus === OrderStatus.CANCELLED || targetStatus === OrderStatus.PENDING || targetStatus === OrderStatus.CONFIRMED || targetStatus === OrderStatus.ORDER_PROCESSING) {
         await this.driverAssignment.removeEtaScheduler(orderId).catch(err => {
           this.logger.warn(`Failed to remove ETA scheduler for ${orderId}: ${err.message}`);
         });
@@ -1806,7 +1866,7 @@ async getVendorStoresWithOrders(
     };
   }
 
-  async handleVendorAction(
+  async handleVendorActionV1(
     orderId: string,
     vendorId: string,
     dto: { action: string; reason?: string },
@@ -1822,13 +1882,6 @@ async getVendorStoresWithOrders(
     );
     if (!isVendorStore) throw new ForbiddenException('Not your store');
 
-    // const existingAction = await this.prisma.order.findUnique({
-    //   where: { id: orderId },
-    // });
-  
-    // if (existingAction?.orderStatus !== OrderStatus.CONFIRMED) {
-    //   throw new ConflictException(`Order already processed: ${existingAction.orderStatus}`);
-    // }
     if (order.orderStatus !== OrderStatus.CONFIRMED) {
       throw new ConflictException(
         `Order already processed: ${order.orderStatus}`,
@@ -1889,6 +1942,170 @@ async getVendorStoresWithOrders(
     return { success: true };
   }
 
+  async handleVendorAction(
+  orderId: string,
+  vendorId: string,
+  dto: { action: string; reason?: string },
+) {
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+    include: { items: { include: { store: true } } },
+  });
+  if (!order) throw new NotFoundException('Order not found');
+
+  const isVendorStore = order.items.some(
+    (item) => item.store?.userId === vendorId,
+  );
+  if (!isVendorStore) throw new ForbiddenException('Not your store');
+
+  if (order.orderStatus !== OrderStatus.CONFIRMED) {
+    throw new ConflictException(
+      `Order already processed: ${order.orderStatus}`,
+    );
+  }
+
+  if (dto.action === 'ACCEPT') {
+    // ── 1. Resolve preparation time from store ──
+    const store = order.items[0]?.store;
+    const prepMins = store?.preparationTime ?? 15; // fallback if null
+    const now = new Date();
+    const prepDueAt = new Date(now.getTime() + prepMins * 60_000);
+
+    // ── 2. Transition to ORDER_PROCESSING (no driver search yet) ──
+    await this.transition(orderId, OrderStatus.ORDER_PROCESSING, {
+      actorId: vendorId,
+      actorRole: Role.VENDOR,
+      respondedAt: now,
+      metadata: { preparationMinutes: prepMins },
+    });
+
+    // ── 3. Persist SLA fields (transition() only sets preparationStartedAt) ──
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        preparationDueAt: prepDueAt,
+        preparationTimeoutAt: prepDueAt, // first escalation deadline
+      },
+    });
+
+    // ── 4. Notify customer "preparing" ──
+    await this.notification.sendOrderPreparing(
+      order.userId,
+      order.orderNumber,
+      prepMins,
+      store?.storeName ?? 'the store',
+    );
+
+    // Mark notification as sent (dedupe)
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { customerPreparingNotifiedAt: now },
+    });
+
+    // ── 5. Schedule escalation check ──
+    await this.preparationQueue.add(
+      'prep-escalation',
+      { orderId, attempt: 1 },
+      {
+        delay: prepMins * 60_000,
+        jobId: `prep-escalation-${orderId}-1`,
+        removeOnComplete: true,
+      },
+    );
+
+    return {
+      success: true,
+      message: `Order accepted. Preparing for ~${prepMins} min. Driver search will start when ready.`,
+    };
+  }
+
+  // Vendor DECLINE
+  await this.transition(orderId, OrderStatus.CANCELLED, {
+    actorId: vendorId,
+    actorRole: Role.VENDOR,
+    reason: dto.reason,
+    respondedAt: new Date(),
+  });
+  await this.notification.sendOrderCancelled(
+    order.userId,
+    order.orderNumber,
+    dto.reason,
+  );
+
+  return { success: true };
+}
+
+
+// order.service.ts
+
+async markOrderReady(orderId: string, vendorId: string) {
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+    include: { items: { include: { store: true } } },
+  });
+  if (!order) throw new NotFoundException('Order not found');
+
+  const isVendorStore = order.items.some(
+    (item) => item.store?.userId === vendorId,
+  );
+  if (!isVendorStore) throw new ForbiddenException('Not your store');
+
+  if (order.orderStatus !== OrderStatus.ORDER_PROCESSING) {
+    throw new ConflictException(
+      `Cannot mark ready: order status is ${order.orderStatus}`,
+    );
+  }
+
+  const now = new Date();
+
+  // 1. Transition ORDER_PROCESSING → ORDER_ACCEPTED
+  await this.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
+    actorId: vendorId,
+    actorRole: Role.VENDOR,
+    respondedAt: now,
+  });
+
+  // 2. Persist prep-ready timestamps
+  await this.prisma.order.update({
+    where: { id: orderId },
+    data: {
+      preparationReadyAt: now,
+      preparationTimeoutAt: null, // SLA cleared
+    },
+  });
+
+  // 3. Notify customer "ready, finding driver"
+  await this.notification.sendOrderReady(
+    order.userId,
+    order.orderNumber,
+  );
+  await this.prisma.order.update({
+    where: { id: orderId },
+    data: { customerReadyNotifiedAt: now },
+  });
+
+  // 4. Cancel any pending escalation jobs
+  for (let i = 1; i <= 20; i++) {
+    await this.preparationQueue
+      .remove(`prep-escalation-${orderId}-${i}`)
+      .catch(() => {});
+  }
+
+  // 5. Kick off the existing driver dispatch
+  const store = order.items[0]?.store;
+  const pickupLocation = order.pickupLocation as any;
+  const vendorLocation = {
+    lat: pickupLocation?.latitude ?? pickupLocation?.lat ?? store?.latitude,
+    lng: pickupLocation?.longitude ?? pickupLocation?.lng ?? store?.longitude,
+  };
+  if (!vendorLocation.lat || !vendorLocation.lng) {
+    throw new BadRequestException('No valid pickup location');
+  }
+
+  await this.driverAssignment.initiateDriverSearch(orderId, vendorLocation);
+
+  return { success: true, message: 'Order marked ready. Searching for driver...' };
+}
 
   async getTrackingData(userId: string): Promise<TrackingDataResponseDto> {
     if (!userId) {
