@@ -440,6 +440,150 @@ private async postToMonnify<T = any>(url: string, payload: any, timeoutMs = 1500
 
   // ==================== WEBHOOK (FIXED SIGNATURE + IDEMPOTENCY) ====================
   async handleWebhook(
+  rawBody: string,
+  signature: string,
+): Promise<{ success: true }> {
+  this.logger.log('Processing webhook');
+
+  // ── 1. Verify signature ──
+  if (!this.verifyWebhookSignature(rawBody, signature)) {
+    this.logger.error('Invalid webhook signature');
+    throw new ForbiddenException('Invalid signature');
+  }
+
+  let webhookData: any;
+  try {
+    webhookData = JSON.parse(rawBody);
+  } catch (e) {
+    throw new BadRequestException('Invalid JSON payload');
+  }
+
+  const eventData = webhookData.eventData;
+  const metadata = eventData.metaData || {};
+  const paymentReference = eventData.paymentReference;
+  const paymentStatus = eventData.paymentStatus;
+
+  // ── 2. Wallet funding route (unchanged) ──
+  if (
+    metadata.walletTxId ||
+    metadata.entityType === 'wallet' ||
+    paymentReference?.startsWith('FUND-')
+  ) {
+    await this.walletService.handleFundingWebhook(
+      eventData.transactionReference,
+      paymentStatus,
+      { paymentReference, walletTxId: metadata.walletTxId },
+    );
+    return { success: true };
+  }
+
+  this.logger.log(`Full webhook payload: ${JSON.stringify(webhookData)}`);
+
+  // ── 3. Extract transactionReference ──
+  let transactionRef = webhookData.transactionReference;
+  if (!transactionRef && webhookData.eventData) {
+    transactionRef = webhookData.eventData.transactionReference;
+  }
+
+  if (!transactionRef) {
+    if (webhookData.eventType === 'TEST' || webhookData.test === true) {
+      this.logger.log('Ignoring test webhook');
+      return { success: true };
+    }
+    this.logger.error(
+      `Missing transactionReference in webhook: ${JSON.stringify(webhookData)}`,
+    );
+    throw new BadRequestException('Missing transactionReference');
+  }
+
+  this.logger.log(`Webhook received for transaction: ${transactionRef}`);
+
+  // ── 4. Find the order ──
+  const order = await this.prisma.order.findFirst({
+    where: { monnifyReference: transactionRef },
+  });
+  if (!order) {
+    this.logger.error(`Order not found for transaction: ${transactionRef}`);
+    throw new NotFoundException(
+      `Order not found for reference ${transactionRef}`,
+    );
+  }
+
+  // ── 5. Idempotent payment status update — PAYMENT ONLY, not order status ──
+  const paymentUpdate = await this.prisma.order.updateMany({
+    where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
+    data: {
+      paymentStatus: PaymentStatus.PAID,
+      paymentReference: paymentReference ?? order.paymentReference,
+    },
+  });
+
+  if (paymentUpdate.count === 0) {
+    this.logger.warn(`Webhook already processed for order ${order.id}`);
+    return { success: true };
+  }
+
+  // ── 6. Verify with Monnify (final safety) ──
+  const verification = await this.verifyPayment(transactionRef);
+  if (verification?.responseBody?.paymentStatus !== 'PAID') {
+    // Rollback payment status only
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: { paymentStatus: PaymentStatus.PENDING },
+    });
+    this.logger.error(
+      `Verification mismatch for order ${order.id}: ${verification?.responseBody?.paymentStatus}`,
+    );
+    throw new BadRequestException('Payment verification failed');
+  }
+
+  // ── 7. Transition ORDER_PLACED → CONFIRMED (this is the REAL status change) ──
+  this.logger.log(
+    `Order ${order.orderNumber} marked as PAID, transitioning to CONFIRMED`,
+  );
+  try {
+    await this.orderService.transition(order.id, OrderStatus.CONFIRMED, {
+      actorId: order.userId,
+      actorRole: 'CUSTOMER',
+      reason: 'Payment confirmed via webhook',
+    });
+  } catch (err) {
+    // If it's already CONFIRMED, that's fine (idempotency)
+    if (
+      err instanceof BadRequestException &&
+      String(err.message).includes('Invalid transition')
+    ) {
+      this.logger.warn(
+        `Order ${order.id} already CONFIRMED; skipping transition`,
+      );
+    } else {
+      this.logger.error(
+        `Transition failed for order ${order.id}: ${err instanceof Error ? err.message : err}`,
+      );
+      throw err;
+    }
+  }
+
+  // ── 8. Notify vendors and customer ──
+  this.logger.log(`Notifying vendors for order ${order.orderNumber}`);
+  await this.notificationService
+    .notifyVendorsForOrder(order.id)
+    .catch((e) =>
+      this.logger.error(`Vendor notification failed: ${e.message}`),
+    );
+
+  this.logger.log(`Notifying customer for order ${order.orderNumber}`);
+  await this.notificationService
+    .notifyCustomerForOrder(order.id)
+    .catch((e) =>
+      this.logger.error(`Customer notification failed: ${e.message}`),
+    );
+
+  this.logger.log(`Order ${order.orderNumber} marked as PAID via webhook`);
+  return { success: true };
+}
+
+  async handleWebhookWrongTrnasition(
     rawBody: string,
     signature: string,
   ): Promise<{ success: true }> {
@@ -719,8 +863,86 @@ private async postToMonnify<T = any>(url: string, payload: any, timeoutMs = 1500
 
 
   // ==================== VERIFICATION & CALLBACK ====================
+async verifyPaymentAndUpdate(transactionReference: string) {
+  this.logger.log(
+    `Verifying and updating for transaction: ${transactionReference}`,
+  );
 
-  async verifyPaymentAndUpdate(transactionReference: string) {
+  const order = await this.prisma.order.findFirst({
+    where: {
+      OR: [
+        { monnifyReference: transactionReference },
+        { paymentReference: transactionReference },
+      ],
+    },
+  });
+
+  if (!order) {
+    throw new NotFoundException('Order not found for this transaction');
+  }
+
+  // Idempotent payment status update
+  const paymentUpdate = await this.prisma.order.updateMany({
+    where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
+    data: { paymentStatus: PaymentStatus.PAID },
+  });
+
+  if (paymentUpdate.count === 0) {
+    this.logger.warn(`Payment already processed for order ${order.id}`);
+    return {
+      status: 'PAID',
+      message: 'Payment already processed',
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+    };
+  }
+
+  // Verify with Monnify
+  this.logger.log(
+    `Re-verifying payment with Monnify for order ${order.orderNumber}`,
+  );
+  const verification = await this.verifyPayment(transactionReference);
+  if (verification?.responseBody?.paymentStatus !== 'PAID') {
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: { paymentStatus: PaymentStatus.PENDING },
+    });
+    throw new BadRequestException('Payment not confirmed by Monnify');
+  }
+
+  // Transition ORDER_PLACED → CONFIRMED (correct target status)
+  this.logger.log(`Transitioning order ${order.orderNumber} to CONFIRMED`);
+  try {
+    await this.orderService.transition(order.id, OrderStatus.CONFIRMED, {
+      actorId: order.userId,
+      actorRole: 'CUSTOMER',
+      reason: 'Payment verified via callback',
+    });
+  } catch (err) {
+    if (
+      err instanceof BadRequestException &&
+      String(err.message).includes('Invalid transition')
+    ) {
+      this.logger.warn(`Order ${order.id} already CONFIRMED; skipping`);
+    } else {
+      this.logger.error(err);
+      throw err;
+    }
+  }
+
+  this.logger.log(`Notifying vendors for order ${order.orderNumber}`);
+  await this.notificationService
+    .notifyVendorsForOrder(order.id)
+    .catch((e) => this.logger.error(e));
+
+  return {
+    status: 'PAID',
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+  };
+}
+
+  async verifyPaymentAndUpdateOld(transactionReference: string) {
     this.logger.log(
       `Verifying and updating for transaction: ${transactionReference}`,
     );
