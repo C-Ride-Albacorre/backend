@@ -1,21 +1,33 @@
 // src/admin/dto/approve-vendor.dto.ts
-import { IsString, IsOptional, IsEnum } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  ValidateNested,
+  ValidateIf,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserStatus } from '../../../shared/enums';
-
-export enum ApprovalAction {
-  APPROVE = 'APPROVE',
-  REJECT = 'REJECT',
-  SUSPEND = 'SUSPEND',
-}
+import { CreateCommissionDto } from '../../comission/dto/create-commission.dto';
 
 export class ApproveVendorDto {
   @ApiProperty({ enum: UserStatus })
   @IsEnum(UserStatus)
   action: UserStatus;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
+  @ApiPropertyOptional()
+  @ValidateIf((o) => o.action === UserStatus.REJECTED)
   @IsString()
   rejectionReason?: string;
+
+  @ApiPropertyOptional({
+    type: CreateCommissionDto,
+    description:
+      'Required when action = APPROVED. Vendor commission must be set before approval.',
+  })
+  @ValidateIf((o) => o.action === UserStatus.APPROVED)
+  @ValidateNested()
+  @Type(() => CreateCommissionDto)
+  commission?: CreateCommissionDto;
 }

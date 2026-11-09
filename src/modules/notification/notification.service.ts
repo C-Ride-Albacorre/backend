@@ -406,4 +406,130 @@ export class NotificationService {
     }
   }
 
+
+  // customer-notification.service.ts (or add to NotificationService)
+
+
+
+  async sendOrderPreparing(
+    userId: string,
+    orderNumber: string,
+    prepMins: number,
+    storeName: string,
+  ) {
+    const title = 'Your order is being prepared';
+    const body = `${storeName} is preparing your order #${orderNumber}. Estimated time: ~${prepMins} minutes.`;
+
+    await this.prisma.notification.create({
+      data: {
+        userId,
+        type: NotificationType.ORDER_STATUS,
+        title,
+        body,
+        data: { orderNumber },
+      },
+    });
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (user?.email) {
+      await this.zohoEmailProvider.sendEmail(
+        user.email,
+        `Order #${orderNumber} is being prepared`,
+        `<p>${body}</p><p>We'll let you know as soon as it's ready to be picked up by a driver.</p>`,
+      );
+    }
+
+    await this.pushService.sendToCustomer(userId, {
+      title,
+      body,
+      data: { orderNumber },
+      priority: 'normal',
+    });
+  }
+
+  async sendOrderReady(userId: string, orderNumber: string) {
+    const title = 'Your order is ready';
+    const body = `Your order #${orderNumber} is ready. We're finding a driver for you now.`;
+
+    await this.prisma.notification.create({
+      data: {
+        userId,
+        type: NotificationType.ORDER_STATUS,
+        title,
+        body,
+        data: { orderNumber },
+      },
+    });
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (user?.email) {
+      await this.zohoEmailProvider.sendEmail(
+        user.email,
+        `Order #${orderNumber} is ready`,
+        `<p>${body}</p>`,
+      );
+    }
+
+    await this.pushService.sendToCustomer(userId, {
+      title,
+      body,
+      data: { orderNumber },
+      priority: 'high',
+    });
+  }
+
+  async sendCustomerPrepDelayed(userId: string, orderNumber: string) {
+    // Softer message for the customer so they don't think it's a problem
+    await this.pushService.sendToCustomer(userId, {
+      title: 'Still preparing your order',
+      body: `Your order #${orderNumber} is taking a little longer than expected. We'll keep you updated.`,
+      data: { orderNumber },
+      priority: 'normal',
+    });
+  }
+
+  async sendVendorPrepOverdue(orderId: string, attempt: number) {
+    // Fetch vendor info
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { store: { include: { user: true } } } } },
+    });
+    if (!order) return;
+    const store = order.items[0]?.store;
+    if (!store) return;
+
+    const body =
+      attempt === 1
+        ? `Order #${order.orderNumber} prep time elapsed. Mark it ready when you can.`
+        : `Reminder: Order #${order.orderNumber} is still in preparation.`;
+
+    // Push to vendor user
+    await this.pushService.sendToUser(store.userId, {
+      title: 'Order prep time reached',
+      body,
+      data: { orderId, orderNumber: order.orderNumber },
+    });
+
+    // Email to vendor
+    if (store.user?.email) {
+      await this.zohoEmailProvider.sendEmail(
+        store.user.email,
+        `Reminder: mark order #${order.orderNumber} ready`,
+        `<p>${body}</p><p>Your customer is waiting. Please mark this order ready as soon as possible.</p>`,
+      );
+    }
+  }
+
+  // async sendAdminPrepOverdue(orderId: string) {
+  //   // Reuse AdminNotificationService here
+  //   await this.notification.sendPrepOverdueAlert(orderId);
+  // }
+
+
 }

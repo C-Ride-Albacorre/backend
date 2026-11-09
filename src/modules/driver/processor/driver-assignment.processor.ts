@@ -25,13 +25,6 @@ export class DriverAssignmentProcessor extends WorkerHost {
 
   async process(job: Job): Promise<any> {
     switch (job.name) {
-      // case 'search-and-notify':
-      //   return this.driverAssignmentService.findAndNotifyDrivers(
-      //     job.data.orderId,
-      //     job.data.vendorLocation,
-      //     job.data.radiusMeters,
-      //     job.data.attempt
-      //   );
       case 'search-and-notify': {
         try {
           return await this.driverAssignmentService.findAndNotifyDrivers(
@@ -71,13 +64,6 @@ export class DriverAssignmentProcessor extends WorkerHost {
         await service.handleNoDrivers(orderId);
         break;
       }
-
-      // case 'retry-driver-search': {
-      //   const { orderId, radius, attempt } = job.data;
-      //   await this.driverAssignmentService.tryNextDriver(orderId, radius, attempt);
-      //   break;
-      // }
-
       case 'retry-driver-search': {
         const { orderId, radius, attempt } = job.data;
         this.logger.log(

@@ -248,6 +248,35 @@ export class OrderController {
     return this.orderService.handleVendorAction(orderId, user.id, dto);
   }
 
+
+  // order.controller.ts
+
+@Post(':orderId/ready')
+  @ApiOperation({
+    summary: 'Mark order as ready for pickup',
+    description: 'Allows a vendor to mark an order as ready for pickup.',
+  })
+  @ApiParam({
+    name: 'orderId',
+    type: String,
+    description: 'Order ID',
+    example: 'clx123abc456',
+  })
+  @ApiOkResponse({
+    description: 'Order marked as ready successfully',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - User is not a vendor',
+  })
+async markOrderReady(
+  @Param('orderId') orderId: string,
+ @GetUser() user: any,
+) {
+  return this.orderService.markOrderReady(orderId, user.id);
+}
+  
+
   @Get(':orderId/tracking')
   @ApiOperation({
     summary: 'Get tracking data for an order',

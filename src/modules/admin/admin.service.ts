@@ -14,7 +14,7 @@ import { StoreFilterDto } from './dto/store-filter.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { StoreStatus, UserRole } from '../../shared/enums';
 import Helper from '../../shared/utils/helpers';
-import { OnBoardingStatus, PaymentStatus, Prisma, Role, SettlementStatus, UserStatus } from '@prisma/client';
+import { CommissionStatus, OnBoardingStatus, PaymentStatus, Prisma, Role, SettlementStatus, UserStatus } from '@prisma/client';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { User } from '../user/entities/user.entity';
 import {
@@ -264,164 +264,339 @@ export class AdminService {
   /**
    * Approve or reject a vendor
    */
+async approveVendor(
+  adminId: string,
+  vendorId: string,
+  dto: ApproveVendorDto,
+) {
+  this.logger.log(`Admin ${adminId} approving vendor ${vendorId}`);
 
-  async approveVendor(
-    adminId: string,
-    vendorId: string,
-    dto: ApproveVendorDto,
-  ) {
-    this.logger.log(`Admin ${adminId} approving vendor ${vendorId}`);
+  const vendor = await this.prisma.user.findFirst({
+    where: { id: vendorId, role: UserRole.VENDOR },
+    include: { businessInfo: true, commissions: true },
+  });
 
-    const vendor = await this.prisma.user.findFirst({
-      where: {
-        id: vendorId,
-        role: UserRole.VENDOR,
-      },
-      include: {
-        businessInfo: true,
-      },
-    });
+  if (!vendor) throw new NotFoundException('Vendor not found');
 
-    if (!vendor) {
-      throw new NotFoundException('Vendor not found');
+  const vendorBusinessInfo = (
+    vendor as typeof vendor & {
+      businessInfo: { businessName: string } | null;
     }
+  ).businessInfo;
 
-    if (!vendor.businessInfo) {
-      throw new BadRequestException(
-        'Vendor business profile not found. Kindly complete onboarding to proceed',
-      );
-    }
+  if (!vendorBusinessInfo) {
+    throw new BadRequestException(
+      'Vendor business profile not found. Kindly complete onboarding to proceed',
+    );
+  }
 
-    // 🚨 Prevent approval if onboarding not completed
-    const onboardingCompleted =
-      vendor.onboardingStatus === OnBoardingStatus.COMPLETED;
+  const onboardingCompleted =
+    vendor.onboardingStatus === OnBoardingStatus.COMPLETED;
 
-    if (dto.action === UserStatus.APPROVED && !onboardingCompleted) {
-      throw new BadRequestException(
-        'Vendor has not completed onboarding. Approval not allowed.',
-      );
-    }
+  if (dto.action === UserStatus.APPROVED && !onboardingCompleted) {
+    throw new BadRequestException(
+      'Vendor has not completed onboarding. Approval not allowed.',
+    );
+  }
 
-    if (vendor.status === UserStatus.ACTIVE) {
-      return {
-        success: true,
-        message: `Vendor already ${vendor.status.toLowerCase()}`,
-        data: vendor,
-      };
-    }
+  if (vendor.status === UserStatus.ACTIVE) {
+    return {
+      success: true,
+      message: `Vendor already ${vendor.status.toLowerCase()}`,
+      data: vendor,
+    };
+  }
 
-    const now = new Date();
-    let userUpdateData: Partial<User>;
-    let updatedUser;
+  const now = new Date();
+  let updatedUser;
 
-    switch (dto.action) {
-      case UserStatus.APPROVED:
-        userUpdateData = {
-          status: UserStatus.APPROVED,
-          approvedAt: now,
-          approvedBy: adminId,
-          rejectionReason: null,
-        };
-
-        updatedUser = await this.userRepository.update(
-          vendor.id,
-          userUpdateData,
+  switch (dto.action) {
+    case UserStatus.APPROVED: {
+      // ✅ Commission is mandatory before approval
+      if (!dto.commission) {
+        throw new BadRequestException(
+          'Commission details are required before approving a vendor',
         );
+      }
 
-        try {
-          await this.zohoEmailProvider.sendVendorApprovalNotification(
-            vendor.email,
-            vendor.businessInfo?.businessName,
-          );
-        } catch (error) {
-          this.logger.error(
-            `Vendor ${vendorId} was approved, but approval email could not be sent`,
-            error,
-          );
-        }
-
-
-        this.logger.log(`Vendor ${vendorId} approved`);
-        break;
-
-      case UserStatus.REJECTED:
-        if (!dto.rejectionReason) {
-          throw new BadRequestException('Rejection reason is required');
-        }
-
-        userUpdateData = {
-          status: UserStatus.REJECTED,
-          approvedAt: null,
-          approvedBy: adminId,
-          rejectionReason: dto.rejectionReason,
-        };
-
-        updatedUser = await this.userRepository.update(
-          vendor.id,
-          userUpdateData,
+      if (vendor.commissions) {
+        throw new BadRequestException(
+          'A commission already exists for this vendor',
         );
+      }
 
+      updatedUser = await this.prisma.$transaction(async (tx) => {
+        // Create commission first inside the tx
+        await tx.commission.create({
+          data: {
+            ...dto.commission,
+            vendorId, // enforce from path param, not body
+            status: dto.commission.status ?? CommissionStatus.ACTIVE,
+          },
+        });
 
-        try {
-          await this.zohoEmailProvider.sendVendorRejectionNotification(
-            vendor.email,
-            vendor.businessInfo?.businessName,
-            dto.rejectionReason,
-          );
-        } catch (error) {
-          this.logger.error(
-            `Vendor ${vendorId} was rejected, but rejection email could not be sent`,
-            error,
-          );
-        }
+        return tx.user.update({
+          where: { id: vendor.id },
+          data: {
+            status: UserStatus.APPROVED,
+            approvedAt: now,
+            approvedBy: adminId,
+            rejectionReason: null,
+          },
+        });
+      });
 
-        this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
-        break;
-
-      case UserStatus.SUSPENDED:
-        userUpdateData = {
-          status: UserStatus.SUSPENDED,
-          approvedAt: null,
-          approvedBy: adminId,
-          rejectionReason: dto.rejectionReason,
-        };
-
-        updatedUser = await this.userRepository.update(
-          vendor.id,
-          userUpdateData,
+      // Email outside the transaction
+      try {
+        await this.zohoEmailProvider.sendVendorApprovalNotification(
+          vendor.email,
+          vendorBusinessInfo.businessName,
         );
+      } catch (error) {
+        this.logger.error(
+          `Vendor ${vendorId} was approved, but approval email could not be sent`,
+          error,
+        );
+      }
 
-        await this.prisma.store.updateMany({
+      this.logger.log(`Vendor ${vendorId} approved with commission`);
+      break;
+    }
+
+    case UserStatus.REJECTED: {
+      if (!dto.rejectionReason) {
+        throw new BadRequestException('Rejection reason is required');
+      }
+
+      updatedUser = await this.userRepository.update(vendor.id, {
+        status: UserStatus.REJECTED,
+        approvedAt: null,
+        approvedBy: adminId,
+        rejectionReason: dto.rejectionReason,
+      });
+
+      try {
+        await this.zohoEmailProvider.sendVendorRejectionNotification(
+          vendor.email,
+          vendorBusinessInfo.businessName,
+          dto.rejectionReason,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Vendor ${vendorId} was rejected, but rejection email could not be sent`,
+          error,
+        );
+      }
+
+      this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
+      break;
+    }
+
+    case UserStatus.SUSPENDED: {
+      updatedUser = await this.prisma.$transaction(async (tx) => {
+        const user = await tx.user.update({
+          where: { id: vendor.id },
+          data: {
+            status: UserStatus.SUSPENDED,
+            approvedAt: null,
+            approvedBy: adminId,
+            rejectionReason: dto.rejectionReason ?? null,
+          },
+        });
+
+        await tx.store.updateMany({
           where: { userId: vendorId },
           data: { status: StoreStatus.SUSPENDED },
         });
 
-        try {
-          await this.zohoEmailProvider.sendVendorSuspensionNotification(
-            vendor.email,
-            vendor.businessInfo?.businessName,
-            dto.rejectionReason,
-          );
-        } catch (error) {
-          this.logger.error(
-            `Vendor ${vendorId} was suspended, but suspension email could not be sent`,
-            error,
-          );
-        }
+        return user;
+      });
 
-        this.logger.log(`Vendor ${vendorId} suspended`);
-        break;
+      try {
+        await this.zohoEmailProvider.sendVendorSuspensionNotification(
+          vendor.email,
+          vendorBusinessInfo.businessName,
+          dto.rejectionReason,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Vendor ${vendorId} was suspended, but suspension email could not be sent`,
+          error,
+        );
+      }
 
-      default:
-        throw new BadRequestException('Invalid action');
+      this.logger.log(`Vendor ${vendorId} suspended`);
+      break;
     }
 
-    return {
-      success: true,
-      message: `Vendor ${dto.action.toLowerCase()} successfully`,
-      role: updatedUser.role,
-    };
+    default:
+      throw new BadRequestException('Invalid action');
   }
+
+  return {
+    success: true,
+    message: `Vendor ${dto.action.toLowerCase()} successfully`,
+    role: updatedUser.role,
+  };
+}
+
+  // async approveVendorWithCommision(
+  //   adminId: string,
+  //   vendorId: string,
+  //   dto: ApproveVendorDto,
+  // ) {
+  //   this.logger.log(`Admin ${adminId} approving vendor ${vendorId}`);
+
+  //   const vendor = await this.prisma.user.findFirst({
+  //     where: {
+  //       id: vendorId,
+  //       role: UserRole.VENDOR,
+  //     },
+  //     include: {
+  //       businessInfo: true,
+  //     },
+  //   });
+
+  //   if (!vendor) {
+  //     throw new NotFoundException('Vendor not found');
+  //   }
+
+  //   if (!vendor.businessInfo) {
+  //     throw new BadRequestException(
+  //       'Vendor business profile not found. Kindly complete onboarding to proceed',
+  //     );
+  //   }
+
+  //   // 🚨 Prevent approval if onboarding not completed
+  //   const onboardingCompleted =
+  //     vendor.onboardingStatus === OnBoardingStatus.COMPLETED;
+
+  //   if (dto.action === UserStatus.APPROVED && !onboardingCompleted) {
+  //     throw new BadRequestException(
+  //       'Vendor has not completed onboarding. Approval not allowed.',
+  //     );
+  //   }
+
+  //   if (vendor.status === UserStatus.ACTIVE) {
+  //     return {
+  //       success: true,
+  //       message: `Vendor already ${vendor.status.toLowerCase()}`,
+  //       data: vendor,
+  //     };
+  //   }
+
+  //   const now = new Date();
+  //   let userUpdateData: Partial<User>;
+  //   let updatedUser;
+
+  //   switch (dto.action) {
+  //     case UserStatus.APPROVED:
+  //       userUpdateData = {
+  //         status: UserStatus.APPROVED,
+  //         approvedAt: now,
+  //         approvedBy: adminId,
+  //         rejectionReason: null,
+  //       };
+
+  //       updatedUser = await this.userRepository.update(
+  //         vendor.id,
+  //         userUpdateData,
+  //       );
+
+  //       try {
+  //         await this.zohoEmailProvider.sendVendorApprovalNotification(
+  //           vendor.email,
+  //           vendor.businessInfo?.businessName,
+  //         );
+  //       } catch (error) {
+  //         this.logger.error(
+  //           `Vendor ${vendorId} was approved, but approval email could not be sent`,
+  //           error,
+  //         );
+  //       }
+
+
+  //       this.logger.log(`Vendor ${vendorId} approved`);
+  //       break;
+
+  //     case UserStatus.REJECTED:
+  //       if (!dto.rejectionReason) {
+  //         throw new BadRequestException('Rejection reason is required');
+  //       }
+
+  //       userUpdateData = {
+  //         status: UserStatus.REJECTED,
+  //         approvedAt: null,
+  //         approvedBy: adminId,
+  //         rejectionReason: dto.rejectionReason,
+  //       };
+
+  //       updatedUser = await this.userRepository.update(
+  //         vendor.id,
+  //         userUpdateData,
+  //       );
+
+
+  //       try {
+  //         await this.zohoEmailProvider.sendVendorRejectionNotification(
+  //           vendor.email,
+  //           vendor.businessInfo?.businessName,
+  //           dto.rejectionReason,
+  //         );
+  //       } catch (error) {
+  //         this.logger.error(
+  //           `Vendor ${vendorId} was rejected, but rejection email could not be sent`,
+  //           error,
+  //         );
+  //       }
+
+  //       this.logger.log(`Vendor ${vendorId} rejected: ${dto.rejectionReason}`);
+  //       break;
+
+  //     case UserStatus.SUSPENDED:
+  //       userUpdateData = {
+  //         status: UserStatus.SUSPENDED,
+  //         approvedAt: null,
+  //         approvedBy: adminId,
+  //         rejectionReason: dto.rejectionReason,
+  //       };
+
+  //       updatedUser = await this.userRepository.update(
+  //         vendor.id,
+  //         userUpdateData,
+  //       );
+
+  //       await this.prisma.store.updateMany({
+  //         where: { userId: vendorId },
+  //         data: { status: StoreStatus.SUSPENDED },
+  //       });
+
+  //       try {
+  //         await this.zohoEmailProvider.sendVendorSuspensionNotification(
+  //           vendor.email,
+  //           vendor.businessInfo?.businessName,
+  //           dto.rejectionReason,
+  //         );
+  //       } catch (error) {
+  //         this.logger.error(
+  //           `Vendor ${vendorId} was suspended, but suspension email could not be sent`,
+  //           error,
+  //         );
+  //       }
+
+  //       this.logger.log(`Vendor ${vendorId} suspended`);
+  //       break;
+
+  //     default:
+  //       throw new BadRequestException('Invalid action');
+  //   }
+
+  //   return {
+  //     success: true,
+  //     message: `Vendor ${dto.action.toLowerCase()} successfully`,
+  //     role: updatedUser.role,
+  //   };
+  // }
 
   /** VENDOR SETTLEMENT */
   // ----------------------------------------------------------------

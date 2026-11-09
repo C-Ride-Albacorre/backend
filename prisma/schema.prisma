@@ -466,6 +466,14 @@ model Order {
   distanceToCustomer     Float? // in km (e.g., 4.2)
   driverId               String?
   driver                 User?              @relation("OrderDriver", fields: [driverId], references: [id], onDelete: SetNull)
+   // Preparation tracking (new)
+  preparationStartedAt  DateTime?   // set when vendor accepts
+  preparationDueAt      DateTime?   // preparationStartedAt + prepMins
+  preparationReadyAt    DateTime?   // when vendor marks "Ready"
+  preparationTimeoutAt  DateTime?   // current escalation deadline
+  // Notification dedupe (new)
+  customerPreparingNotifiedAt   DateTime?
+  customerReadyNotifiedAt       DateTime?
 
   @@index([orderCode])
   @@index([orderNumber])
@@ -863,6 +871,7 @@ enum OrderStatus {
   REFUNDED
   ORDER_PLACED
   ORDER_ACCEPTED
+  ORDER_PROCESSING
   ORDER_ASSIGNED
   ORDER_DECLINED
   UNACCEPTED
@@ -1083,7 +1092,7 @@ model Commission {
   location         String // e.g. "Lagos Island", "Lagos Mainland"
   city             String // e.g. "Lagos"
   vendorCommission Float // percentage, e.g. 14.5
-  serviceCharge    Float // percentage, e.g. 5.0
+  serviceCharge    Float? // percentage, e.g. 5.0
   status           CommissionStatus @default(ACTIVE)
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
