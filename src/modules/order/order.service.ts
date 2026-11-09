@@ -58,7 +58,7 @@ export class OrderService {
     private notification: NotificationService,
     @InjectQueue(QUEUES.ORDER_EVENTS) private orderQueue: Queue,
     private mapGateway: MapGateway,
-    @InjectQueue(QUEUES.PREPARATION) private preparationQueue: Queue, 
+    @InjectQueue(QUEUES.PREPARATION) private preparationQueue: Queue,
   ) { }
 
   // transitions: Record<
@@ -97,61 +97,61 @@ export class OrderService {
   //     },
   //   };
 
-transitions: Record<
-  string,
-  { from: OrderStatus[]; to: OrderStatus; action: string }
-> = {
-  confirm_payment: {
-    from: [OrderStatus.ORDER_PLACED],
-    to: OrderStatus.CONFIRMED,
-    action: 'CONFIRMED',
-  },
+  transitions: Record<
+    string,
+    { from: OrderStatus[]; to: OrderStatus; action: string }
+  > = {
+      confirm_payment: {
+        from: [OrderStatus.ORDER_PLACED],
+        to: OrderStatus.CONFIRMED,
+        action: 'CONFIRMED',
+      },
 
-  // NEW: vendor accept now lands in ORDER_PROCESSING, not ORDER_ACCEPTED
-  vendor_accept: {
-    from: [OrderStatus.CONFIRMED],
-    to: OrderStatus.ORDER_PROCESSING,
-    action: 'VENDOR_ACCEPT',
-  },
+      // NEW: vendor accept now lands in ORDER_PROCESSING, not ORDER_ACCEPTED
+      vendor_accept: {
+        from: [OrderStatus.CONFIRMED],
+        to: OrderStatus.ORDER_PROCESSING,
+        action: 'VENDOR_ACCEPT',
+      },
 
-  // NEW: prep finished (vendor marks ready, or auto-escalation triggers dispatch)
-  prep_ready: {
-    from: [OrderStatus.ORDER_PROCESSING],
-    to: OrderStatus.ORDER_ACCEPTED,
-    action: 'PREP_READY',
-  },
+      // NEW: prep finished (vendor marks ready, or auto-escalation triggers dispatch)
+      prep_ready: {
+        from: [OrderStatus.ORDER_PROCESSING],
+        to: OrderStatus.ORDER_ACCEPTED,
+        action: 'PREP_READY',
+      },
 
-  // EXISTING: driver accepts (unchanged)
-  assign_driver: {
-    from: [OrderStatus.ORDER_ACCEPTED],
-    to: OrderStatus.ORDER_ASSIGNED,
-    action: 'ASSIGN_DRIVER',
-  },
+      // EXISTING: driver accepts (unchanged)
+      assign_driver: {
+        from: [OrderStatus.ORDER_ACCEPTED],
+        to: OrderStatus.ORDER_ASSIGNED,
+        action: 'ASSIGN_DRIVER',
+      },
 
-  pickup: {
-    from: [OrderStatus.ORDER_ASSIGNED],
-    to: OrderStatus.PICKED_UP,
-    action: 'PICKUP',
-  },
+      pickup: {
+        from: [OrderStatus.ORDER_ASSIGNED],
+        to: OrderStatus.PICKED_UP,
+        action: 'PICKUP',
+      },
 
-  deliver: {
-    from: [OrderStatus.PICKED_UP],
-    to: OrderStatus.DELIVERED,
-    action: 'DELIVER',
-  },
+      deliver: {
+        from: [OrderStatus.PICKED_UP],
+        to: OrderStatus.DELIVERED,
+        action: 'DELIVER',
+      },
 
-  // Vendor can also cancel during prep
-  cancel: {
-    from: [
-      OrderStatus.ORDER_PLACED,
-      OrderStatus.CONFIRMED,
-      OrderStatus.ORDER_PROCESSING,   // ← new
-      OrderStatus.ORDER_ACCEPTED,
-    ],
-    to: OrderStatus.CANCELLED,
-    action: 'CANCEL',
-  },
-};
+      // Vendor can also cancel during prep
+      cancel: {
+        from: [
+          OrderStatus.ORDER_PLACED,
+          OrderStatus.CONFIRMED,
+          OrderStatus.ORDER_PROCESSING,   // ← new
+          OrderStatus.ORDER_ACCEPTED,
+        ],
+        to: OrderStatus.CANCELLED,
+        action: 'CANCEL',
+      },
+    };
 
   async transition(
     orderId: string,
@@ -269,29 +269,29 @@ transitions: Record<
     //   );
     // }
     // 2. 🔔 EMIT WEBSOCKET EVENT AFTER TRANSACTION COMMITS
-try {
-  const history = updatedOrder.statusHistory || [];
+    try {
+      const history = updatedOrder.statusHistory || [];
 
-  // Forward prep metadata if the caller supplied it.
-  const extra: Record<string, unknown> = {};
-  if (context.preparation) {
-    extra.preparation = {
-      preparation_minutes: context.preparation.preparationMinutes,
-      preparation_started_at: context.preparation.preparationStartedAt,
-      preparation_due_at: context.preparation.preparationDueAt,
-      preparation_ready: context.preparation.preparationReady ?? false,
-      store_name: context.preparation.storeName ?? null,
-    };
-  }
+      // Forward prep metadata if the caller supplied it.
+      const extra: Record<string, unknown> = {};
+      if (context.preparation) {
+        extra.preparation = {
+          preparation_minutes: context.preparation.preparationMinutes,
+          preparation_started_at: context.preparation.preparationStartedAt,
+          preparation_due_at: context.preparation.preparationDueAt,
+          preparation_ready: context.preparation.preparationReady ?? false,
+          store_name: context.preparation.storeName ?? null,
+        };
+      }
 
-  this.mapGateway.emitOrderStatus(orderId, targetStatus, history, extra);
-  this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
-} catch (error) {
-  this.logger.error(
-    `Failed to emit order-status for ${orderId}: ${error}`,
-    error,
-  );
-}
+      this.mapGateway.emitOrderStatus(orderId, targetStatus, history, extra);
+      this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to emit order-status for ${orderId}: ${error}`,
+        error,
+      );
+    }
 
     // 3. Return the updated order
     return updatedOrder;
@@ -638,7 +638,7 @@ try {
                   Number.isFinite(deliveryQuote.durationSeconds as number)
                     ? (deliveryQuote.durationSeconds as number)
                     : null,
-                    
+
                 pickupLocation: {
                   storeId: store.id,
                   storeName: store.storeName,
@@ -1232,212 +1232,225 @@ try {
   // src/modules/order/order.service.ts
 
 
-async getVendorStoresWithOrders(
-  vendorId: string,
-  filters: {
-    status?: OrderStatus;
-    page?: number;
-    limit?: number;
-  },
-) {
-  // 1. Fetch vendor stores
-  const stores = await this.prisma.store.findMany({
-    where: { userId: vendorId },
-    select: {
-      id: true,
-      storeName: true,
-      storeAddress: true,
-      storeLogo: true,
-      status: true,
-      latitude: true,
-      longitude: true,
+  async getVendorStoresWithOrders(
+    vendorId: string,
+    filters: {
+      status?: OrderStatus;
+      page?: number;
+      limit?: number;
     },
-  });
+  ) {
+    // 1. Fetch vendor stores
+    const stores = await this.prisma.store.findMany({
+      where: { userId: vendorId },
+      select: {
+        id: true,
+        storeName: true,
+        storeAddress: true,
+        storeLogo: true,
+        status: true,
+        latitude: true,
+        longitude: true,
+      },
+    });
 
-  if (!stores.length) {
-    return {
-      stores: [],
-      summary: { totalStores: 0, totalOrders: 0 },
+    if (!stores.length) {
+      return {
+        stores: [],
+        summary: { totalStores: 0, totalOrders: 0 },
+      };
+    }
+
+    const storeIds = stores.map((s) => s.id);
+
+    // 2. Pagination
+    const page = Math.max(Number(filters.page) || 1, 1);
+    const limit = Math.min(Number(filters.limit) || 20, 100);
+
+    // 3. Base where clause
+    const baseWhere = {
+      paymentStatus: PaymentStatus.PAID,
+      items: { some: { storeId: { in: storeIds } } },
+      ...(filters.status && { orderStatus: filters.status }),
     };
-  }
 
-  const storeIds = stores.map((s) => s.id);
-
-  // 2. Pagination
-  const page = Math.max(Number(filters.page) || 1, 1);
-  const limit = Math.min(Number(filters.limit) || 20, 100);
-
-  // 3. Base where clause
-  const baseWhere = {
-    paymentStatus: PaymentStatus.PAID,
-    items: { some: { storeId: { in: storeIds } } },
-    ...(filters.status && { orderStatus: filters.status }),
-  };
-
-  // 4. Fetch orders (paginated) + per-store & per-status counts in parallel
-  const [orders, total, perStoreCounts, perStatusCounts] = await Promise.all([
-    this.prisma.order.findMany({
-      where: baseWhere,
-      include: {
-        items: {
-          where: { storeId: { in: storeIds } },
-          include: {
-            store: true,
-            variant: true,
-            product: { include: { productImages: true } },
+    // 4. Fetch orders (paginated) + per-store & per-status counts in parallel
+    const [orders, total, perStoreCounts, perStatusCounts] = await Promise.all([
+      this.prisma.order.findMany({
+        where: baseWhere,
+        include: {
+          items: {
+            where: { storeId: { in: storeIds } },
+            include: {
+              store: true,
+              variant: true,
+              product: { include: { productImages: true } },
+            },
           },
+          user: true,
         },
-        user: true,
-      },
-      orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
-    this.prisma.order.count({ where: baseWhere }),
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.order.count({ where: baseWhere }),
 
-    // Counts per store (respects status filter)
-    this.prisma.orderItem.groupBy({
-      by: ['storeId'],
-      where: {
-        storeId: { in: storeIds },
-        order: baseWhere, // nested relation filter
-      },
-      _count: { orderId: true },
-      _sum: { totalPrice: true },
-    }),
+      // Counts per store (respects status filter)
+      this.prisma.orderItem.groupBy({
+        by: ['storeId'],
+        where: {
+          storeId: { in: storeIds },
+          order: baseWhere, // nested relation filter
+        },
+        _count: { orderId: true },
+        _sum: { totalPrice: true },
+      }),
 
-    // Counts per status (respects store filter but NOT status filter, so vendor sees breakdown)
-    this.prisma.order.groupBy({
-      by: ['orderStatus'],
-      where: {
-        paymentStatus: PaymentStatus.PAID,
-        items: { some: { storeId: { in: storeIds } } },
-      },
-      _count: { id: true },
-    }),
-  ]);
+      // Counts per status (respects store filter but NOT status filter, so vendor sees breakdown)
+      this.prisma.order.groupBy({
+        by: ['orderStatus'],
+        where: {
+          paymentStatus: PaymentStatus.PAID,
+          items: { some: { storeId: { in: storeIds } } },
+        },
+        _count: { id: true },
+      }),
+    ]);
 
-  // 5. Build lookup maps
-  const perStoreMap = new Map(
-    perStoreCounts.map((c) => [
-      c.storeId,
-      { orderCount: c._count.orderId, subtotal: c._sum.totalPrice ?? 0 },
-    ]),
-  );
-
-  const perStatusMap: Record<string, number> = {};
-  perStatusCounts.forEach((s) => {
-    perStatusMap[s.orderStatus] = s._count.id;
-  });
-
-  // 6. Group paginated orders by store
-  const ordersByStore = new Map<string, any[]>();
-  orders.forEach((order) => {
-    const vendorItems = order.items;
-    if (!vendorItems.length) return;
-
-    const storeId = vendorItems[0].storeId!;
-    if (!ordersByStore.has(storeId)) ordersByStore.set(storeId, []);
-
-    const vendorSubtotal = vendorItems.reduce(
-      (sum, i) => sum + i.totalPrice,
-      0,
-    );
-    const vendorQuantity = vendorItems.reduce(
-      (sum, i) => sum + i.quantity,
-      0,
+    // 5. Build lookup maps
+    const perStoreMap = new Map(
+      perStoreCounts.map((c) => [
+        c.storeId,
+        { orderCount: c._count.orderId, subtotal: c._sum.totalPrice ?? 0 },
+      ]),
     );
 
-    ordersByStore.get(storeId)!.push({
-      id: order.id,
-      orderNumber: order.orderNumber,
-      orderCode: order.orderCode,
-      createdAt: order.createdAt,
-      orderStatus: order.orderStatus,
-      paymentStatus: order.paymentStatus,
-      user: {
-        firstName: order.user.firstName,
-        lastName: order.user.lastName,
-        email: order.user.email,
-        phone: order.user.phoneNumber,
-        countryCode: order.user.countryCode,
-        isVerified: order.user.isVerified,
-        profilePicture: order.user.profilePicture,
-      },
-      items: vendorItems.map((item) => ({
-        id: item.id,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        totalPrice: item.totalPrice,
-        product: item.product
-          ? {
+    const perStatusMap: Record<string, number> = {};
+    perStatusCounts.forEach((s) => {
+      perStatusMap[s.orderStatus] = s._count.id;
+    });
+
+    // 6. Group paginated orders by store
+    const ordersByStore = new Map<string, any[]>();
+    orders.forEach((order) => {
+      const vendorItems = order.items;
+      if (!vendorItems.length) return;
+
+      const storeId = vendorItems[0].storeId!;
+      if (!ordersByStore.has(storeId)) ordersByStore.set(storeId, []);
+
+      const vendorSubtotal = vendorItems.reduce(
+        (sum, i) => sum + i.totalPrice,
+        0,
+      );
+      const vendorQuantity = vendorItems.reduce(
+        (sum, i) => sum + i.quantity,
+        0,
+      );
+
+      ordersByStore.get(storeId)!.push({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        orderCode: order.orderCode,
+        createdAt: order.createdAt,
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+        user: {
+          firstName: order.user.firstName,
+          lastName: order.user.lastName,
+          email: order.user.email,
+          phone: order.user.phoneNumber,
+          countryCode: order.user.countryCode,
+          isVerified: order.user.isVerified,
+          profilePicture: order.user.profilePicture,
+        },
+        items: vendorItems.map((item) => ({
+          id: item.id,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          product: item.product
+            ? {
               id: item.product.id,
               productName: item.product.productName,
               image: item.product.productImages?.[0]?.imageUrl ?? null,
             }
-          : null,
-        variant: item.variant,
-        store: item.store,
-      })),
-      vendorSummary: {
-        itemCount: vendorItems.length,
-        totalQuantity: vendorQuantity,
-        subtotal: vendorSubtotal,
-      },
+            : null,
+          variant: item.variant,
+          store: item.store,
+        })),
+        vendorSummary: {
+          itemCount: vendorItems.length,
+          totalQuantity: vendorQuantity,
+          subtotal: vendorSubtotal,
+        },
+      });
     });
-  });
 
-  // 7. Compose response
-  const storesWithOrders = stores.map((store) => {
-    const stats = perStoreMap.get(store.id) ?? {
-      orderCount: 0,
-      subtotal: 0,
-    };
-    const storeOrders = ordersByStore.get(store.id) ?? [];
+    // 7. Compose response
+    const storesWithOrders = stores.map((store) => {
+      const stats = perStoreMap.get(store.id) ?? {
+        orderCount: 0,
+        subtotal: 0,
+      };
+      const storeOrders = ordersByStore.get(store.id) ?? [];
 
-    // Break down statuses for this specific store
-    const statusBreakdown: Record<string, number> = {};
-    storeOrders.forEach((o) => {
-      statusBreakdown[o.orderStatus] =
-        (statusBreakdown[o.orderStatus] ?? 0) + 1;
+      // Break down statuses for this specific store
+      const statusBreakdown: Record<string, number> = {};
+      storeOrders.forEach((o) => {
+        statusBreakdown[o.orderStatus] =
+          (statusBreakdown[o.orderStatus] ?? 0) + 1;
+      });
+
+      return {
+        store,
+        orderCount: stats.orderCount,
+        subtotal: stats.subtotal,
+        statusBreakdown,
+        orders: storeOrders,
+      };
     });
 
     return {
-      store,
-      orderCount: stats.orderCount,
-      subtotal: stats.subtotal,
-      statusBreakdown,
-      orders: storeOrders,
+      stores: storesWithOrders,
+      summary: {
+        totalStores: stores.length,
+        totalOrders: total,
+      },
+      globalStatusBreakdown: perStatusMap,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     };
-  });
+  }
 
-  return {
-    stores: storesWithOrders,
-    summary: {
-      totalStores: stores.length,
-      totalOrders: total,
-    },
-    globalStatusBreakdown: perStatusMap,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-    },
-  };
-}
-
-/**
-   * Return only stores owned by the vendor (paginated), each enriched with
-   * an order count so the vendor dashboard can show pending work at a glance.
-   */
+  /**
+     * Return only stores owned by the vendor (paginated), each enriched with
+     * an order count so the vendor dashboard can show pending work at a glance.
+     */
   async listVendorStores(vendorId: string, query: ListVendorStoresQueryDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
+    // const where: Prisma.StoreWhereInput = {
+    //   userId: vendorId,
+    //   ...(query.status && { status: query.status }),
+    // };
     const where: Prisma.StoreWhereInput = {
       userId: vendorId,
       ...(query.status && { status: query.status }),
+      ...(query.orderStatus && {
+        orderItems: {
+          some: {
+            order: {
+              orderStatus: query.orderStatus,
+            },
+          },
+        },
+      }),
     };
 
     const [stores, total] = await Promise.all([
@@ -1609,11 +1622,11 @@ async getVendorStoresWithOrders(
           totalPrice: item.totalPrice,
           product: item.product
             ? {
-                id: item.product.id,
-                productName: item.product.productName,
-                image:
-                  item.product.productImages?.[0]?.imageUrl ?? null,
-              }
+              id: item.product.id,
+              productName: item.product.productName,
+              image:
+                item.product.productImages?.[0]?.imageUrl ?? null,
+            }
             : null,
           variant: item.variant,
         })),
@@ -1967,178 +1980,178 @@ async getVendorStoresWithOrders(
   }
 
   async handleVendorAction(
-  orderId: string,
-  vendorId: string,
-  dto: { action: string; reason?: string },
-) {
-  const order = await this.prisma.order.findUnique({
-    where: { id: orderId },
-    include: { items: { include: { store: true } } },
-  });
-  if (!order) throw new NotFoundException('Order not found');
+    orderId: string,
+    vendorId: string,
+    dto: { action: string; reason?: string },
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { store: true } } },
+    });
+    if (!order) throw new NotFoundException('Order not found');
 
-  const isVendorStore = order.items.some(
-    (item) => item.store?.userId === vendorId,
-  );
-  if (!isVendorStore) throw new ForbiddenException('Not your store');
-
-  if (order.orderStatus !== OrderStatus.CONFIRMED) {
-    throw new ConflictException(
-      `Order already processed: ${order.orderStatus}`,
+    const isVendorStore = order.items.some(
+      (item) => item.store?.userId === vendorId,
     );
+    if (!isVendorStore) throw new ForbiddenException('Not your store');
+
+    if (order.orderStatus !== OrderStatus.CONFIRMED) {
+      throw new ConflictException(
+        `Order already processed: ${order.orderStatus}`,
+      );
+    }
+
+    if (dto.action === 'ACCEPT') {
+      // ── 1. Resolve preparation time from store ──
+      const store = order.items[0]?.store;
+      const prepMins = store?.preparationTime ?? 15; // fallback if null
+      const now = new Date();
+      const prepDueAt = new Date(now.getTime() + prepMins * 60_000);
+
+      // ── 2. Transition to ORDER_PROCESSING (no driver search yet) ──
+      await this.transition(orderId, OrderStatus.ORDER_PROCESSING, {
+        actorId: vendorId,
+        actorRole: Role.VENDOR,
+        respondedAt: now,
+        metadata: { preparationMinutes: prepMins },
+        preparation: {
+          preparationMinutes: prepMins,
+          preparationStartedAt: now.toISOString(),
+          preparationDueAt: prepDueAt.toISOString(),
+          preparationReady: false,
+          storeName: store?.storeName ?? null,
+        },
+      });
+
+      // ── 3. Persist SLA fields (transition() only sets preparationStartedAt) ──
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          preparationDueAt: prepDueAt,
+          preparationTimeoutAt: prepDueAt, // first escalation deadline
+          customerPreparingNotifiedAt: now,
+        },
+      });
+
+      // ── 4. Notify customer "preparing" ──
+      await this.notification.sendOrderPreparing(
+        order.userId,
+        order.orderNumber,
+        prepMins,
+        store?.storeName ?? 'the store',
+      );
+
+
+      // Mark notification as sent (dedupe)
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: { customerPreparingNotifiedAt: now },
+      });
+
+      // ── 5. Schedule escalation check ──
+      await this.preparationQueue.add(
+        'prep-escalation',
+        { orderId, attempt: 1 },
+        {
+          delay: prepMins * 60_000,
+          jobId: `prep-escalation-${orderId}-1`,
+          removeOnComplete: true,
+        },
+      );
+
+      return {
+        success: true,
+        message: `Order accepted. Preparing for ~${prepMins} min. Driver search will start when ready.`,
+      };
+    }
+
+    // Vendor DECLINE
+    await this.transition(orderId, OrderStatus.CANCELLED, {
+      actorId: vendorId,
+      actorRole: Role.VENDOR,
+      reason: dto.reason,
+      respondedAt: new Date(),
+    });
+    await this.notification.sendOrderCancelled(
+      order.userId,
+      order.orderNumber,
+      dto.reason,
+    );
+
+    return { success: true };
   }
 
-  if (dto.action === 'ACCEPT') {
-    // ── 1. Resolve preparation time from store ──
-    const store = order.items[0]?.store;
-    const prepMins = store?.preparationTime ?? 15; // fallback if null
-    const now = new Date();
-    const prepDueAt = new Date(now.getTime() + prepMins * 60_000);
 
-    // ── 2. Transition to ORDER_PROCESSING (no driver search yet) ──
-    await this.transition(orderId, OrderStatus.ORDER_PROCESSING, {
+  // order.service.ts
+
+  async markOrderReady(orderId: string, vendorId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: { include: { store: true } } },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    const isVendorStore = order.items.some(
+      (item) => item.store?.userId === vendorId,
+    );
+    if (!isVendorStore) throw new ForbiddenException('Not your store');
+
+    if (order.orderStatus !== OrderStatus.ORDER_PROCESSING) {
+      throw new ConflictException(
+        `Cannot mark ready: order status is ${order.orderStatus}`,
+      );
+    }
+
+    const now = new Date();
+
+    // 1. Transition ORDER_PROCESSING → ORDER_ACCEPTED
+    await this.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
       actorId: vendorId,
       actorRole: Role.VENDOR,
       respondedAt: now,
-      metadata: { preparationMinutes: prepMins },
-      preparation: {
-        preparationMinutes: prepMins,
-        preparationStartedAt: now.toISOString(),
-        preparationDueAt: prepDueAt.toISOString(),
-        preparationReady: false,
-        storeName: store?.storeName ?? null,
-      },
     });
 
-    // ── 3. Persist SLA fields (transition() only sets preparationStartedAt) ──
+    // 2. Persist prep-ready timestamps
     await this.prisma.order.update({
       where: { id: orderId },
       data: {
-        preparationDueAt: prepDueAt,
-        preparationTimeoutAt: prepDueAt, // first escalation deadline
-        customerPreparingNotifiedAt: now,
+        preparationReadyAt: now,
+        preparationTimeoutAt: null, // SLA cleared
       },
     });
 
-    // ── 4. Notify customer "preparing" ──
-    await this.notification.sendOrderPreparing(
+    // 3. Notify customer "ready, finding driver"
+    await this.notification.sendOrderReady(
       order.userId,
       order.orderNumber,
-      prepMins,
-      store?.storeName ?? 'the store',
     );
-    
-
-    // Mark notification as sent (dedupe)
     await this.prisma.order.update({
       where: { id: orderId },
-      data: { customerPreparingNotifiedAt: now },
+      data: { customerReadyNotifiedAt: now },
     });
 
-    // ── 5. Schedule escalation check ──
-    await this.preparationQueue.add(
-      'prep-escalation',
-      { orderId, attempt: 1 },
-      {
-        delay: prepMins * 60_000,
-        jobId: `prep-escalation-${orderId}-1`,
-        removeOnComplete: true,
-      },
-    );
+    // 4. Cancel any pending escalation jobs
+    for (let i = 1; i <= 20; i++) {
+      await this.preparationQueue
+        .remove(`prep-escalation-${orderId}-${i}`)
+        .catch(() => { });
+    }
 
-    return {
-      success: true,
-      message: `Order accepted. Preparing for ~${prepMins} min. Driver search will start when ready.`,
+    // 5. Kick off the existing driver dispatch
+    const store = order.items[0]?.store;
+    const pickupLocation = order.pickupLocation as any;
+    const vendorLocation = {
+      lat: pickupLocation?.latitude ?? pickupLocation?.lat ?? store?.latitude,
+      lng: pickupLocation?.longitude ?? pickupLocation?.lng ?? store?.longitude,
     };
+    if (!vendorLocation.lat || !vendorLocation.lng) {
+      throw new BadRequestException('No valid pickup location');
+    }
+
+    await this.driverAssignment.initiateDriverSearch(orderId, vendorLocation);
+
+    return { success: true, message: 'Order marked ready. Searching for driver...' };
   }
-
-  // Vendor DECLINE
-  await this.transition(orderId, OrderStatus.CANCELLED, {
-    actorId: vendorId,
-    actorRole: Role.VENDOR,
-    reason: dto.reason,
-    respondedAt: new Date(),
-  });
-  await this.notification.sendOrderCancelled(
-    order.userId,
-    order.orderNumber,
-    dto.reason,
-  );
-
-  return { success: true };
-}
-
-
-// order.service.ts
-
-async markOrderReady(orderId: string, vendorId: string) {
-  const order = await this.prisma.order.findUnique({
-    where: { id: orderId },
-    include: { items: { include: { store: true } } },
-  });
-  if (!order) throw new NotFoundException('Order not found');
-
-  const isVendorStore = order.items.some(
-    (item) => item.store?.userId === vendorId,
-  );
-  if (!isVendorStore) throw new ForbiddenException('Not your store');
-
-  if (order.orderStatus !== OrderStatus.ORDER_PROCESSING) {
-    throw new ConflictException(
-      `Cannot mark ready: order status is ${order.orderStatus}`,
-    );
-  }
-
-  const now = new Date();
-
-  // 1. Transition ORDER_PROCESSING → ORDER_ACCEPTED
-  await this.transition(orderId, OrderStatus.ORDER_ACCEPTED, {
-    actorId: vendorId,
-    actorRole: Role.VENDOR,
-    respondedAt: now,
-  });
-
-  // 2. Persist prep-ready timestamps
-  await this.prisma.order.update({
-    where: { id: orderId },
-    data: {
-      preparationReadyAt: now,
-      preparationTimeoutAt: null, // SLA cleared
-    },
-  });
-
-  // 3. Notify customer "ready, finding driver"
-  await this.notification.sendOrderReady(
-    order.userId,
-    order.orderNumber,
-  );
-  await this.prisma.order.update({
-    where: { id: orderId },
-    data: { customerReadyNotifiedAt: now },
-  });
-
-  // 4. Cancel any pending escalation jobs
-  for (let i = 1; i <= 20; i++) {
-    await this.preparationQueue
-      .remove(`prep-escalation-${orderId}-${i}`)
-      .catch(() => {});
-  }
-
-  // 5. Kick off the existing driver dispatch
-  const store = order.items[0]?.store;
-  const pickupLocation = order.pickupLocation as any;
-  const vendorLocation = {
-    lat: pickupLocation?.latitude ?? pickupLocation?.lat ?? store?.latitude,
-    lng: pickupLocation?.longitude ?? pickupLocation?.lng ?? store?.longitude,
-  };
-  if (!vendorLocation.lat || !vendorLocation.lng) {
-    throw new BadRequestException('No valid pickup location');
-  }
-
-  await this.driverAssignment.initiateDriverSearch(orderId, vendorLocation);
-
-  return { success: true, message: 'Order marked ready. Searching for driver...' };
-}
 
   async getTrackingData(userId: string): Promise<TrackingDataResponseDto> {
     if (!userId) {
