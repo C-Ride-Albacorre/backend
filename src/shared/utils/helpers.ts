@@ -11,10 +11,17 @@ import { DashboardFilterTypes, RegistrationMethod } from '../enums';
 import { DateTime } from 'luxon';
 import { randomInt } from 'crypto';
 import { JsonObject, JsonArray } from '@prisma/client/runtime/library';
+import { PrismaService } from '../services/prisma.service';
 
 const chance = new Chance();
 const logger = new Logger('Helper');
 //const prisma = new PrismaClient();
+
+
+const CODE_LENGTH = 4;               // e.g. "8347"
+const CODE_SPACE = 10 ** CODE_LENGTH; // 100,000 possible values
+const MAX_RETRIES = 5;
+
 export interface LatLng {
   latitude: number;
   longitude: number;
@@ -1179,5 +1186,32 @@ static haversineDistanceKm(
     };
   }
   
+
+  // src/shared/utils/code-generator.ts
+
+/**
+ * Generate a unique numeric code (e.g. "83471") for an order.
+ * Uniqueness is enforced by the DB index; we retry on collision.
+ */
+static async generateUniqueNumericCode(
+  prisma: PrismaService,
+  field: 'orderCode' | 'vendorCode',
+): Promise<string> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const code = String(
+      Math.floor(Math.random() * CODE_SPACE),
+    ).padStart(CODE_LENGTH, '0');
+
+    const existing = await prisma.order.findFirst({
+      where: { [field]: code },
+      select: { id: true },
+    });
+
+    if (!existing) return code;
+  }
+  throw new Error(
+    `Failed to generate unique ${field} after ${MAX_RETRIES} attempts`,
+  );
+}
 
 }
