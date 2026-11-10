@@ -193,7 +193,7 @@ model OperatingHour {
 model Product {
   id                String         @id @default(uuid())
   productName       String
-  sku               String?         @unique
+  sku               String?        @unique
   description       String?
   productType       ProductType    @default(SINGLE)
   stockStatus       StockStatus    @default(IN_STOCK)
@@ -404,77 +404,80 @@ model CartItem {
 }
 
 model Order {
-  id                     String             @id @default(uuid())
-  orderNumber            String             @unique
-  userId                 String
-  orderType              OrderType
-  subtotal               Float
-  deliveryFee            Float
-  serviceFee             Float
-  taxAmount              Float
-  totalAmount            Float
-  dropoffLocation        Json?              @db.Json
-  recipientName          String
-  recipientPhone         String
-  deliveryInstructions   String?
-  paymentStatus          PaymentStatus      @default(PENDING)
-  paymentMethod          PaymentMethod?
-  paymentReference       String?            @unique
-  monnifyReference       String?            @unique
-  orderStatus            OrderStatus        @default(PENDING)
-  statusHistory          Json?
-  metadata               Json?
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
-  pickupLocation         Json?
-  orderCode              String             @unique
-  respondedAt            DateTime?
-  reason                 String?
-  canceledAt             DateTime?
-  deliveredAt            DateTime?
-  driverAssignedAt       DateTime?
-  pickedUpAt             DateTime?
-  vendorAcceptedAt       DateTime?
-  vendorDeclinedAt       DateTime?
-  chatMessages           ChatMessage[]
-  deliveryOptionId       String?
-  deliveryOption         VehicleTypeConfig? @relation(fields: [deliveryOptionId], references: [id])
-  user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items                  OrderItem[]
-  vendorOrderAction      VendorOrderAction?
-  orderActivityLogs      OrderActivityLog[]
-  driverAssignment       DriverAssignment?
-  ratings                Rating[]
-  store                  Store?             @relation(fields: [storeId], references: [id])
-  storeId                String?
-  calls                  Call[]
-  settledAt              DateTime?
-  settlementId           String?
-  settlement             VendorSettlement?  @relation(fields: [settlementId], references: [id])
-  driverEarning          DriverEarning?
-  deliveryDistanceKm     Decimal?           @db.Decimal(10, 3)
-  deliveryDistanceSource String? // 'google_routes' | 'haversine'
-  deliveryEtaSeconds     Int? // ← ADD: promised route duration at order time
-  dispatchRadiusMeters   Int?
-  assignedByAdminId      String?
-  assignedByAdmin        User?              @relation("OrderAssignedByAdmin", fields: [assignedByAdminId], references: [id])
-  manuallyAssignedAt     DateTime?
-  unacceptedAt           DateTime?
-  isVip                  Boolean            @default(false)
-  adminNotes             String? // e.g., "VIP customer — handle with care"
-  preparationTime        Int? // in mins (e.g., 18)
-  distanceToCustomer     Float? // in km (e.g., 4.2)
-  driverId               String?
-  driver                 User?              @relation("OrderDriver", fields: [driverId], references: [id], onDelete: SetNull)
-   // Preparation tracking (new)
-  preparationStartedAt  DateTime?   // set when vendor accepts
-  preparationDueAt      DateTime?   // preparationStartedAt + prepMins
-  preparationReadyAt    DateTime?   // when vendor marks "Ready"
-  preparationTimeoutAt  DateTime?   // current escalation deadline
+  id                          String             @id @default(uuid())
+  orderNumber                 String             @unique
+  userId                      String
+  orderType                   OrderType
+  subtotal                    Float
+  deliveryFee                 Float
+  serviceFee                  Float
+  taxAmount                   Float
+  totalAmount                 Float
+  dropoffLocation             Json?              @db.Json
+  recipientName               String
+  recipientPhone              String
+  deliveryInstructions        String?
+  paymentStatus               PaymentStatus      @default(PENDING)
+  paymentMethod               PaymentMethod?
+  paymentReference            String?            @unique
+  monnifyReference            String?            @unique
+  orderStatus                 OrderStatus        @default(PENDING)
+  statusHistory               Json?
+  metadata                    Json?
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
+  pickupLocation              Json?
+  orderCode                   String             @unique
+  vendorCode                  String?            @unique
+  respondedAt                 DateTime?
+  reason                      String?
+  canceledAt                  DateTime?
+  deliveredAt                 DateTime?
+  driverAssignedAt            DateTime?
+  pickedUpAt                  DateTime?
+  vendorAcceptedAt            DateTime?
+  vendorDeclinedAt            DateTime?
+  chatMessages                ChatMessage[]
+  deliveryOptionId            String?
+  deliveryOption              VehicleTypeConfig? @relation(fields: [deliveryOptionId], references: [id])
+  user                        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items                       OrderItem[]
+  vendorOrderAction           VendorOrderAction?
+  orderActivityLogs           OrderActivityLog[]
+  driverAssignment            DriverAssignment?
+  ratings                     Rating[]
+  store                       Store?             @relation(fields: [storeId], references: [id])
+  storeId                     String?
+  calls                       Call[]
+  settledAt                   DateTime?
+  settlementId                String?
+  settlement                  VendorSettlement?  @relation(fields: [settlementId], references: [id])
+  driverEarning               DriverEarning?
+  deliveryDistanceKm          Decimal?           @db.Decimal(10, 3)
+  deliveryDistanceSource      String? // 'google_routes' | 'haversine'
+  deliveryEtaSeconds          Int? // ← ADD: promised route duration at order time
+  dispatchRadiusMeters        Int?
+  assignedByAdminId           String?
+  assignedByAdmin             User?              @relation("OrderAssignedByAdmin", fields: [assignedByAdminId], references: [id])
+  manuallyAssignedAt          DateTime?
+  unacceptedAt                DateTime?
+  isVip                       Boolean            @default(false)
+  adminNotes                  String? // e.g., "VIP customer — handle with care"
+  preparationTime             Int? // in mins (e.g., 18)
+  distanceToCustomer          Float? // in km (e.g., 4.2)
+  driverId                    String?
+  driver                      User?              @relation("OrderDriver", fields: [driverId], references: [id], onDelete: SetNull)
+  // Preparation tracking (new)
+  preparationStartedAt        DateTime? // set when vendor accepts
+  preparationDueAt            DateTime? // preparationStartedAt + prepMins
+  preparationReadyAt          DateTime? // when vendor marks "Ready"
+  preparationTimeoutAt        DateTime? // current escalation deadline
   // Notification dedupe (new)
-  customerPreparingNotifiedAt   DateTime?
-  customerReadyNotifiedAt       DateTime?
+  customerPreparingNotifiedAt DateTime?
+  customerReadyNotifiedAt     DateTime?
+  pickupVerifiedAt            DateTime?
 
+  @@index([vendorCode])
   @@index([orderCode])
   @@index([orderNumber])
   @@index([userId])

@@ -30,11 +30,8 @@ import { VendorActionDto } from './dto/vendor-action.dto';
 import { VendorOrderDto } from './dto/vendor-order.dto';
 import { ListVendorStoresQueryDto } from './dto/list-vendor-stores-query.dto';
 import { ListStoreOrdersQueryDto } from './dto/list-store-orders-query.dto';
-
-// export class VendorActionDto {
-//   action: 'ACCEPT' | 'DECLINE';
-//   reason?: string;
-// }
+import { SearchOrdersByVendorCodeDto } from './dto/search-orders-by-vendor-code.dto';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Vendor Orders')
 @ApiBearerAuth()
@@ -93,56 +90,6 @@ export class OrderController {
   }
 
 
-// @Get('stores/orders')
-// @ApiOperation({
-//   summary: 'List vendor stores with orders',
-//   description:
-//     'Retrieve all stores belonging to the authenticated vendor along with their orders.',
-// })
-// @ApiQuery({
-//   name: 'status',
-//   required: false,
-//   type: String,
-//   example: 'ORDER_ASSIGNED',
-//   description: 'Filter orders by status',
-// })
-// @ApiQuery({
-//   name: 'page',
-//   required: false,
-//   type: Number,
-//   example: 1,
-//   description: 'Page number',
-// })
-// @ApiQuery({
-//   name: 'limit',
-//   required: false,
-//   type: Number,
-//   example: 10,
-//   description: 'Number of records per page',
-// })
-// @ApiResponse({
-//   status: 200,
-//   description: 'Vendor stores with orders retrieved successfully',
-// })
-// @ApiResponse({
-//   status: 403,
-//   description: 'Forbidden - User is not a vendor',
-// })
-// async getStoresWithOrders(
-//   @GetUser() user: any,
-//   @Query('status') status?: OrderStatus,
-//   @Query('page') page?: number,
-//   @Query('limit') limit?: number,
-// ) {
-//   if (user.role !== Role.VENDOR) throw new ForbiddenException();
-
-//   return this.orderService.getVendorStoresWithOrders(user.id, {
-//     status,
-//     page,
-//     limit,
-//   });
-// }
-
 @Get('stores')
   @ApiOperation({ summary: 'List stores owned by the authenticated vendor' })
   @ApiOkResponse({ description: 'Paginated list of vendor stores' })
@@ -196,6 +143,14 @@ export class OrderController {
     );
   }
 
+  @Get('orders/search')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  searchOrdersByVendorCode(
+    @GetUser() vendor: any,
+    @Query() dto: SearchOrdersByVendorCodeDto,
+  ) {
+    return this.orderService.searchOrdersByVendorCode(vendor.id, dto);
+  }
 
   @Post(':orderId/action')
   @ApiOperation({

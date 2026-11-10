@@ -41,6 +41,7 @@ import { QUEUES } from '../../shared/constants';
 import { TransitionContext } from '../../shared/types';
 import { ListVendorStoresQueryDto } from './dto/list-vendor-stores-query.dto';
 import { ListStoreOrdersQueryDto } from './dto/list-store-orders-query.dto';
+import { SearchOrdersByVendorCodeDto } from './dto/search-orders-by-vendor-code.dto';
 
 
 
@@ -368,7 +369,9 @@ export class OrderService {
     const startOfDay = now.startOf('day').toJSDate();
     const endOfDay = now.endOf('day').toJSDate();
     const orderNumber = Helper.generateOrderNumber();
-    const orderCode = Helper.generate4DigitCode();
+    //const orderCode = Helper.generate4DigitCode();
+   const orderCode =  await Helper.generateUniqueNumericCode(this.prisma, 'orderCode');
+   const vendorCode =  await Helper.generateUniqueNumericCode(this.prisma, 'vendorCode');
 
     const MAX_RETRIES = 3;
     let lastError: any;
@@ -620,6 +623,7 @@ export class OrderService {
               data: {
                 orderNumber,
                 orderCode,
+                vendorCode,
                 userId,
                 orderType: this.determineOrderType(cartSummary.items),
                 subtotal: cartSummary.subtotal,
@@ -764,39 +768,6 @@ export class OrderService {
       include: { operatingHours: true },
     });
     if (!store) throw new NotFoundException(`Store ${storeId} not found`);
-
-    // ── 2. Operating-hours gate ──────────────────────────────────────────
-    // const today = store.operatingHours.find(
-    //   (h) => h.dayOfWeek === (todayWeekday as any),
-    // );
-
-    // if (!today || !today.isOpen) {
-    //   throw new BadRequestException(
-    //     `${store.storeName} is not open today`,
-    //   );
-    // }
-
-    // if (today.openingTime && today.closingTime) {
-    //   const openMin = this.hhmmToMinutes(today.openingTime);
-    //   const closeMin = this.hhmmToMinutes(today.closingTime);
-
-    //   const withinHours =
-    //     // normal hours (e.g. 09:00 – 21:00)
-    //     openMin <= closeMin
-    //       ? currentMinutes >= openMin && currentMinutes < closeMin
-    //       // overnight window (e.g. 22:00 – 02:00)
-    //       : currentMinutes >= openMin || currentMinutes < closeMin;
-
-    //   if (!withinHours) {
-    //     throw new BadRequestException(
-    //       `${store.storeName} is closed right now ` +
-    //         `(opens ${today.openingTime}, closes ${today.closingTime})`,
-    //     );
-    //   }
-
-    //   // Optional: block during break if your business rule says so.
-    //   // if (today.breakStart && today.breakEnd) { ... }
-    // }
 
     // ── 3. Atomic daily counter ──────────────────────────────────────────
     if (!store.dailyOrderLimit || store.dailyOrderLimit <= 0) {
@@ -1565,87 +1536,108 @@ const data = stores.map((store) => ({
   };
 }
 
-  async listVendorStoresoOld(vendorId: string, query: ListVendorStoresQueryDto) {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+async searchOrdersByVendorCode(
+    vendorId: string,
+    dto: SearchOrdersByVendorCodeDto,
+  ) {
+    const page = Math.max(1, dto.page ?? 1);
+    const limit = Math.min(100, Math.max(1, dto.limit ?? 20));
+    const skip = (page - 1) * limit;
 
-    // const where: Prisma.StoreWhereInput = {
-    //   userId: vendorId,
-    //   ...(query.status && { status: query.status }),
-    // };
-    const where: Prisma.StoreWhereInput = {
-      userId: vendorId,
-      ...(query.status && { status: query.status }),
-      ...(query.orderStatus && {
-        orderItems: {
-          some: {
-            order: {
-              orderStatus: query.orderStatus,
+    // ── 1. Authorize: vendor must own at least one store ──
+    const storeIds = await this.prisma.store.findMany({
+      where: { userId: vendorId },
+      select: { id: true },
+    });
+
+    if (storeIds.length === 0) {
+      throw new ForbiddenException('No stores associated with this vendor');
+    }
+
+    const storeIdList = storeIds.map((s) => s.id);
+
+    // ── 2. Build the where clause ──
+    const where: Prisma.OrderWhereInput = {
+      vendorCode: { equals: dto.vendorCode.trim(), mode: 'insensitive' },
+      // Ensure the order belongs to one of THIS vendor's stores.
+      // An order belongs to a store via its items.
+      items: {
+        some: {
+          storeId: { in: storeIdList },
+        },
+      },
+    };
+
+    if (dto.status) {
+      where.orderStatus = dto.status;
+    }
+
+    if (dto.from || dto.to) {
+      where.createdAt = {};
+      if (dto.from) where.createdAt.gte = new Date(dto.from);
+      if (dto.to) where.createdAt.lte = new Date(dto.to);
+    }
+
+    // ── 3. Execute query in a single transaction ──
+    const [orders, total] = await this.prisma.$transaction([
+      this.prisma.order.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          user: {
+            select: { firstName: true, lastName: true, email: true, phoneNumber: true },
+          },
+          items: {
+            include: {
+              store: {
+                select: { id: true, storeName: true, storeLogo: true },
+              },
             },
           },
         },
       }),
-    };
-
-    const [stores, total] = await Promise.all([
-      this.prisma.store.findMany({
-        where,
-        select: {
-          id: true,
-          storeName: true,
-          storeDescription: true,
-          storeAddress: true,
-          storeLogo: true,
-          phoneNumber: true,
-          email: true,
-          status: true,
-          latitude: true,
-          longitude: true,
-          dailyOrderLimit: true,
-          preparationTime: true,
-          createdAt: true,
-          updatedAt: true,
-          category: { select: { id: true, name: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      this.prisma.store.count({ where }),
+      this.prisma.order.count({ where }),
     ]);
 
-    if (stores.length === 0) {
-      return {
-        data: [],
-        meta: { page, limit, total: 0, totalPages: 0 },
-      };
-    }
-
-    // Aggregate order counts per store (paid orders only)
-    const storeIds = stores.map((s) => s.id);
-    const counts = await this.prisma.orderItem.groupBy({
-      by: ['storeId'],
-      where: {
-        storeId: { in: storeIds },
-        order: { paymentStatus: PaymentStatus.PAID },
-      },
-      _count: { orderId: true },
-    });
-    const countMap = new Map(
-      counts.map((c) => [c.storeId, c._count.orderId]),
-    );
-
-    const data = stores.map((store) => ({
-      ...store,
-      orderCount: countMap.get(store.id) ?? 0,
-    }));
-
+    // ── 4. Map to a lean, stable response ──
     return {
-      data,
+      data: orders.map((o) => {
+        const store = o.items[0]?.store ?? null;
+        return {
+          id: o.id,
+          orderNumber: o.orderNumber,
+          vendorCode: o.vendorCode,
+          orderStatus: o.orderStatus,
+          paymentStatus: o.paymentStatus,
+          orderType: o.orderType,
+          totalAmount: o.totalAmount,
+          deliveryFee: o.deliveryFee,
+          createdAt: o.createdAt,
+          updatedAt: o.updatedAt,
+          store: store
+            ? {
+                id: store.id,
+                storeName: store.storeName,
+                storeLogo: store.storeLogo,
+              }
+            : null,
+          customer: o.user
+            ? {
+                firstName: o.user.firstName,
+                lastName: o.user.lastName,
+                email: o.user.email,
+                phone: o.user.phoneNumber,
+              }
+            : null,
+          itemCount: o.items.length,
+        };
+      }),
       meta: {
+        total,
         page,
         limit,
-        total,
         totalPages: Math.ceil(total / limit),
       },
     };

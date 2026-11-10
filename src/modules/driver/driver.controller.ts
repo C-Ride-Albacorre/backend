@@ -57,7 +57,6 @@ import { PaginationDto } from './dto/pagination.dto';
 import { Throttle } from '@nestjs/throttler';
 import { VehicleTypeConfigOptionDto } from './dto/vehicle-type-config-response.dto';
 import { VehicleTypeService } from './vehicle-type.service';
-import { VehicleTypeEnumResponseDto } from './dto/vehicle-type-enum.dto';
 
 @ApiTags('Driver')
 @Controller('driver')
