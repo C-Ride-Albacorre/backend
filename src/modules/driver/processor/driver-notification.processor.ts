@@ -16,7 +16,8 @@ export class DriverNotificationProcessor extends WorkerHost {
   async process(job: Job): Promise<any> {
     const { driverId, orderId, vendorLocation } = job.data;
     this.logger.log(`Sending push to driver ${driverId} for order ${orderId}`);
-
+    this.logger.log(`Job data: ${JSON.stringify(job.data)}`);
+try{
     await this.pushService.sendToDriver(driverId, {
       title: 'New Delivery Request',
       body: 'Tap to view order details and accept',
@@ -31,6 +32,9 @@ export class DriverNotificationProcessor extends WorkerHost {
       sound: 'default',
       //sound: 'notification.wav',
     });
+    } catch (e) {
+  this.logger.error(`sendToDriver threw for driver ${driverId}`, e);
+}
 
   }
 }
