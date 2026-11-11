@@ -192,12 +192,12 @@ async sendToDriver(
   driverId: string,
   payload: PushNotificationPayload,
 ): Promise<boolean> {
+    this.logger.warn(`[sendToDriver] enter driver=${driverId} enabled=${this.isEnabled}`);
   if (!this.isEnabled) {
-    this.logger.debug(
-      `Push disabled – would send to driver ${driverId}: ${payload.title}`,
-    );
+    this.logger.warn(`[sendToDriver] DISABLED – would send "${payload.title}" to ${driverId}`);
     return false;
   }
+
 
   try {
     const driver = await this.prisma.user.findUnique({
