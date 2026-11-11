@@ -1,4 +1,306 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+// import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+// import { ConfigService } from '@nestjs/config';
+// import * as admin from 'firebase-admin';
+// import { PrismaService } from '../../shared/services/prisma.service';
+
+// export interface PushNotificationPayload {
+//   title: string;
+//   body: string;
+//   data?: Record<string, string>;
+//   imageUrl?: string;
+//   sound?: string;
+//   priority?: 'normal' | 'high';
+// }
+
+// @Injectable()
+// export class PushNotificationService {
+//   private readonly logger = new Logger(PushNotificationService.name);
+//   private isEnabled: boolean;
+
+//   // constructor(
+//   //   private configService: ConfigService,
+//   //   private prisma: PrismaService,
+//   // ) {
+//   //   this.isEnabled =
+//   //     this.configService.get('PUSH_NOTIFICATIONS_ENABLED') === 'true';
+//   //   if (this.isEnabled && !admin.apps.length) {
+//   //     this.initializeFirebase();
+//   //   } else if (!this.isEnabled) {
+//   //     this.logger.warn(
+//   //       'Push notifications are disabled (PUSH_NOTIFICATIONS_ENABLED=false)',
+//   //     );
+//   //   }
+//   // }
+
+//   constructor(
+//   private configService: ConfigService,
+//   private prisma: PrismaService,
+// ) {
+//   const raw = this.configService.get('PUSH_NOTIFICATIONS_ENABLED');
+//   this.logger.warn(
+//     `[boot] PUSH_NOTIFICATIONS_ENABLED raw=${JSON.stringify(raw)} typeof=${typeof raw} ` +
+//     `processEnv=${JSON.stringify(process.env.PUSH_NOTIFICATIONS_ENABLED)}`,
+//   );
+
+//   this.isEnabled = String(raw).trim().replace(/^["']|["']$/g, '').toLowerCase() === 'true';
+//   this.logger.warn(`[boot] isEnabled(after ctor)=${this.isEnabled}`);
+
+//   const key = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
+//   this.logger.warn(
+//     `[boot] FIREBASE_PRIVATE_KEY present=${!!key} length=${key?.length ?? 0}`,
+//   );
+
+//   if (this.isEnabled && !admin.apps.length) {
+//     this.initializeFirebase();
+//     this.logger.warn(`[boot] isEnabled(after initFirebase)=${this.isEnabled}`);
+//   } else if (!this.isEnabled) {
+//     this.logger.warn('[boot] Push disabled by config');
+//   }
+// }
+
+//   private initializeFirebase(): void {
+//   try {
+//     const base64 = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
+
+//     if (!base64) {
+//       throw new Error('FIREBASE_PRIVATE_KEY is not set');
+//     }
+
+//     // Decode Base64 → JSON string → Object
+//     const decoded = Buffer.from(base64, 'base64').toString('utf-8');
+//     const serviceAccount = JSON.parse(decoded);
+
+//     // Validate required fields
+//     if (
+//       !serviceAccount.project_id ||
+//       !serviceAccount.private_key ||
+//       !serviceAccount.client_email
+//     ) {
+//       throw new Error('Service account JSON is missing required fields');
+//     }
+
+//     // ✅ Normalize the PEM: turn any mix of real newlines, literal \n,
+//     // and escaped \\n into canonical \n line breaks.
+//     serviceAccount.private_key = serviceAccount.private_key
+//       .replace(/\\n/g, '\n')   // literal backslash-n → real newline
+//       .replace(/\r\n/g, '\n')  // CRLF → LF
+//       .replace(/\r/g, '\n')    // CR → LF
+//       .trim()
+//       .concat('\n');           // PEM should end with a newline
+
+//     admin.initializeApp({
+//       credential: admin.credential.cert(serviceAccount),
+//     });
+
+//     this.logger.log('Firebase Admin SDK initialized');
+//   } catch (error) {
+//     this.logger.error('Failed to initialize Firebase Admin SDK', error);
+//     this.isEnabled = false;
+//   }
+// } 
+
+// private initializeFirebaseold(): void {
+//   try {
+//     const base64 = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
+
+//     if (!base64) {
+//       throw new Error('FIREBASE_PRIVATE_KEY is not set');
+//     }
+
+//     // Decode Base64 → JSON string → Object
+//     const decoded = Buffer.from(base64, 'base64').toString('utf-8');
+//     const serviceAccount = JSON.parse(decoded);
+
+//     // Validate required fields
+//     if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
+//       throw new Error('Service account JSON is missing required fields');
+//     }
+
+//     admin.initializeApp({
+//       credential: admin.credential.cert(serviceAccount),
+//     });
+
+//     this.logger.log('Firebase Admin SDK initialized');
+//   } catch (error) {
+//     this.logger.error('Failed to initialize Firebase Admin SDK', error);
+//     this.isEnabled = false; // fallback
+//   }
+// }
+  
+
+//   /**
+//    * Send push notification to a single driver (or any user with a token).
+//    */
+//   async sendToDriverOld(
+//     driverId: string,
+//     payload: PushNotificationPayload,
+//   ): Promise<boolean> {
+//     if (!this.isEnabled) {
+//       this.logger.debug(
+//         `Push disabled – would send to driver ${driverId}: ${payload.title}`,
+//       );
+//       return false;
+//     }
+
+//     try {
+//       // Fetch driver's FCM token from User table
+//         const driver = await this.prisma.user.findUnique({
+//           where: { id: driverId },
+//           select: {
+//             fcmToken: true,
+//             deviceType: true,
+//           },
+//         });
+
+//         if (!driver?.fcmToken) {
+//           this.logger.warn(`Driver ${driverId} has no FCM token`);
+//           return false;
+//         }
+
+//       const message: admin.messaging.Message = {
+//         notification: {
+//           title: payload.title,
+//           body: payload.body,
+//           imageUrl: payload.imageUrl,
+//         },
+//         data: payload.data || {},
+//         android: {
+//           priority: payload.priority === 'high' ? 'high' : 'normal',
+//           notification: {
+//             //sound: payload.sound || 'default',
+//             channelId: 'delivery_requests',
+//           },
+//         },
+//         apns: {
+//           payload: {
+//             aps: {
+//               sound: payload.sound || 'default',
+//               badge: 1,
+//             },
+//           },
+//         },
+//         token: driver.fcmToken,
+//       };
+//       this.logger.log(`Sending message to driver ${driverId}: ${JSON.stringify(message)}`);
+
+//       const response = await admin.messaging().send(message);
+//       this.logger.log(`Push sent to driver ${driverId}: ${response}`);
+//       return true;
+//     } catch (error) {
+//       // Handle invalid token (e.g., uninstalled app)
+//       if (
+//         typeof error === 'object' &&
+//         error !== null &&
+//         'code' in error &&
+//         (error.code === 'messaging/invalid-registration-token' ||
+//           error.code === 'messaging/registration-token-not-registered')
+//       ) {
+//         this.logger.warn(
+//           `Invalid FCM token for driver ${driverId}, removing from DB`,
+//         );
+     
+//           await this.prisma.user
+//           .update({
+//             where: { id: driverId },
+//             data: { fcmToken: null },
+//           })
+//           .catch((e) => this.logger.error(e));
+//       } else {
+//         this.logger.error(
+//           `Failed to send push to driver ${driverId}: ${error}`,
+//           error,
+//         );
+//       }
+//       return false;
+//     }
+//   }
+// async sendToDriver(
+//   driverId: string,
+//   payload: PushNotificationPayload,
+// ): Promise<boolean> {
+//     this.logger.warn(`[sendToDriver] enter driver=${driverId} enabled=${this.isEnabled}`);
+//   if (!this.isEnabled) {
+//     this.logger.warn(`[sendToDriver] DISABLED – would send "${payload.title}" to ${driverId}`);
+//     return false;
+//   }
+
+
+//   try {
+//     const driver = await this.prisma.user.findUnique({
+//       where: { id: driverId },
+//       select: { fcmToken: true, deviceType: true },
+//     });
+
+//     if (!driver?.fcmToken) {
+//       this.logger.warn(`Driver ${driverId} has no FCM token`);
+//       return false;
+//     }
+
+//     // FCM requires every data value to be a string.
+//     const data: Record<string, string> = Object.fromEntries(
+//       Object.entries(payload.data ?? {}).map(([k, v]) => [k, String(v)]),
+//     );
+
+//     const message: admin.messaging.Message = {
+//       notification: {
+//         title: payload.title,
+//         body: payload.body,
+//         imageUrl: payload.imageUrl,
+//       },
+//       data,
+//       android: {
+//         priority: 'high',                         // always high for actionable pushes
+//         notification: {
+//           channelId: 'delivery_requests_v2',      // HIGH-importance channel (see notes)
+//           sound: 'default',
+//           defaultSound: true,
+//           defaultVibrateTimings: true,
+//           priority: 'max',       
+//          },
+//       },
+//       apns: {
+//         headers: { 'apns-priority': '10' },
+//         payload: {
+//           aps: {
+//             sound: payload.sound || 'default',
+//             badge: 1,
+//           },
+//         },
+//       },
+//       token: driver.fcmToken,
+//     };
+
+//     this.logger.log(
+//       `Sending push to driver ${driverId} token=${driver.fcmToken} msg=${JSON.stringify(message)}`,
+//     );
+
+//     const response = await admin.messaging().send(message);
+//     this.logger.log(`Push OK driver ${driverId} messageId=${response}`);
+//     return true;
+//   } catch (error: any) {
+//     const code: string | undefined = error?.code;
+//     const knownTokenErrors = new Set([
+//       'messaging/invalid-registration-token',
+//       'messaging/registration-token-not-registered',
+//       'messaging/unregistered',
+//       'messaging/mismatched-credential',
+//     ]);
+
+//     // Always log the raw error so SENDER_ID_MISMATCH / INVALID_ARGUMENT are visible.
+//     this.logger.error(
+//       `Push FAILED driver ${driverId} code=${code ?? 'unknown'} error=${error?.message ?? error}`,
+//       error,
+//     );
+
+//     if (code && knownTokenErrors.has(code)) {
+//       await this.prisma.user
+//         .update({ where: { id: driverId }, data: { fcmToken: null } })
+//         .catch((e) => this.logger.error(e));
+//     }
+//     return false;
+//   }
+// }
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 import { PrismaService } from '../../shared/services/prisma.service';
@@ -21,115 +323,109 @@ export class PushNotificationService {
     private configService: ConfigService,
     private prisma: PrismaService,
   ) {
-    this.isEnabled =
-      this.configService.get('PUSH_NOTIFICATIONS_ENABLED') === 'true';
-    if (this.isEnabled && !admin.apps.length) {
-      this.initializeFirebase();
-    } else if (!this.isEnabled) {
+    const raw = this.configService.get<string>('PUSH_NOTIFICATIONS_ENABLED');
+
+    this.isEnabled = PushNotificationService.parseBool(raw);
+
+    this.logger.log(
+      `[boot] PUSH_NOTIFICATIONS_ENABLED raw=${JSON.stringify(raw)} → isEnabled=${this.isEnabled}`,
+    );
+
+    if (this.isEnabled) {
+      if (!admin.apps.length) {
+        this.initializeFirebase();
+      }
+      this.logger.log('[boot] Firebase app ready');
+    } else {
       this.logger.warn(
-        'Push notifications are disabled (PUSH_NOTIFICATIONS_ENABLED=false)',
+        '[boot] Push notifications are DISABLED (PUSH_NOTIFICATIONS_ENABLED != "true")',
       );
     }
   }
 
-  private initializeFirebase(): void {
-  try {
-    const base64 = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
+  private static parseBool(raw: unknown): boolean {
+    if (typeof raw === 'boolean') return raw;
+    if (typeof raw !== 'string') return false;
+    const v = raw.trim().replace(/^["']|["']$/g, '').toLowerCase();
+    return v === 'true' || v === '1' || v === 'yes' || v === 'on';
+  }
 
+  private initializeFirebase(): void {
+    const base64 = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
     if (!base64) {
-      throw new Error('FIREBASE_PRIVATE_KEY is not set');
+      // Do not silently disable. Make it loud.
+      throw new Error(
+        '[boot] FIREBASE_PRIVATE_KEY is not set — push cannot work. ' +
+        'Set it in Render → Environment as Base64 of the full service-account JSON.',
+      );
     }
 
-    // Decode Base64 → JSON string → Object
-    const decoded = Buffer.from(base64, 'base64').toString('utf-8');
-    const serviceAccount = JSON.parse(decoded);
+    let serviceAccount: any;
+    try {
+      const decoded = Buffer.from(base64, 'base64').toString('utf-8');
+      serviceAccount = JSON.parse(decoded);
+    } catch (e: any) {
+      throw new Error(
+        `[boot] FIREBASE_PRIVATE_KEY is not valid Base64-encoded JSON: ${e?.message}`,
+      );
+    }
 
-    // Validate required fields
     if (
       !serviceAccount.project_id ||
       !serviceAccount.private_key ||
       !serviceAccount.client_email
     ) {
-      throw new Error('Service account JSON is missing required fields');
+      throw new Error(
+        '[boot] Service account JSON is missing project_id / private_key / client_email',
+      );
     }
 
-    // ✅ Normalize the PEM: turn any mix of real newlines, literal \n,
-    // and escaped \\n into canonical \n line breaks.
-    serviceAccount.private_key = serviceAccount.private_key
-      .replace(/\\n/g, '\n')   // literal backslash-n → real newline
-      .replace(/\r\n/g, '\n')  // CRLF → LF
-      .replace(/\r/g, '\n')    // CR → LF
+    // Normalize PEM line breaks
+    serviceAccount.private_key = String(serviceAccount.private_key)
+      .replace(/\\n/g, '\n')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
       .trim()
-      .concat('\n');           // PEM should end with a newline
+      .concat('\n');
 
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 
-    this.logger.log('Firebase Admin SDK initialized');
-  } catch (error) {
-    this.logger.error('Failed to initialize Firebase Admin SDK', error);
-    this.isEnabled = false;
+    this.logger.log(
+      `[boot] Firebase Admin SDK initialized project_id=${serviceAccount.project_id} ` +
+      `client_email=${serviceAccount.client_email}`,
+    );
   }
-} 
 
-private initializeFirebaseold(): void {
-  try {
-    const base64 = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
-
-    if (!base64) {
-      throw new Error('FIREBASE_PRIVATE_KEY is not set');
-    }
-
-    // Decode Base64 → JSON string → Object
-    const decoded = Buffer.from(base64, 'base64').toString('utf-8');
-    const serviceAccount = JSON.parse(decoded);
-
-    // Validate required fields
-    if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
-      throw new Error('Service account JSON is missing required fields');
-    }
-
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-
-    this.logger.log('Firebase Admin SDK initialized');
-  } catch (error) {
-    this.logger.error('Failed to initialize Firebase Admin SDK', error);
-    this.isEnabled = false; // fallback
-  }
-}
-  
-
-  /**
-   * Send push notification to a single driver (or any user with a token).
-   */
-  async sendToDriverOld(
+  async sendToDriver(
     driverId: string,
     payload: PushNotificationPayload,
   ): Promise<boolean> {
+    this.logger.log(
+      `[sendToDriver] enter driver=${driverId} enabled=${this.isEnabled}`,
+    );
+
     if (!this.isEnabled) {
-      this.logger.debug(
-        `Push disabled – would send to driver ${driverId}: ${payload.title}`,
+      this.logger.warn(
+        `[sendToDriver] DISABLED – would send "${payload.title}" to ${driverId}`,
       );
       return false;
     }
 
     try {
-      // Fetch driver's FCM token from User table
-        const driver = await this.prisma.user.findUnique({
-          where: { id: driverId },
-          select: {
-            fcmToken: true,
-            deviceType: true,
-          },
-        });
+      const driver = await this.prisma.user.findUnique({
+        where: { id: driverId },
+        select: { fcmToken: true, deviceType: true },
+      });
 
-        if (!driver?.fcmToken) {
-          this.logger.warn(`Driver ${driverId} has no FCM token`);
-          return false;
-        }
+      if (!driver?.fcmToken) {
+        this.logger.warn(`Driver ${driverId} has no FCM token`);
+        return false;
+      }
+
+      // FCM requires every data value to be a string
+      const data: Record<string, string> = Object.fromEntries(
+        Object.entries(payload.data ?? {}).map(([k, v]) => [k, String(v)]),
+      );
 
       const message: admin.messaging.Message = {
         notification: {
@@ -137,15 +433,19 @@ private initializeFirebaseold(): void {
           body: payload.body,
           imageUrl: payload.imageUrl,
         },
-        data: payload.data || {},
+        data,
         android: {
-          priority: payload.priority === 'high' ? 'high' : 'normal',
+          priority: 'high',
           notification: {
-            //sound: payload.sound || 'default',
-            channelId: 'delivery_requests',
+            channelId: 'delivery_requests_v2',
+            sound: 'default',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            priority: 'max',
           },
         },
         apns: {
+          headers: { 'apns-priority': '10' },
           payload: {
             aps: {
               sound: payload.sound || 'default',
@@ -155,126 +455,36 @@ private initializeFirebaseold(): void {
         },
         token: driver.fcmToken,
       };
-      this.logger.log(`Sending message to driver ${driverId}: ${JSON.stringify(message)}`);
+
+      this.logger.log(
+        `Sending push to driver ${driverId} token=${driver.fcmToken} msg=${JSON.stringify(message)}`,
+      );
 
       const response = await admin.messaging().send(message);
-      this.logger.log(`Push sent to driver ${driverId}: ${response}`);
+      this.logger.log(`Push OK driver ${driverId} messageId=${response}`);
       return true;
-    } catch (error) {
-      // Handle invalid token (e.g., uninstalled app)
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        (error.code === 'messaging/invalid-registration-token' ||
-          error.code === 'messaging/registration-token-not-registered')
-      ) {
-        this.logger.warn(
-          `Invalid FCM token for driver ${driverId}, removing from DB`,
-        );
-     
-          await this.prisma.user
-          .update({
-            where: { id: driverId },
-            data: { fcmToken: null },
-          })
+    } catch (error: any) {
+      const code: string | undefined = error?.code;
+      const knownTokenErrors = new Set([
+        'messaging/invalid-registration-token',
+        'messaging/registration-token-not-registered',
+        'messaging/unregistered',
+        'messaging/mismatched-credential',
+      ]);
+
+      this.logger.error(
+        `Push FAILED driver ${driverId} code=${code ?? 'unknown'} error=${error?.message ?? error}`,
+        error,
+      );
+
+      if (code && knownTokenErrors.has(code)) {
+        await this.prisma.user
+          .update({ where: { id: driverId }, data: { fcmToken: null } })
           .catch((e) => this.logger.error(e));
-      } else {
-        this.logger.error(
-          `Failed to send push to driver ${driverId}: ${error}`,
-          error,
-        );
       }
       return false;
     }
   }
-async sendToDriver(
-  driverId: string,
-  payload: PushNotificationPayload,
-): Promise<boolean> {
-    this.logger.warn(`[sendToDriver] enter driver=${driverId} enabled=${this.isEnabled}`);
-  if (!this.isEnabled) {
-    this.logger.warn(`[sendToDriver] DISABLED – would send "${payload.title}" to ${driverId}`);
-    return false;
-  }
-
-
-  try {
-    const driver = await this.prisma.user.findUnique({
-      where: { id: driverId },
-      select: { fcmToken: true, deviceType: true },
-    });
-
-    if (!driver?.fcmToken) {
-      this.logger.warn(`Driver ${driverId} has no FCM token`);
-      return false;
-    }
-
-    // FCM requires every data value to be a string.
-    const data: Record<string, string> = Object.fromEntries(
-      Object.entries(payload.data ?? {}).map(([k, v]) => [k, String(v)]),
-    );
-
-    const message: admin.messaging.Message = {
-      notification: {
-        title: payload.title,
-        body: payload.body,
-        imageUrl: payload.imageUrl,
-      },
-      data,
-      android: {
-        priority: 'high',                         // always high for actionable pushes
-        notification: {
-          channelId: 'delivery_requests_v2',      // HIGH-importance channel (see notes)
-          sound: 'default',
-          defaultSound: true,
-          defaultVibrateTimings: true,
-          priority: 'max',       
-         },
-      },
-      apns: {
-        headers: { 'apns-priority': '10' },
-        payload: {
-          aps: {
-            sound: payload.sound || 'default',
-            badge: 1,
-          },
-        },
-      },
-      token: driver.fcmToken,
-    };
-
-    this.logger.log(
-      `Sending push to driver ${driverId} token=${driver.fcmToken} msg=${JSON.stringify(message)}`,
-    );
-
-    const response = await admin.messaging().send(message);
-    this.logger.log(`Push OK driver ${driverId} messageId=${response}`);
-    return true;
-  } catch (error: any) {
-    const code: string | undefined = error?.code;
-    const knownTokenErrors = new Set([
-      'messaging/invalid-registration-token',
-      'messaging/registration-token-not-registered',
-      'messaging/unregistered',
-      'messaging/mismatched-credential',
-    ]);
-
-    // Always log the raw error so SENDER_ID_MISMATCH / INVALID_ARGUMENT are visible.
-    this.logger.error(
-      `Push FAILED driver ${driverId} code=${code ?? 'unknown'} error=${error?.message ?? error}`,
-      error,
-    );
-
-    if (code && knownTokenErrors.has(code)) {
-      await this.prisma.user
-        .update({ where: { id: driverId }, data: { fcmToken: null } })
-        .catch((e) => this.logger.error(e));
-    }
-    return false;
-  }
-}
-
   /**
    * Send push notification to a customer.
    */
