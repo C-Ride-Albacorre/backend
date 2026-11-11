@@ -1648,6 +1648,165 @@ async searchOrdersByVendorCode(
    * orders that contain items from that store, with a status breakdown.
    */
   async getStoreWithOrders(
+  vendorId: string,
+  storeId: string,
+  query: ListStoreOrdersQueryDto,
+) {
+  // 1. Load store, enforcing ownership
+  const store = await this.prisma.store.findFirst({
+    where: { id: storeId, userId: vendorId },
+    include: {
+      category: { select: { id: true, name: true } },
+      operatingHours: true,
+    },
+  });
+  if (!store) {
+    throw new NotFoundException('Store not found');
+  }
+
+  const page = query.page ?? 1;
+  const limit = query.limit ?? 20;
+  const skip = (page - 1) * limit;
+
+  // 2. Normalize vendorCode filter
+  const normalizedVendorCode = query.vendorCode?.trim() || undefined;
+
+  // 3. Base filter
+  const baseWhere: Prisma.OrderWhereInput = {
+    paymentStatus: PaymentStatus.PAID,
+    items: { some: { storeId } },
+    ...(query.status && { orderStatus: query.status }),
+    ...(normalizedVendorCode && {
+      vendorCode: {
+        equals: normalizedVendorCode,
+        mode: 'insensitive',
+      },
+    }),
+  };
+
+  // 4. Parallel fetch
+  const [orders, total, statusBreakdownRaw] = await Promise.all([
+    this.prisma.order.findMany({
+      where: baseWhere,
+      include: {
+        items: {
+          where: { storeId },
+          include: {
+            store: true,
+            variant: true,
+            product: { include: { productImages: true } },
+          },
+        },
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            phoneNumber: true,
+            countryCode: true,
+            isVerified: true,
+            profilePicture: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+    }),
+
+    this.prisma.order.count({ where: baseWhere }),
+
+    // Status breakdown respects the vendorCode filter
+    // (so the vendor sees counts for the filtered set only)
+    this.prisma.order.groupBy({
+      by: ['orderStatus'],
+      where: {
+        paymentStatus: PaymentStatus.PAID,
+        items: { some: { storeId } },
+        ...(normalizedVendorCode && {
+          vendorCode: {
+            equals: normalizedVendorCode,
+            mode: 'insensitive',
+          },
+        }),
+      },
+      _count: { id: true },
+    }),
+  ]);
+
+  // 5. Status breakdown
+  const statusBreakdown: Record<string, number> = {};
+  statusBreakdownRaw.forEach((row) => {
+    statusBreakdown[row.orderStatus] = row._count.id;
+  });
+
+  // 6. Transform to store-scoped view
+  const data = orders.map((order) => {
+    const vendorItems = order.items;
+    const vendorSubtotal = vendorItems.reduce(
+      (sum, item) => sum + item.totalPrice,
+      0,
+    );
+    const vendorQuantity = vendorItems.reduce(
+      (sum, item) => sum + item.quantity,
+      0,
+    );
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      orderCode: order.orderCode,
+      vendorCode: order.vendorCode,     // ← include so the client can display it
+      createdAt: order.createdAt,
+      orderStatus: order.orderStatus,
+      paymentStatus: order.paymentStatus,
+      user: order.user,
+      items: vendorItems.map((item) => ({
+        id: item.id,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        product: item.product
+          ? {
+              id: item.product.id,
+              productName: item.product.productName,
+              image: item.product.productImages?.[0]?.imageUrl ?? null,
+            }
+          : null,
+        variant: item.variant,
+      })),
+      storeSummary: {
+        itemCount: vendorItems.length,
+        totalQuantity: vendorQuantity,
+        subtotal: vendorSubtotal,
+      },
+    };
+  });
+
+  // 7. Compose final response
+  return {
+    store,
+    filter: {
+      vendorCode: normalizedVendorCode ?? null,
+      status: query.status ?? null,
+    },
+    orderStats: {
+      totalOrders: total,
+      byStatus: statusBreakdown,
+    },
+    orders: {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    },
+  };
+}
+
+  async getStoreWithOrdersOld(
     vendorId: string,
     storeId: string,
     query: ListStoreOrdersQueryDto,
