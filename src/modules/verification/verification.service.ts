@@ -101,28 +101,6 @@ export class VerificationService {
     return isValid;
   }
 
-  /**
-   * Verify OTP
-   */
-  async verifyOtpBK(dto: VerifyOtpDto): Promise<boolean> {
-    const { identifier, otp } = dto;
-
-    const isValid = await this.verificationCache.validateOtp(identifier, otp);
-
-    if (isValid) {
-      this.logger.log(`OTP verified successfully for ${identifier}`);
-
-      // Mark as verified
-      await this.verificationCache.markAsVerified(identifier);
-
-      // Here you would update user verification status in database
-      // await this.userService.markAsVerified(identifier);
-    } else {
-      this.logger.warn(`Invalid OTP attempt for ${identifier}`);
-    }
-
-    return isValid;
-  }
 
   /**
    * Check if identifier is verified

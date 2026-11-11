@@ -54,95 +54,7 @@ export class UserService {
    * Create a new customer with automatic OTP verification
    */
 
-async createCustomerOld(dto: Partial<User>): Promise<PendingVerificationDto> {
-  if (dto.referralCode) {
-    const existing = await this.prisma.user.findUnique({
-      where: { referralCode: dto.referralCode },
-    });
-    if (existing) {
-      throw new BadRequestException('Referral code already exists');
-    }
-  }
 
-  // Normalize phone (unchanged)
-  if (dto.phoneNumber) {
-    const phone = parsePhoneNumberFromString(
-      dto.phoneNumber,
-      (dto.countryCode || 'NG') as CountryCode,
-    );
-    if (!phone || !phone.isValid()) {
-      throw new BadRequestException('Invalid phone number');
-    }
-    dto.phoneNumber = phone.format('E.164');
-  }
-
-  const registrationInput = dto.email || dto.phoneNumber;
-  const registrationMethod = Helper.getRegistrationMethod(registrationInput);
-
-  const existingUser = await this.userRepository.findExistingUser(
-    dto.email,
-    dto.phoneNumber,
-  );
-
-  if (existingUser || existingUser?.isVerified) {
-    throw new ConflictException('User already exists. Please log in.');
-  }
-
-  // 🔁 Existing unverified → resend OTP (ensure wallet exists)
-  if (existingUser) {
-    await this.ensureWalletExists(existingUser.id);
-
-    await this.sendVerificationOtp(existingUser);
-
-    return {
-      status: RegistrationStatus.PENDING_VERIFICATION,
-      requiresVerification: true,
-      registrationMethod,
-      verificationIdentifier: registrationInput,
-      user: existingUser,
-      isNewUser: true,
-    };
-  }
-
-  // 🆕 New user – hash password first
-  const hashedPassword = await Helper.hashText(dto.password);
-
-  // Create user and wallet atomically in one transaction
-  const { user } = await this.prisma.$transaction(async (tx) => {
-     const createdUser = await this.userRepository.create({
-      ...dto,
-      phoneNumber: dto.phoneNumber,
-      countryCode: dto.countryCode,
-      password: hashedPassword,
-      role: UserRole.CUSTOMER,
-      isActive: true,
-      isVerified: false,
-      lastLoginAt: null,
-    });
-
-    // Create the wallet in the same transaction
-    await tx.wallet.create({
-      data: {
-        userId: createdUser.id,
-        balance: 0,
-        currency: 'NGN',
-      },
-    });
-
-    return { user: createdUser };
-  });
-
-  await this.sendVerificationOtp(user);
-
-  return {
-    status: RegistrationStatus.NEW,
-    requiresVerification: true,
-    registrationMethod,
-    verificationIdentifier: registrationInput,
-    user,
-    isNewUser: true,
-  };
-}
 async createCustomer(
   dto: Partial<User>,
   sessionId?: string,
@@ -379,61 +291,6 @@ private async ensureWalletExists(userId: string): Promise<void> {
     };
   }
 
-  async verifyUserold(
-    identifier: string,
-    otp: string,
-  ): Promise<{ success: boolean; user?: User }> {
-    const isValid = await this.verificationService.verifyOtp({
-      identifier,
-      otp,
-    });
-
-    if (isValid) {
-      // Find user by identifier (email or phone)
-      const user = await this.findUserByIdentifier(identifier);
-
-      if (user) {
-        // Update verification status
-        user.isVerified = true;
-        user.verifiedAt = new Date();
-        const updatedUser = await this.userRepository.update(user.id, user);
-
-        //const updatedUser = await this.userRepository.create(user);
-        // const updatedUser = await this.userRepository.update(
-        //   { id: user.id },
-        //   {
-        //     isVerified: true,
-        //     verifiedAt: new Date(),
-        //   },
-        // );
-
-        // Send welcome message
-        await this.sendWelcomeMessage(user);
-
-        this.logger.log(`User ${user.id} verified successfully`);
-
-        return {
-          success: true,
-          user: updatedUser,
-        };
-      }
-    }
-
-    // Get remaining attempts for error message
-    const remainingAttempts =
-      await this.verificationService.getRemainingAttempts(identifier);
-
-    this.logger.warn(
-      `OTP verification failed for ${identifier}. Remaining attempts: ${remainingAttempts}`,
-    );
-    // this.logger.warn(
-    //   `OTP verification failed for ${identifier}`,
-    // );
-
-    return {
-      success: false,
-    };
-  }
 
   /**
    * Resend verification OTP
@@ -590,77 +447,6 @@ const user = await this.userRepository.findExistingUser(
     };
   }
 
-  async authenticateUserOld(
-    loginDto: LoginCustomerDto,
-    identifier: string,
-    verificationMethod: string,
-  ): Promise<
-    | { success: true; user: User }
-    | {
-      success: false;
-      status: 'UNVERIFIED';
-      verificationMethod: string;
-      identifier: string;
-      message: string;
-    }
-  > {
-    const { email, phoneNumber, password } = loginDto;
-
-    const user = await this.userRepository.findExistingUser(email, phoneNumber);
-
-    if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    if (!user.isActive) {
-      this.logger.warn(`Login attempt for inactive user: ${user.id}`);
-      throw new UnauthorizedException('Account is deactivated');
-    }
-
-    if (!user.isVerified) {
-      this.logger.warn(`Login attempt for unverified user: ${user.id}`);
-
-      return {
-        success: false,
-        status: 'UNVERIFIED',
-        message: 'Account not verified. Please verify your email/phone.',
-        identifier,
-        verificationMethod,
-      };
-    }
-
-    if (!password) {
-      throw new BadRequestException('Password is required');
-    }
-
-    if (!user.password) {
-      throw new BadRequestException(
-        'This account was created using Google. Please login with Google.',
-      );
-    }
-
-    const isPasswordValid = await Helper.compareHashedText(
-      password,
-      user.password,
-    );
-
-    if (!isPasswordValid) {
-      this.logger.warn(`Invalid password for user: ${user.id}`);
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    const updatedUser = await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        lastLoginAt: new Date(),
-      },
-    });
-
-    return {
-      success: true,
-      user: updatedUser,
-    };
-  }
 
 
   /**
@@ -727,28 +513,6 @@ const user = await this.userRepository.findExistingUser(
   }
 
 
-  async findUserForPasswordResetOld(identifier: string): Promise<User | null> {
-
-    const user = await this.findUserByIdentifier(identifier);
-
-    if (!user) {
-      return null;
-    }
-
-    if (!user.isActive) {
-      return null;
-    }
-
-    // if (!user.isVerified) {
-    //   throw new Error('USER_NOT_VERIFIED');
-    // }
-
-    if (!user.isEmailVerified || !user.isPhoneVerified) {
-      throw new Error('USER_NOT_VERIFIED');
-    }
-
-    return user;
-  }
 
 
   async updateRefreshToken(
