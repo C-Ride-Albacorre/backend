@@ -1,7 +1,7 @@
 // src/modules/vendor-store/dto/list-store-orders-query.dto.ts
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { OrderStatus } from '@prisma/client';
 
 export class ListStoreOrdersQueryDto {
@@ -9,6 +9,18 @@ export class ListStoreOrdersQueryDto {
   @IsOptional()
   @IsEnum(OrderStatus)
   status?: OrderStatus;
+
+  
+  @ApiPropertyOptional({
+    description:
+      'Filter orders by vendor code (case-insensitive). Returns all orders matching this code for this store.',
+    example: 'VND-ABC-123',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  vendorCode?: string;
 
   @ApiPropertyOptional({ default: 1, minimum: 1 })
   @IsOptional()

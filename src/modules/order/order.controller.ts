@@ -143,14 +143,14 @@ export class OrderController {
     );
   }
 
-  @Get('orders/search')
-  @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  searchOrdersByVendorCode(
-    @GetUser() vendor: any,
-    @Query() dto: SearchOrdersByVendorCodeDto,
-  ) {
-    return this.orderService.searchOrdersByVendorCode(vendor.id, dto);
-  }
+  // @Get('orders/search')
+  // @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  // searchOrdersByVendorCode(
+  //   @GetUser() vendor: any,
+  //   @Query() dto: SearchOrdersByVendorCodeDto,
+  // ) {
+  //   return this.orderService.searchOrdersByVendorCode(vendor.id, dto);
+  // }
 
   @Post(':orderId/action')
   @ApiOperation({
