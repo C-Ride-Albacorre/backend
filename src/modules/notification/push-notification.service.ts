@@ -71,7 +71,7 @@ export class PushNotificationService {
     this.logger.error('Failed to initialize Firebase Admin SDK', error);
     this.isEnabled = false;
   }
-}
+} 
 
 private initializeFirebaseold(): void {
   try {
@@ -105,7 +105,7 @@ private initializeFirebaseold(): void {
   /**
    * Send push notification to a single driver (or any user with a token).
    */
-  async sendToDriver(
+  async sendToDriverOld(
     driverId: string,
     payload: PushNotificationPayload,
   ): Promise<boolean> {
@@ -188,6 +188,92 @@ private initializeFirebaseold(): void {
       return false;
     }
   }
+async sendToDriver(
+  driverId: string,
+  payload: PushNotificationPayload,
+): Promise<boolean> {
+  if (!this.isEnabled) {
+    this.logger.debug(
+      `Push disabled – would send to driver ${driverId}: ${payload.title}`,
+    );
+    return false;
+  }
+
+  try {
+    const driver = await this.prisma.user.findUnique({
+      where: { id: driverId },
+      select: { fcmToken: true, deviceType: true },
+    });
+
+    if (!driver?.fcmToken) {
+      this.logger.warn(`Driver ${driverId} has no FCM token`);
+      return false;
+    }
+
+    // FCM requires every data value to be a string.
+    const data: Record<string, string> = Object.fromEntries(
+      Object.entries(payload.data ?? {}).map(([k, v]) => [k, String(v)]),
+    );
+
+    const message: admin.messaging.Message = {
+      notification: {
+        title: payload.title,
+        body: payload.body,
+        imageUrl: payload.imageUrl,
+      },
+      data,
+      android: {
+        priority: 'high',                         // always high for actionable pushes
+        notification: {
+          channelId: 'delivery_requests_v2',      // HIGH-importance channel (see notes)
+          sound: 'default',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          priority: 'max',       
+         },
+      },
+      apns: {
+        headers: { 'apns-priority': '10' },
+        payload: {
+          aps: {
+            sound: payload.sound || 'default',
+            badge: 1,
+          },
+        },
+      },
+      token: driver.fcmToken,
+    };
+
+    this.logger.log(
+      `Sending push to driver ${driverId} token=${driver.fcmToken} msg=${JSON.stringify(message)}`,
+    );
+
+    const response = await admin.messaging().send(message);
+    this.logger.log(`Push OK driver ${driverId} messageId=${response}`);
+    return true;
+  } catch (error: any) {
+    const code: string | undefined = error?.code;
+    const knownTokenErrors = new Set([
+      'messaging/invalid-registration-token',
+      'messaging/registration-token-not-registered',
+      'messaging/unregistered',
+      'messaging/mismatched-credential',
+    ]);
+
+    // Always log the raw error so SENDER_ID_MISMATCH / INVALID_ARGUMENT are visible.
+    this.logger.error(
+      `Push FAILED driver ${driverId} code=${code ?? 'unknown'} error=${error?.message ?? error}`,
+      error,
+    );
+
+    if (code && knownTokenErrors.has(code)) {
+      await this.prisma.user
+        .update({ where: { id: driverId }, data: { fcmToken: null } })
+        .catch((e) => this.logger.error(e));
+    }
+    return false;
+  }
+}
 
   /**
    * Send push notification to a customer.
