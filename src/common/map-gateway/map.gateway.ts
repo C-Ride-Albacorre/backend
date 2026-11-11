@@ -65,31 +65,6 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  emitDriverLocationOld(
-    orderId: string,
-    location: { lat: number; lng: number; heading: number },
-  ) {
-
-    // 1. Emit WebSocket event
-    this.server.to(`order:${orderId}`).emit('driver-location', location);
-
-    // 2. Store in Redis for sync endpoint
-    //    We need to know which driver is assigned to this order.
-    //    Option A: Store under order key (overwrites with latest location)
-    //    Option B: Store under driver key (already used by sync)
-    //    We'll store under order key for easy sync retrieval.
-    const key = `order:${orderId}:driver-location`;
-    const value = JSON.stringify({
-      lat: location.lat,
-      lng: location.lng,
-      heading: location.heading,
-      timestamp: Date.now(),
-    });
-    this.logger.log(`Storing driver location in Redis for order ${orderId}: ${value}`);
-    this.redis.setex(key, 30, value); // 30 seconds TTL (short, as driver moves)
-  }
-
-
   // In DriverAssignmentService or MapGateway
   emitEta(orderId: string, etaSeconds: number, leg: 'to-vendor' | 'to-customer') {
     // 1. Emit WebSocket event
@@ -112,9 +87,6 @@ export class MapGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.redis.setex(key, 3600, polyline); // 1 hour TTL
   }
 
-  emitOrderStatusOld(orderId: string, status: OrderStatus, history?: any) {
-    this.server.to(`order:${orderId}`).emit('order-status', { status, history });
-  }
 
   emitOrderStatus(
   orderId: string,

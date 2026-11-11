@@ -794,23 +794,6 @@ export default class Helper {
     );
   }
 
-  static isStoreOpenbk(operatingHours: any[]): boolean {
-    const now = new Date();
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    const currentTime = now.toTimeString().slice(0, 5); // "HH:MM"
-
-    const todayHours = operatingHours.find((h) => h.dayOfWeek === dayOfWeek);
-
-    if (!todayHours || !todayHours.isOpen) {
-      return false;
-    }
-
-    return (
-      currentTime >= todayHours.openingTime &&
-      currentTime <= todayHours.closingTime
-    );
-  }
-
   static async calculateDistanceWithGoogle(
     origin: { lat: number; lng: number },
     destination: { lat: number; lng: number },
@@ -980,40 +963,6 @@ static haversineDistanceKm(
 
     return Math.round(fee * 100) / 100;   // kobo-exact
   }
-
-
-
-  static computeFeeFromConfigbk(
-    config: {
-      minDeliveryFee: number;
-      perKmRate: number;
-      distanceBands?: Array<{
-        minDistanceKm: number;
-        maxDistanceKm: number;
-        fee?: number | null;
-        ratePerKm?: number | null;
-      }>;
-    },
-    distanceKm: number,
-  ): number {
-    const band = config.distanceBands?.find(
-      (b) => distanceKm >= b.minDistanceKm && distanceKm <= b.maxDistanceKm,
-    );
-
-    if (band) {
-      if (band.fee != null) {
-        return band.fee;
-      }
-
-      if (band.ratePerKm != null) {
-        return band.ratePerKm * distanceKm;
-      }
-    }
-
-    return config.minDeliveryFee + config.perKmRate * distanceKm;
-  }
-
-
 
   // In your Helper class or a dedicated service
   static async getRouteDetails(

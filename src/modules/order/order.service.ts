@@ -62,42 +62,6 @@ export class OrderService {
     @InjectQueue(QUEUES.PREPARATION) private preparationQueue: Queue,
   ) { }
 
-  // transitions: Record<
-  //   string,
-  //   { from: OrderStatus[]; to: OrderStatus; action: string }
-  // > = {
-  //     confirm_payment: {
-  //       from: [OrderStatus.ORDER_PLACED], // after payment verification
-  //       to: OrderStatus.CONFIRMED,
-  //       action: 'CONFIRMED',
-  //     },
-  //     vendor_accept: {
-  //       from: [OrderStatus.CONFIRMED],
-  //       to: OrderStatus.ORDER_ACCEPTED,
-  //       action: 'VENDOR_ACCEPT',
-  //     },
-  //     assign_driver: {
-  //       from: [OrderStatus.ORDER_ACCEPTED],
-  //       to: OrderStatus.ORDER_ASSIGNED,
-  //       action: 'ASSIGN_DRIVER',
-  //     },
-  //     pickup: {
-  //       from: [OrderStatus.ORDER_ASSIGNED],
-  //       to: OrderStatus.PICKED_UP,
-  //       action: 'PICKUP',
-  //     },
-  //     deliver: {
-  //       from: [OrderStatus.PICKED_UP],
-  //       to: OrderStatus.DELIVERED,
-  //       action: 'DELIVER',
-  //     },
-  //     cancel: {
-  //       from: [OrderStatus.ORDER_PLACED, OrderStatus.CONFIRMED, OrderStatus.ORDER_ACCEPTED],
-  //       to: OrderStatus.CANCELLED,
-  //       action: 'CANCEL',
-  //     },
-  //   };
-
   transitions: Record<
     string,
     { from: OrderStatus[]; to: OrderStatus; action: string }
@@ -262,19 +226,6 @@ export class OrderService {
       return updated;
     });
 
-    // 2. 🔔 EMIT WEBSOCKET EVENT AFTER TRANSACTION COMMITS
-    // try {
-    //   // Ensure we have a history array (if not, fallback to empty)
-    //   const history = updatedOrder.statusHistory || [];
-    //   this.mapGateway.emitOrderStatus(orderId, targetStatus, history);
-    //   this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
-    // } catch (error) {
-    //   // Log but do not throw – status change is already persisted
-    //   this.logger.error(
-    //     `Failed to emit order-status for ${orderId}: ${error}`,
-    //     error,
-    //   );
-    // }
     // 2. 🔔 EMIT WEBSOCKET EVENT AFTER TRANSACTION COMMITS
     try {
       const history = updatedOrder.statusHistory || [];
@@ -1206,9 +1157,6 @@ export class OrderService {
   }
 
 
-  // src/modules/order/order.service.ts
-
-
   async getVendorStoresWithOrders(
     vendorId: string,
     filters: {
@@ -1806,141 +1754,6 @@ async searchOrdersByVendorCode(
   };
 }
 
-  async getStoreWithOrdersOld(
-    vendorId: string,
-    storeId: string,
-    query: ListStoreOrdersQueryDto,
-  ) {
-    // 1. Load store, enforcing ownership
-    const store = await this.prisma.store.findFirst({
-      where: { id: storeId, userId: vendorId },
-      include: {
-        category: { select: { id: true, name: true } },
-        operatingHours: true,
-      },
-    });
-    if (!store) {
-      // Do not reveal whether the store exists under another vendor
-      throw new NotFoundException('Store not found');
-    }
-
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
-
-    // 2. Base filter: paid orders containing items from this store
-    const baseWhere: Prisma.OrderWhereInput = {
-      paymentStatus: PaymentStatus.PAID,
-      items: { some: { storeId } },
-      ...(query.status && { orderStatus: query.status }),
-    };
-
-    // 3. Parallel fetch: orders + total + status breakdown
-    const [orders, total, statusBreakdownRaw] = await Promise.all([
-      this.prisma.order.findMany({
-        where: baseWhere,
-        include: {
-          items: {
-            where: { storeId },
-            include: {
-              store: true,
-              variant: true,
-              product: { include: { productImages: true } },
-            },
-          },
-          user: {
-            select: {
-              firstName: true,
-              lastName: true,
-              email: true,
-              phoneNumber: true,
-              countryCode: true,
-              isVerified: true,
-              profilePicture: true,
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      this.prisma.order.count({ where: baseWhere }),
-      this.prisma.order.groupBy({
-        by: ['orderStatus'],
-        where: {
-          paymentStatus: PaymentStatus.PAID,
-          items: { some: { storeId } },
-        },
-        _count: { id: true },
-      }),
-    ]);
-
-    // 4. Aggregate status breakdown
-    const statusBreakdown: Record<string, number> = {};
-    statusBreakdownRaw.forEach((row) => {
-      statusBreakdown[row.orderStatus] = row._count.id;
-    });
-
-    // 5. Transform each order to a store-scoped view
-    const data = orders.map((order) => {
-      const vendorItems = order.items;
-      const vendorSubtotal = vendorItems.reduce(
-        (sum, item) => sum + item.totalPrice,
-        0,
-      );
-      const vendorQuantity = vendorItems.reduce(
-        (sum, item) => sum + item.quantity,
-        0,
-      );
-
-      return {
-        id: order.id,
-        orderNumber: order.orderNumber,
-        orderCode: order.orderCode,
-        createdAt: order.createdAt,
-        orderStatus: order.orderStatus,
-        paymentStatus: order.paymentStatus,
-        user: order.user,
-        items: vendorItems.map((item) => ({
-          id: item.id,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalPrice: item.totalPrice,
-          product: item.product
-            ? {
-              id: item.product.id,
-              productName: item.product.productName,
-              image:
-                item.product.productImages?.[0]?.imageUrl ?? null,
-            }
-            : null,
-          variant: item.variant,
-        })),
-        storeSummary: {
-          itemCount: vendorItems.length,
-          totalQuantity: vendorQuantity,
-          subtotal: vendorSubtotal,
-        },
-      };
-    });
-
-    // 6. Compose final response
-    return {
-      store,
-      orderStats: {
-        totalOrders: total,
-        byStatus: statusBreakdown,
-      },
-      orders: {
-        data,
-        meta: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
-      },
-    };
-  }
 
   async getVendorOrdersWithoutStatus(
     vendorId: string,
