@@ -358,39 +358,4 @@ async sendToUser(
 
 
 
-  /**
-   * Store or update a driver's FCM token.
-   */
-//   async registerDriverToken(
-//     driverId: string,
-//     token: string,
-//     deviceType?: string,
-//   ): Promise<void> {
-//     await this.prisma.driverProfile.update({
-//       where: { userId: driverId },
-//       data: { fcmToken: token, deviceType },
-//     });
-//     this.logger.log(`Registered FCM token for driver ${driverId}`);
-//   }
-
-//   /**
-//    * Remove token (e.g., on logout or app uninstall).
-//    */
-//   async unregisterDriverToken(driverId: string): Promise<void> {
-//     await this.prisma.driverProfile.update({
-//       where: { userId: driverId },
-//       data: { fcmToken: null },
-//     });
-//     this.logger.log(`Unregistered FCM token for driver ${driverId}`);
-//   }
-
-//   // push-notification.service.ts
-// async registerCustomerToken(userId: string, token: string, deviceType?: string,
-// ): Promise<void> {
-//   await this.prisma.user.update({
-//     where: { id: userId },
-//     data: { fcmToken: token, deviceType },
-//   });
-//   this.logger.log(`Registered FCM token for customer ${userId}`);
-// }
 }
