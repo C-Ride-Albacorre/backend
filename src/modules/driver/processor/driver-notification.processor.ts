@@ -16,6 +16,7 @@ export class DriverNotificationProcessor extends WorkerHost {
   async process(job: Job): Promise<any> {
     const { driverId, orderId, vendorLocation } = job.data;
     this.logger.log(`Sending push to driver ${driverId} for order ${orderId}`);
+    this.logger.log(`Job data: ${JSON.stringify(job.data)}`);
 try{
     await this.pushService.sendToDriver(driverId, {
       title: 'New Delivery Request',
