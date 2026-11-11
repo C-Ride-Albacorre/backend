@@ -483,74 +483,7 @@ export class CompleteOnboardingDtoFull {
 }
 
 // Alternative flat structure if you prefer not to use nested objects
-export class CompleteOnboardingDtobk {
-  @ApiProperty({ description: 'Business name' })
-  @IsString()
-  businessName: string;
 
-  @ApiProperty({ description: 'Business type' })
-  @IsString()
-  businessType: string;
-
-  @ApiPropertyOptional({ description: 'Business description' })
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @ApiPropertyOptional({ description: 'Business phone' })
-  @IsOptional()
-  @IsPhoneNumber(null)
-  businessPhone?: string;
-
-  @ApiProperty({ description: 'Business email' })
-  @IsEmail()
-  businessEmail: string;
-
-  // Address fields (flat)
-  @ApiProperty({ description: 'Street address' })
-  @IsString()
-  address: string;
-
-  @ApiProperty({ description: 'City' })
-  @IsString()
-  city: string;
-
-  @ApiProperty({ description: 'State' })
-  @IsString()
-  state: string;
-
-  @ApiProperty({
-    description: 'Bank name',
-    example: 'First Bank of Nigeria',
-  })
-  @IsString()
-  @MinLength(2, { message: 'Bank name must be at least 2 characters long' })
-  @MaxLength(100, { message: 'Bank name cannot exceed 100 characters' })
-  bankName: string;
-
-  @ApiProperty({
-    description: 'Account name',
-    example: 'Business Name Ltd',
-  })
-  @IsString()
-  @MinLength(3, { message: 'Account name must be at least 3 characters long' })
-  @MaxLength(200, { message: 'Account name cannot exceed 200 characters' })
-  accountName: string;
-
-  @ApiProperty({
-    description: 'Account number',
-    example: '0123456789',
-  })
-  @IsString()
-  @Matches(/^\d{10}$/, { message: 'Account number must be 10 digits' })
-  accountNumber: string;
-
-  @ApiProperty({ description: 'Business documents', type: [VendorDocumentDto] })
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => VendorDocumentDto)
-  documents: VendorDocumentDto[];
-}
 
 export class VendorDocumentMetadataDto {
   @ApiProperty({

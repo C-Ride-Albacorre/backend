@@ -5,7 +5,6 @@ import { Logger } from '@nestjs/common';
 import { PushNotificationService } from '../../../modules/notification/push-notification.service';
 import { QUEUES } from '../../../shared/constants';
 
-//@Processor('driver-notification')
 @Processor(QUEUES.DRIVER_NOTIFICATION)
 export class DriverNotificationProcessor extends WorkerHost {
   private readonly logger = new Logger(DriverNotificationProcessor.name);
@@ -32,5 +31,6 @@ export class DriverNotificationProcessor extends WorkerHost {
       sound: 'default',
       //sound: 'notification.wav',
     });
+
   }
 }

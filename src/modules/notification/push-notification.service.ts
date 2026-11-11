@@ -32,7 +32,48 @@ export class PushNotificationService {
     }
   }
 
-private initializeFirebase(): void {
+  private initializeFirebase(): void {
+  try {
+    const base64 = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
+
+    if (!base64) {
+      throw new Error('FIREBASE_PRIVATE_KEY is not set');
+    }
+
+    // Decode Base64 → JSON string → Object
+    const decoded = Buffer.from(base64, 'base64').toString('utf-8');
+    const serviceAccount = JSON.parse(decoded);
+
+    // Validate required fields
+    if (
+      !serviceAccount.project_id ||
+      !serviceAccount.private_key ||
+      !serviceAccount.client_email
+    ) {
+      throw new Error('Service account JSON is missing required fields');
+    }
+
+    // ✅ Normalize the PEM: turn any mix of real newlines, literal \n,
+    // and escaped \\n into canonical \n line breaks.
+    serviceAccount.private_key = serviceAccount.private_key
+      .replace(/\\n/g, '\n')   // literal backslash-n → real newline
+      .replace(/\r\n/g, '\n')  // CRLF → LF
+      .replace(/\r/g, '\n')    // CR → LF
+      .trim()
+      .concat('\n');           // PEM should end with a newline
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+
+    this.logger.log('Firebase Admin SDK initialized');
+  } catch (error) {
+    this.logger.error('Failed to initialize Firebase Admin SDK', error);
+    this.isEnabled = false;
+  }
+}
+
+private initializeFirebaseold(): void {
   try {
     const base64 = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
 

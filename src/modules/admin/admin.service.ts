@@ -1559,36 +1559,6 @@ async approveVendor(
   }
 
 
-  async getCustomerDetailsbk(customerId: string) {
-    const customer = await this.prisma.user.findFirst({
-      where: {
-        id: customerId,
-        role: Role.CUSTOMER,
-      },
-      include: {
-        customerLocations: true,
-
-        orders: {
-          take: 10,
-          orderBy: {
-            createdAt: 'desc',
-          },
-        },
-
-        wallet: true,
-      },
-    });
-
-    if (!customer) {
-      throw new NotFoundException('Customer not found');
-    }
-
-    return {
-      success: true,
-      data: customer,
-    };
-  }
-
   async getCustomerDetails(customerId: string) {
     const customer = await this.prisma.user.findFirst({
       where: {
@@ -1876,49 +1846,6 @@ async approveVendor(
     };
   }
 
-  async getDashboardStatsbk() {
-    const [
-      totalUsers,
-      totalVendors,
-      totalStores,
-      totalProducts,
-      pendingVendors,
-      pendingStores,
-      approvedVendors,
-      approvedStores,
-    ] = await Promise.all([
-      this.prisma.user.count(),
-      this.prisma.user.count({ where: { role: UserRole.VENDOR } }),
-      this.prisma.store.count(),
-      this.prisma.product.count(),
-      this.prisma.user.count({
-        where: { status: UserStatus.UNDER_REVIEW },
-      }),
-      this.prisma.store.count({ where: { status: StoreStatus.INACTIVE } }),
-      this.prisma.user.count({
-        where: { status: UserStatus.APPROVED },
-      }),
-      this.prisma.store.count({ where: { status: StoreStatus.INACTIVE } }),
-    ]);
-
-    return {
-      success: true,
-      data: {
-        totalUsers,
-        totalVendors,
-        totalStores,
-        totalProducts,
-        pendingApprovals: {
-          vendors: pendingVendors,
-          stores: pendingStores,
-        },
-        approved: {
-          vendors: approvedVendors,
-          stores: approvedStores,
-        },
-      },
-    };
-  }
 
   /**
    * Get vendor details by ID
@@ -2203,30 +2130,6 @@ async approveVendor(
     };
   }
 
-  async getCategoryByIdOld(id: string) {
-    const category = await this.prisma.category.findUnique({
-      where: { id },
-      include: {
-        subcategories: {
-          orderBy: { displayOrder: 'asc' },
-        },
-        stores: {
-          select: {
-            id: true,
-            storeName: true,
-            status: true,
-          },
-        },
-      },
-    });
-
-    if (!category) {
-      throw new NotFoundException('Category not found');
-    }
-
-    return category;
-  }
-
   async updateCategory(
     id: string,
     dto: UpdateCategoryDto,
@@ -2488,45 +2391,6 @@ async approveVendor(
     };
   }
 
-  async getSubcategoryByIdold(id: string) {
-    const subcategory = await this.prisma.subcategory.findUnique({
-      where: { id },
-      include: {
-        category: true,
-        products: {
-          include: {
-            store: {
-              select: {
-                id: true,
-                storeName: true,
-                status: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!subcategory) {
-      throw new NotFoundException('Subcategory not found');
-    }
-
-    // ✅ Extract unique stores
-    const storesMap = new Map();
-
-    subcategory.products.forEach((product) => {
-      if (product.store) {
-        storesMap.set(product.store.id, product.store);
-      }
-    });
-
-    const stores = Array.from(storesMap.values());
-
-    return {
-      ...subcategory,
-      stores, // ✅ clean store list
-    };
-  }
 
   async updateSubcategory(
     id: string,

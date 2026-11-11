@@ -14,7 +14,7 @@ export class ListStoreOrdersQueryDto {
   @ApiPropertyOptional({
     description:
       'Filter orders by vendor code (case-insensitive). Returns all orders matching this code for this store.',
-    example: 'VND-ABC-123',
+    example: '1234',
   })
   @IsOptional()
   @IsString()
