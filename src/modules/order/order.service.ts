@@ -2482,6 +2482,7 @@ async searchOrdersByVendorCode(
       id: order.id,
       number: order.orderNumber,
       code: order.orderCode,
+      vendorCode: order.vendorCode,
       status: order.orderStatus,
       statusHistory: Array.isArray(order.statusHistory)
         ? order.statusHistory
@@ -2650,6 +2651,7 @@ async searchOrdersByVendorCode(
       id: order.id,
       number: order.orderNumber,
       code: order.orderCode,
+      vendorCode: order.vendorCode,
       status: order.orderStatus,
       statusHistory,
       totalAmount: order.totalAmount,
@@ -2849,6 +2851,7 @@ async searchOrdersByVendorCode(
       orderId: order.id,
       orderNumber: order.orderNumber,
       orderCode: order.orderCode,
+      vendorCode: order.vendorCode,
 
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
@@ -2968,6 +2971,7 @@ async searchOrdersByVendorCode(
         id: order.id,
         orderNumber: order.orderNumber,
         orderCode: order.orderCode,
+        vendorCode: order.vendorCode,
 
         orderStatus: order.orderStatus,
         paymentStatus: order.paymentStatus,
