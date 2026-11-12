@@ -314,13 +314,34 @@ export class MonnifyService {
     }
 
     // ── 5. Idempotent payment status update — PAYMENT ONLY, not order status ──
-    const paymentUpdate = await this.prisma.order.updateMany({
-      where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
-      data: {
-        paymentStatus: PaymentStatus.PAID,
-        paymentReference: paymentReference ?? order.paymentReference,
-      },
-    });
+    // const paymentUpdate = await this.prisma.order.updateMany({
+    //   where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
+    //   data: {
+    //     paymentStatus: PaymentStatus.PAID,
+    //     paymentReference: paymentReference ?? order.paymentReference,
+    //   },
+    // });
+    const verification = await this.verifyPayment(transactionRef);
+
+if (verification?.responseBody?.paymentStatus !== 'PAID') {
+  throw new BadRequestException('Payment verification failed');
+}
+
+const paymentUpdate = await this.prisma.order.updateMany({
+  where: {
+    id: order.id,
+    paymentStatus: PaymentStatus.PENDING,
+  },
+  data: {
+    paymentStatus: PaymentStatus.PAID,
+    paymentReference: paymentReference ?? order.paymentReference,
+  },
+});
+
+if (paymentUpdate.count === 0) {
+  this.logger.warn(`Payment already processed for order ${order.id}`);
+  return { success: true };
+}
 
     if (paymentUpdate.count === 0) {
       this.logger.warn(`Webhook already processed for order ${order.id}`);
@@ -328,7 +349,7 @@ export class MonnifyService {
     }
 
     // ── 6. Verify with Monnify (final safety) ──
-    const verification = await this.verifyPayment(transactionRef);
+    // const verification = await this.verifyPayment(transactionRef);
     if (verification?.responseBody?.paymentStatus !== 'PAID') {
       // Rollback payment status only
       await this.prisma.order.update({

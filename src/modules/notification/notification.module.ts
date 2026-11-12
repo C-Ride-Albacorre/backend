@@ -8,6 +8,8 @@ import { PushNotificationService } from './push-notification.service';
 import { DriverModule } from '../driver/driver.module';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUES } from '../../shared/constants';
+import { CustomerNotificationProcessor } from './processors/customer/customer-notification.processor';
+import { VendorNotificationProcessor } from './processors/vendor/vendor-notification.processor';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { QUEUES } from '../../shared/constants';
     VendorNotificationGateway,
     MapGateway,
     PushNotificationService,
+    CustomerNotificationProcessor,
+    VendorNotificationProcessor,
   ],
   exports: [
     NotificationService,
