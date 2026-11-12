@@ -237,7 +237,7 @@ async sendToDriver(
     driverId,
     'driver',
     payload,
-    'vendor_orders_v1',
+    'delivery_requests_v2',
   );
 }
 
