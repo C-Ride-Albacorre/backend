@@ -323,7 +323,8 @@ export class OrderService {
     const todayWeekday = now.weekdayLong.toUpperCase();
     const startOfDay = now.startOf('day').toJSDate();
     const endOfDay = now.endOf('day').toJSDate();
-    const orderNumber = Helper.generateOrderNumber();
+    //const orderNumber = Helper.generateOrderNumber();
+    const orderNumber = await Helper.generateOrderNumber(this.prisma);
     //const orderCode = Helper.generate4DigitCode();
     const orderCode = await Helper.generateUniqueNumericCode(this.prisma, 'orderCode');
     const vendorCode = await Helper.generateUniqueNumericCode(this.prisma, 'vendorCode');
