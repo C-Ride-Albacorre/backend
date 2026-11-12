@@ -22,6 +22,8 @@ const CODE_LENGTH = 4;               // e.g. "8347"
 const CODE_SPACE = 10 ** CODE_LENGTH; // 100,000 possible values
 const MAX_RETRIES = 5;
 
+
+
 export interface LatLng {
   latitude: number;
   longitude: number;
@@ -866,7 +868,7 @@ export default class Helper {
     return DateTime.now().setZone(timezone).toFormat('cccc'); // Monday, Tuesday...
   }
 
-  static generateOrderNumber(): string {
+  static generateOrderNumberOld(): string {
     return `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 8).toUpperCase()}`;
   }
 
@@ -1160,6 +1162,34 @@ static async generateUniqueNumericCode(
   }
   throw new Error(
     `Failed to generate unique ${field} after ${MAX_RETRIES} attempts`,
+  );
+}
+
+
+
+
+static async generateOrderNumber(
+  prisma: PrismaService,
+): Promise<string> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const number = String(
+      Math.floor(1000 + Math.random() * CODE_SPACE),
+    ).padStart(CODE_LENGTH, '0');
+
+    const orderNumber = `ORD-${number}`;
+
+    const existing = await prisma.order.findUnique({
+      where: { orderNumber },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return orderNumber;
+    }
+  }
+
+  throw new Error(
+    `Failed to generate unique order number after ${MAX_RETRIES} attempts`,
   );
 }
 
