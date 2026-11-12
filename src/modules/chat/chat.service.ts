@@ -79,10 +79,12 @@ export class ChatService {
     // Check if recipient is online via WebSocket (optional: store socketIds in Redis)
     // For simplicity, we always send push – mobile will deduplicate if app is in foreground.
     const title = message.senderRole === Role.CUSTOMER ? 'CUSTOMER' : 'DISPATCHER';
-    await this.pushService.sendToUser(recipientId, {
+    await this.pushService.sendToCustomer(recipientId, {
       title: `New message from ${title}`,
       body: message.message.length > 100 ? message.message.slice(0, 97) + '...' : message.message,
       data: { orderId: message.orderId, type: 'chat' },
+      priority: 'high',
+      sound: 'default',
     });
   }
 

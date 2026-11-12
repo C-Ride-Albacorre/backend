@@ -112,7 +112,7 @@ export class CallService {
     });
 
     // 7. Send push notification to the recipient
-    await this.pushService.sendToUser(recipientId, {
+    await this.pushService.sendToCustomer(recipientId, {
       title: 'Incoming Call',
       body: `You have an incoming call regarding order #${orderId.slice(0, 8)}`,
       data: {
@@ -126,6 +126,9 @@ export class CallService {
         // Optionally, send a temporary token for the recipient if you want them to join without hitting accept endpoint.
         // But we prefer to generate a fresh token on accept for security.
       },
+      priority: 'high', // For iOS/Android, consider setting priority high, sound, etc.
+      sound: 'default',
+    
       
       // For iOS/Android, consider setting priority high, sound, etc.
     });

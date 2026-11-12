@@ -17,24 +17,24 @@ export class DriverNotificationProcessor extends WorkerHost {
     const { driverId, orderId, vendorLocation } = job.data;
     this.logger.log(`Sending push to driver ${driverId} for order ${orderId}`);
     this.logger.log(`Job data: ${JSON.stringify(job.data)}`);
-try{
-    await this.pushService.sendToDriver(driverId, {
-      title: 'New Delivery Request',
-      body: 'Tap to view order details and accept',
-      data: {
-        orderId,
-        vendorLat: vendorLocation.lat.toString(),
-        vendorLng: vendorLocation.lng.toString(),
-        vendorLocation: JSON.stringify(vendorLocation),
-        type: 'delivery_request',
-      },
-      priority: 'high',
-      sound: 'default',
-      //sound: 'notification.wav',
-    });
+    try {
+      await this.pushService.sendToDriver(driverId, {
+        title: 'New Delivery Request',
+        body: 'Tap to view order details and accept',
+        data: {
+          orderId,
+          vendorLat: vendorLocation.lat.toString(),
+          vendorLng: vendorLocation.lng.toString(),
+          vendorLocation: JSON.stringify(vendorLocation),
+          type: 'delivery_request',
+        },
+        priority: 'high',
+        sound: 'default',
+        //sound: 'notification.wav',
+      });
     } catch (e) {
-  this.logger.error(`sendToDriver threw for driver ${driverId}`, e);
-}
+      this.logger.error(`sendToDriver threw for driver ${driverId}`, e);
+    }
 
   }
 }

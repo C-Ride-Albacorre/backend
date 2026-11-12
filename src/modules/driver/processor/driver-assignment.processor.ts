@@ -18,7 +18,12 @@ export class DriverAssignmentProcessor extends WorkerHost {
     public readonly prisma: PrismaService,
     @InjectQueue(QUEUES.DRIVER_ASSIGNMENT) public assignmentQueue: Queue,
 
-    private pushNotificationService: PushNotificationService,
+    // private pushNotificationService: PushNotificationService,
+    @InjectQueue(QUEUES.CUSTOMER_NOTIFICATION)
+    private customerNotificationQueue: Queue,
+
+    @InjectQueue(QUEUES.VENDOR_NOTIFICATION)
+    private vendorNotificationQueue: Queue,
   ) {
     super();
   }
@@ -121,7 +126,7 @@ export class DriverAssignmentProcessor extends WorkerHost {
     const [order, assignment] = await Promise.all([
       service.prisma.order.findUnique({
         where: { id: orderId },
-        select: { orderStatus: true, userId: true },
+        include: { items: { include: { store: true } } },
       }),
       service.prisma.driverAssignment.findFirst({
         where: { orderId, driverId },
@@ -178,6 +183,7 @@ export class DriverAssignmentProcessor extends WorkerHost {
     const driverLoc = JSON.parse(driverLocStr);
 
     let destination: { lat: number; lng: number };
+    let storeIds: string[] = [];
 
     // Determine destination based on leg
     if (leg === 'to-vendor') {
@@ -199,6 +205,13 @@ export class DriverAssignmentProcessor extends WorkerHost {
         await service.redis.setex(guardKey, 86400, 'true');
         return;
       }
+      storeIds = [
+        ...new Set(
+          fullOrder.items
+            .map((item) => item.store?.id)
+            .filter((id): id is string => !!id),
+        ),
+      ];
       const store = fullOrder?.items[0]?.store;
       const pickupLocation = fullOrder?.pickupLocation as any;
       destination = {
@@ -264,39 +277,108 @@ export class DriverAssignmentProcessor extends WorkerHost {
         service.logger.log(`✅ Driver arrived at ${leg} for order ${orderId} – scheduler stopped`);
 
         // ----- PUSH NOTIFICATION -----
-        const customerId = order.userId; // already fetched at top
+        //     const customerId = order.userId; // already fetched at top
+        //     if (!customerId) {
+        //       service.logger.warn(`⚠️ No customerId found for order ${orderId}; cannot send arrival push`);
+        //       return;
+        //     }
+
+        //     const title = leg === 'to-vendor'
+        //       ? 'Driver arrived at the store'
+        //       : 'Driver arrived at your location';
+
+        //     const body = leg === 'to-vendor'
+        //       ? 'Your driver has arrived at the vendor and is picking up your order.'
+        //       : 'Your order has arrived! Please collect your delivery.';
+
+        //     const pushSent = await this.pushNotificationService.sendToCustomer(
+        //       customerId,
+        //       {
+        //         title,
+        //         body,
+        //         data: {
+        //           orderId: String(orderId),
+        //           leg: String(leg),
+        //           type: 'DRIVER_ARRIVED',
+        //         },
+        //         priority: 'high',
+        //         sound: 'default',
+        //       }
+        //     );
+
+        //     if (pushSent) {
+        //       service.logger.log(`📲 Arrival push sent to customer ${customerId} for order ${orderId}`);
+        //     } else {
+        //       service.logger.warn(`⚠️ Arrival push could not be sent to customer ${customerId} for order ${orderId}`);
+        //     }
+        //   }
+        // }
+        // ----- QUEUE CUSTOMER ARRIVAL NOTIFICATION -----
+
+        const customerId = order.userId;
+
         if (!customerId) {
-          service.logger.warn(`⚠️ No customerId found for order ${orderId}; cannot send arrival push`);
+          service.logger.warn(
+            `No customerId found for order ${orderId}`,
+          );
           return;
         }
 
-        const title = leg === 'to-vendor'
-          ? 'Driver arrived at the store'
-          : 'Driver arrived at your location';
-
-        const body = leg === 'to-vendor'
-          ? 'Your driver has arrived at the vendor and is picking up your order.'
-          : 'Your order has arrived! Please collect your delivery.';
-
-        const pushSent = await this.pushNotificationService.sendToUser(
-          customerId,
+        // 1. Customer notification
+        await this.customerNotificationQueue.add(
+          'driver-arrived',
           {
-            title,
-            body,
-            data: {
-              orderId: String(orderId),
-              leg: String(leg),
-              type: 'DRIVER_ARRIVED',
+            orderId,
+            driverId,
+            leg,
+          },
+          {
+            jobId: `customer-driver-arrived-${orderId}-${leg}`,
+            attempts: 3,
+            backoff: {
+              type: 'exponential',
+              delay: 3000,
             },
-            priority: 'high',
-          }
+            removeOnComplete: true,
+          },
         );
 
-        if (pushSent) {
-          service.logger.log(`📲 Arrival push sent to customer ${customerId} for order ${orderId}`);
-        } else {
-          service.logger.warn(`⚠️ Arrival push could not be sent to customer ${customerId} for order ${orderId}`);
+        // 2. Vendor notification (only when driver arrives at store)
+        if (leg === 'to-vendor') {
+          const storeIds = [
+            ...new Set(
+              order.items
+                .map((item) => item.store?.id)
+                .filter((id): id is string => !!id),
+            ),
+          ];
+
+          for (const storeId of storeIds) {
+            await this.vendorNotificationQueue.add(
+              'driver-arrived',
+              {
+                orderId,
+                driverId,
+                storeId,
+                leg,
+              },
+              {
+                jobId: `vendor-driver-arrived-${orderId}-${storeId}`,
+                attempts: 3,
+                backoff: {
+                  type: 'exponential',
+                  delay: 3000,
+                },
+                removeOnComplete: true,
+              },
+            );
+          }
         }
+
+        service.logger.log(
+          `Driver-arrival notification jobs queued for order ${orderId}, leg: ${leg}`,
+        );
+
       }
     }
   }

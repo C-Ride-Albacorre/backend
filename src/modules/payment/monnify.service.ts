@@ -369,6 +369,8 @@ private async postToMonnify<T = any>(url: string, payload: any, timeoutMs = 1500
       this.logger.error(`Vendor notification failed: ${e.message}`),
     );
 
+    
+
   this.logger.log(`Notifying customer for order ${order.orderNumber}`);
   await this.notificationService
     .notifyCustomerForOrder(order.id)

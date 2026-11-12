@@ -5,6 +5,9 @@ import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider
 import { VendorNotificationGateway } from '../../common/map-gateway/vendor-notification.gateway';
 import { PushNotificationService } from './push-notification.service';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { QUEUES } from '../../shared/constants';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class NotificationService {
@@ -16,7 +19,10 @@ export class NotificationService {
     private vendorGateway: VendorNotificationGateway,
     private pushService: PushNotificationService,
     private config: ConfigService,
-
+    @InjectQueue(QUEUES.CUSTOMER_NOTIFICATION)
+    private customerNotificationQueue: Queue,
+    @InjectQueue(QUEUES.VENDOR_NOTIFICATION)
+    private vendorNotificationQueue: Queue
   ) { }
 
   /**
@@ -32,7 +38,9 @@ export class NotificationService {
           items: {
             include: {
               store: {
-                select: { userId: true }, // vendor ID
+                select: {
+                  userId: true,
+                }, // vendor ID
               },
             },
           },
@@ -62,6 +70,35 @@ export class NotificationService {
       );
 
       await Promise.allSettled(notificationPromises);
+
+      // Resolve the store ids for this order, then enqueue one job per store
+      // const order = await this.prisma.order.findUnique({
+      //   where: { id: orderId },
+      //   select: { items: { select: { storeId: true } } },
+      // });
+
+      const storeIds = [...new Set((order?.items ?? []).map((i) => i.storeId))];
+
+      await Promise.all(
+        storeIds.map((storeId) =>
+          this.vendorNotificationQueue
+            .add(
+              'new-order',
+              { orderId, storeId },
+              {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 2000 },
+                removeOnComplete: 100,
+                removeOnFail: 500,
+              },
+            )
+            .catch((e) =>
+              this.logger.error(
+                `Failed to enqueue vendor push for order ${orderId} store ${storeId}: ${e.message}`,
+              ),
+            ),
+        ),
+      );
 
       this.logger.log(
         `Notified ${vendorIds.length} vendors for order ${orderId}`,
@@ -102,6 +139,23 @@ export class NotificationService {
         order.id,
         order.orderNumber,
       );
+
+      // 🔔 Push notification (fire-and-forget; failures logged, not thrown)
+      await this.customerNotificationQueue
+        .add(
+          'order-confirmed',
+          { orderId },
+          {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 2000 },
+            removeOnComplete: 100,
+            removeOnFail: 500,
+          },
+        )
+        .catch((e) =>
+          this.logger.error(`Failed to enqueue customer push for ${orderId}: ${e.message}`),
+        );
+
 
       this.logger.log(
         `Customer notified for order ${order.orderNumber}`,
@@ -252,6 +306,7 @@ export class NotificationService {
         body,
         data: { orderId: '?', orderNumber },
         priority: 'high',
+        sound: 'default',
       });
 
       this.logger.log(`Cancellation notifications sent for order ${orderNumber} to customer ${customerId}`);
@@ -442,89 +497,99 @@ export class NotificationService {
       );
     }
 
-    await this.pushService.sendToCustomer(userId, {
-      title,
-      body,
-      data: { orderNumber },
-      priority: 'normal',
-    });
-  }
-
-  async sendOrderReady(userId: string, orderNumber: string) {
-    const title = 'Your order is ready';
-    const body = `Your order #${orderNumber} is ready. We're finding a driver for you now.`;
-
-    await this.prisma.notification.create({
-      data: {
-        userId,
-        type: NotificationType.ORDER_STATUS,
+    try {
+      await this.pushService.sendToCustomer(userId, {
         title,
         body,
         data: { orderNumber },
-      },
-    });
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    });
-    if (user?.email) {
-      await this.zohoEmailProvider.sendEmail(
-        user.email,
-        `Order #${orderNumber} is ready`,
-        `<p>${body}</p>`,
-      );
+        priority: 'high',
+        sound: 'default',
+      });
+    } catch (e) {
+      this.logger.error(`sendToCustomer threw for user ${userId}`, e);
     }
 
-    await this.pushService.sendToCustomer(userId, {
+}
+
+  async sendOrderReady(userId: string, orderNumber: string) {
+  const title = 'Your order is ready';
+  const body = `Your order #${orderNumber} is ready. We're finding a driver for you now.`;
+
+  await this.prisma.notification.create({
+    data: {
+      userId,
+      type: NotificationType.ORDER_STATUS,
       title,
       body,
       data: { orderNumber },
-      priority: 'high',
-    });
+    },
+  });
+
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  if (user?.email) {
+    await this.zohoEmailProvider.sendEmail(
+      user.email,
+      `Order #${orderNumber} is ready`,
+      `<p>${body}</p>`,
+    );
   }
+
+  await this.pushService.sendToCustomer(userId, {
+    title,
+    body,
+    data: { orderNumber },
+    priority: 'high',
+    sound: 'default',
+  });
+}
 
   async sendCustomerPrepDelayed(userId: string, orderNumber: string) {
-    // Softer message for the customer so they don't think it's a problem
-    await this.pushService.sendToCustomer(userId, {
-      title: 'Still preparing your order',
-      body: `Your order #${orderNumber} is taking a little longer than expected. We'll keep you updated.`,
-      data: { orderNumber },
-      priority: 'normal',
-    });
-  }
+  // Softer message for the customer so they don't think it's a problem
+  await this.pushService.sendToCustomer(userId, {
+    title: 'Still preparing your order',
+    body: `Your order #${orderNumber} is taking a little longer than expected. We'll keep you updated.`,
+    data: { orderNumber },
+    priority: 'high',
+    sound: 'default',
+  });
+}
 
   async sendVendorPrepOverdue(orderId: string, attempt: number) {
-    // Fetch vendor info
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: { items: { include: { store: { include: { user: true } } } } },
-    });
-    if (!order) return;
-    const store = order.items[0]?.store;
-    if (!store) return;
+  // Fetch vendor info
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+    include: { items: { include: { store: { include: { user: true } } } } },
+  });
+  if (!order) return;
+  const store = order.items[0]?.store;
+  if (!store) return;
 
-    const body =
-      attempt === 1
-        ? `Order #${order.orderNumber} prep time elapsed. Mark it ready when you can.`
-        : `Reminder: Order #${order.orderNumber} is still in preparation.`;
+  const body =
+    attempt === 1
+      ? `Order #${order.orderNumber} prep time elapsed. Mark it ready when you can.`
+      : `Reminder: Order #${order.orderNumber} is still in preparation.`;
 
-    // Push to vendor user
-    await this.pushService.sendToUser(store.userId, {
-      title: 'Order prep time reached',
-      body,
-      data: { orderId, orderNumber: order.orderNumber },
-    });
+  // Push to vendor user
+  await this.pushService.sendToVendor(store.userId, {
+    title: 'Order prep time reached',
+    body,
+    data: { orderId, orderNumber: order.orderNumber },
+    priority: 'high',
+    sound: 'default',
+  });
 
-    // Email to vendor
-    if (store.user?.email) {
-      await this.zohoEmailProvider.sendEmail(
-        store.user.email,
-        `Reminder: mark order #${order.orderNumber} ready`,
-        `<p>${body}</p><p>Your customer is waiting. Please mark this order ready as soon as possible.</p>`,
-      );
-    }
+  // Email to vendor
+  if (store.user?.email) {
+    await this.zohoEmailProvider.sendEmail(
+      store.user.email,
+      `Reminder: mark order #${order.orderNumber} ready`,
+      `<p>${body}</p><p>Your customer is waiting. Please mark this order ready as soon as possible.</p>`,
+    );
   }
+}
 
   // async sendAdminPrepOverdue(orderId: string) {
   //   // Reuse AdminNotificationService here

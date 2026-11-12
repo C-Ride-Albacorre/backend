@@ -106,10 +106,12 @@ export class RatingService {
       });
 
       if (user?.fcmToken) {
-        await this.pushService.sendToUser(user.fcmToken, {
+        await this.pushService.sendToCustomer(user.fcmToken, {
           title,
           body,
           data: { orderId, orderNumber: order.orderNumber, type: 'RATING_REQUEST' },
+          priority: 'high',
+          sound: 'default',
         });
       }
     } catch (error) {

@@ -20,6 +20,8 @@ import { QUEUES } from '../../shared/constants';
       { name: QUEUES.NOTIFICATION },
       { name: QUEUES.ASSIGNMENT },
       { name: QUEUES.PREPARATION },
+      { name: QUEUES.CUSTOMER_NOTIFICATION },
+      { name: QUEUES.VENDOR_NOTIFICATION }
     ),
     forwardRef(() => CustomerModule), // ✅ handle circular dependency
     forwardRef(() => DriverModule), // ✅ REQUIRED
