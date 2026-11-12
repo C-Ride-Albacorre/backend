@@ -23,6 +23,9 @@ import axios, { AxiosError } from 'axios';
 import { randomUUID } from 'crypto';
 import * as crypto from 'crypto';
 import { WalletService } from '../wallet/wallet.service';
+import { QUEUES } from '../../shared/constants';
+import { Queue } from 'bullmq';
+import { InjectQueue } from '@nestjs/bullmq';
 
 @Injectable()
 export class MonnifyService {
@@ -34,14 +37,18 @@ export class MonnifyService {
   private accessToken: string | null = null;
   private tokenExpiry: Date | null = null;
 
-private tokenPromise: Promise<string> | null = null; // ← mutex
+  private tokenPromise: Promise<string> | null = null; // ← mutex
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly orderService: OrderService,
     private readonly notificationService: NotificationService,
     @Inject(forwardRef(() => WalletService))
-    private readonly walletService: WalletService
+    private readonly walletService: WalletService,
+    @InjectQueue(QUEUES.CUSTOMER_NOTIFICATION)
+    private customerNotificationQueue: Queue,
+    @InjectQueue(QUEUES.VENDOR_NOTIFICATION)
+    private vendorNotificationQueue: Queue,
   ) {
     this.baseUrl = this.configService.get<string>('MONNIFY_BASE_URL')!;
     this.apiKey = this.configService.get<string>('MONNIFY_API_KEY')!;
@@ -54,333 +61,540 @@ private tokenPromise: Promise<string> | null = null; // ← mutex
   // ==================== AUTHENTICATION ====================
 
 
-private async getAccessToken(): Promise<string> {
-  // Fast path: cached & valid
-  if (this.accessToken && this.tokenExpiry && this.tokenExpiry > new Date()) {
-    return this.accessToken;
-  }
+  private async getAccessToken(): Promise<string> {
+    // Fast path: cached & valid
+    if (this.accessToken && this.tokenExpiry && this.tokenExpiry > new Date()) {
+      return this.accessToken;
+    }
 
-  // Mutex: if a refresh is in-flight, wait for it instead of firing another login
-  if (this.tokenPromise) {
+    // Mutex: if a refresh is in-flight, wait for it instead of firing another login
+    if (this.tokenPromise) {
+      return this.tokenPromise;
+    }
+
+    this.tokenPromise = (async () => {
+      try {
+        this.logger.log('Fetching Monnify access token');
+        const auth = Buffer.from(`${this.apiKey}:${this.secretKey}`).toString('base64');
+        const response = await axios.post(
+          `${this.baseUrl}/api/v1/auth/login`,
+          {},
+          { headers: { Authorization: `Basic ${auth}` }, timeout: 10000 },
+        );
+
+        if (!response.data?.requestSuccessful) {
+          throw new Error('Monnify login failed');
+        }
+
+        this.accessToken = response.data.responseBody.accessToken;
+        // 45 min buffer — Monnify tokens are 60 min; leave 15 min safety margin
+        this.tokenExpiry = new Date(Date.now() + 45 * 60 * 1000);
+        return this.accessToken!;
+      } catch (error) {
+        this.logger.error(
+          `Failed to get access token: ${error instanceof Error ? error.stack : String(error)}`,
+        );
+        throw new HttpException('Payment service unavailable', HttpStatus.SERVICE_UNAVAILABLE);
+      } finally {
+        this.tokenPromise = null; // release mutex
+      }
+    })();
+
     return this.tokenPromise;
   }
 
-  this.tokenPromise = (async () => {
-    try {
-      this.logger.log('Fetching Monnify access token');
-      const auth = Buffer.from(`${this.apiKey}:${this.secretKey}`).toString('base64');
-      const response = await axios.post(
-        `${this.baseUrl}/api/v1/auth/login`,
-        {},
-        { headers: { Authorization: `Basic ${auth}` }, timeout: 10000 },
-      );
-
-      if (!response.data?.requestSuccessful) {
-        throw new Error('Monnify login failed');
-      }
-
-      this.accessToken = response.data.responseBody.accessToken;
-      // 45 min buffer — Monnify tokens are 60 min; leave 15 min safety margin
-      this.tokenExpiry = new Date(Date.now() + 45 * 60 * 1000);
-      return this.accessToken!;
-    } catch (error) {
-      this.logger.error(
-        `Failed to get access token: ${error instanceof Error ? error.stack : String(error)}`,
-      );
-      throw new HttpException('Payment service unavailable', HttpStatus.SERVICE_UNAVAILABLE);
-    } finally {
-      this.tokenPromise = null; // release mutex
-    }
-  })();
-
-  return this.tokenPromise;
-}
-
-/** Force a cache clear so the next call refetches. */
-private invalidateToken() {
-  this.accessToken = null;
-  this.tokenExpiry = null;
-}
+  /** Force a cache clear so the next call refetches. */
+  private invalidateToken() {
+    this.accessToken = null;
+    this.tokenExpiry = null;
+  }
 
 
 
   // ==================== PAYMENT INITIALIZATION (FIXED RACE CONDITION) ====================
-private async postToMonnify<T = any>(url: string, payload: any, timeoutMs = 15000): Promise<T> {
-  const attempt = async (): Promise<T> => {
-    const token = await this.getAccessToken();
-    return (await axios.post(url, payload, {
-      headers: { Authorization: `Bearer ${token}` },
-      timeout: timeoutMs,
-    })).data;
-  };
+  private async postToMonnify<T = any>(url: string, payload: any, timeoutMs = 15000): Promise<T> {
+    const attempt = async (): Promise<T> => {
+      const token = await this.getAccessToken();
+      return (await axios.post(url, payload, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: timeoutMs,
+      })).data;
+    };
 
-  try {
-    return await attempt();
-  } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.status === 401) {
-      this.logger.warn('Monnify 401 — refreshing token and retrying once');
-      this.invalidateToken();
-      return await attempt(); // one retry with fresh token
+    try {
+      return await attempt();
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        this.logger.warn('Monnify 401 — refreshing token and retrying once');
+        this.invalidateToken();
+        return await attempt(); // one retry with fresh token
+      }
+      throw error;
     }
-    throw error;
   }
-}
 
   async initializePayment(
-  userId: string,
-  dto: InitializePaymentDto,
-): Promise<MonnifyPaymentResponse> {
-  this.logger.log(`Initializing payment for order: ${dto.orderId}`);
+    userId: string,
+    dto: InitializePaymentDto,
+  ): Promise<MonnifyPaymentResponse> {
+    this.logger.log(`Initializing payment for order: ${dto.orderId}`);
 
-  const allowedMethods = ['CARD', 'ACCOUNT_TRANSFER', 'USSD'];
-  if (!dto.paymentMethod || !allowedMethods.includes(dto.paymentMethod)) {
-    throw new BadRequestException('Invalid or missing payment method');
-  }
-
-  // ---------- PHASE 1: short transaction — reserve the reference ----------
-  const reservation = await this.prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT 1 FROM "Order" WHERE id = ${dto.orderId} FOR UPDATE`;
-
-    const order = await tx.order.findUnique({ where: { id: dto.orderId } });
-    if (!order) throw new NotFoundException('Order not found');
-    if (order.userId !== userId) throw new ForbiddenException('Order does not belong to user');
-    if (order.paymentReference) {
-      throw new BadRequestException('Payment already initialized for this order');
-    }
-    if (order.paymentStatus !== PaymentStatus.PENDING) {
-      throw new BadRequestException('Payment already processed');
+    const allowedMethods = ['CARD', 'ACCOUNT_TRANSFER', 'USSD'];
+    if (!dto.paymentMethod || !allowedMethods.includes(dto.paymentMethod)) {
+      throw new BadRequestException('Invalid or missing payment method');
     }
 
-    const user = await tx.user.findUnique({ where: { id: userId } });
-    if (!user) throw new BadRequestException('User not found');
+    // ---------- PHASE 1: short transaction — reserve the reference ----------
+    const reservation = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM "Order" WHERE id = ${dto.orderId} FOR UPDATE`;
 
-    const customerEmail = dto.email?.trim() || user.email?.trim();
-    if (!customerEmail) {
-      throw new BadRequestException({
-        statusCode: 400,
-        code: 'EMAIL_REQUIRED_FOR_PAYMENT',
-        message: 'Please provide your email address to continue with payment.',
-      });
-    }
+      const order = await tx.order.findUnique({ where: { id: dto.orderId } });
+      if (!order) throw new NotFoundException('Order not found');
+      if (order.userId !== userId) throw new ForbiddenException('Order does not belong to user');
+      if (order.paymentReference) {
+        throw new BadRequestException('Payment already initialized for this order');
+      }
+      if (order.paymentStatus !== PaymentStatus.PENDING) {
+        throw new BadRequestException('Payment already processed');
+      }
 
-    if (!user.email?.trim()) {
-      await tx.user.update({ where: { id: userId }, data: { email: customerEmail } });
-    }
+      const user = await tx.user.findUnique({ where: { id: userId } });
+      if (!user) throw new BadRequestException('User not found');
 
-    const paymentReference = `PAY-${randomUUID()}`;
+      const customerEmail = dto.email?.trim() || user.email?.trim();
+      if (!customerEmail) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'EMAIL_REQUIRED_FOR_PAYMENT',
+          message: 'Please provide your email address to continue with payment.',
+        });
+      }
 
-    // Reserve: set paymentReference now, monnifyReference later
-    await tx.order.update({
-      where: { id: order.id },
-      data: { paymentReference },
-    });
+      if (!user.email?.trim()) {
+        await tx.user.update({ where: { id: userId }, data: { email: customerEmail } });
+      }
 
-    return { order, user, customerEmail, paymentReference };
-  });
+      const paymentReference = `PAY-${randomUUID()}`;
 
-  const { order, user, customerEmail, paymentReference } = reservation;
-
-  // ---------- PHASE 2: external call (no DB lock held) ----------
-  const payload = {
-    amount: order.totalAmount,
-    customerName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
-    customerEmail,
-    paymentReference,
-    paymentDescription: `Order ${order.orderNumber}`,
-    currencyCode: 'NGN',
-    contractCode: this.contractCode,
-    redirectUrl:
-      dto.callbackUrl ||
-      `${this.configService.get('BACKEND_URI')}/api/v1/payment/callback`,
-    paymentMethods: [dto.paymentMethod],
-  };
-
-  try {
-    const data = await this.postToMonnify<any>(
-      `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
-      payload,
-    );
-    if (!data?.requestSuccessful) {
-      throw new Error(data?.responseMessage || 'Monnify initialization failed');
-    }
-
-    const monnifyReference = data.responseBody.transactionReference;
-
-    // ---------- PHASE 3: short transaction — persist monnifyReference ----------
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: { monnifyReference },
-    });
-
-    return data as MonnifyPaymentResponse;
-  } catch (error) {
-    // Roll back the reservation so the user can retry
-    await this.prisma.order
-      .update({
+      // Reserve: set paymentReference now, monnifyReference later
+      await tx.order.update({
         where: { id: order.id },
-        data: { paymentReference: null },
-      })
-      .catch((e) => this.logger.error(`Failed to release reservation: ${e.message}`));
+        data: { paymentReference },
+      });
 
-    if (axios.isAxiosError(error)) {
-      this.logger.error(`Monnify HTTP ${error.response?.status}: ${JSON.stringify(error.response?.data)}`);
-    } else {
-      this.logger.error(error instanceof Error ? error.message : String(error));
+      return { order, user, customerEmail, paymentReference };
+    });
+
+    const { order, user, customerEmail, paymentReference } = reservation;
+
+    // ---------- PHASE 2: external call (no DB lock held) ----------
+    const payload = {
+      amount: order.totalAmount,
+      customerName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
+      customerEmail,
+      paymentReference,
+      paymentDescription: `Order ${order.orderNumber}`,
+      currencyCode: 'NGN',
+      contractCode: this.contractCode,
+      redirectUrl:
+        dto.callbackUrl ||
+        `${this.configService.get('BACKEND_URI')}/api/v1/payment/callback`,
+      paymentMethods: [dto.paymentMethod],
+    };
+
+    try {
+      const data = await this.postToMonnify<any>(
+        `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
+        payload,
+      );
+      if (!data?.requestSuccessful) {
+        throw new Error(data?.responseMessage || 'Monnify initialization failed');
+      }
+
+      const monnifyReference = data.responseBody.transactionReference;
+
+      // ---------- PHASE 3: short transaction — persist monnifyReference ----------
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: { monnifyReference },
+      });
+
+      return data as MonnifyPaymentResponse;
+    } catch (error) {
+      // Roll back the reservation so the user can retry
+      await this.prisma.order
+        .update({
+          where: { id: order.id },
+          data: { paymentReference: null },
+        })
+        .catch((e) => this.logger.error(`Failed to release reservation: ${e.message}`));
+
+      if (axios.isAxiosError(error)) {
+        this.logger.error(`Monnify HTTP ${error.response?.status}: ${JSON.stringify(error.response?.data)}`);
+      } else {
+        this.logger.error(error instanceof Error ? error.message : String(error));
+      }
+
+      throw new HttpException(
+        this.extractMonnifyErrorMessage(error),
+        HttpStatus.BAD_REQUEST,
+      );
     }
-
-    throw new HttpException(
-      this.extractMonnifyErrorMessage(error),
-      HttpStatus.BAD_REQUEST,
-    );
   }
-}
 
   // ==================== WEBHOOK (FIXED SIGNATURE + IDEMPOTENCY) ====================
   async handleWebhook(
-  rawBody: string,
-  signature: string,
-): Promise<{ success: true }> {
-  this.logger.log('Processing webhook');
+    rawBody: string,
+    signature: string,
+  ): Promise<{ success: true }> {
+    this.logger.log('Processing webhook');
 
-  // ── 1. Verify signature ──
-  if (!this.verifyWebhookSignature(rawBody, signature)) {
-    this.logger.error('Invalid webhook signature');
-    throw new ForbiddenException('Invalid signature');
-  }
+    // ── 1. Verify signature ──
+    if (!this.verifyWebhookSignature(rawBody, signature)) {
+      this.logger.error('Invalid webhook signature');
+      throw new ForbiddenException('Invalid signature');
+    }
 
-  let webhookData: any;
-  try {
-    webhookData = JSON.parse(rawBody);
-  } catch (e) {
-    throw new BadRequestException('Invalid JSON payload');
-  }
+    let webhookData: any;
+    try {
+      webhookData = JSON.parse(rawBody);
+    } catch (e) {
+      throw new BadRequestException('Invalid JSON payload');
+    }
 
-  const eventData = webhookData.eventData;
-  const metadata = eventData.metaData || {};
-  const paymentReference = eventData.paymentReference;
-  const paymentStatus = eventData.paymentStatus;
+    const eventData = webhookData.eventData;
+    const metadata = eventData.metaData || {};
+    const paymentReference = eventData.paymentReference;
+    const paymentStatus = eventData.paymentStatus;
 
-  // ── 2. Wallet funding route (unchanged) ──
-  if (
-    metadata.walletTxId ||
-    metadata.entityType === 'wallet' ||
-    paymentReference?.startsWith('FUND-')
-  ) {
-    await this.walletService.handleFundingWebhook(
-      eventData.transactionReference,
-      paymentStatus,
-      { paymentReference, walletTxId: metadata.walletTxId },
-    );
-    return { success: true };
-  }
-
-  this.logger.log(`Full webhook payload: ${JSON.stringify(webhookData)}`);
-
-  // ── 3. Extract transactionReference ──
-  let transactionRef = webhookData.transactionReference;
-  if (!transactionRef && webhookData.eventData) {
-    transactionRef = webhookData.eventData.transactionReference;
-  }
-
-  if (!transactionRef) {
-    if (webhookData.eventType === 'TEST' || webhookData.test === true) {
-      this.logger.log('Ignoring test webhook');
+    // ── 2. Wallet funding route (unchanged) ──
+    if (
+      metadata.walletTxId ||
+      metadata.entityType === 'wallet' ||
+      paymentReference?.startsWith('FUND-')
+    ) {
+      await this.walletService.handleFundingWebhook(
+        eventData.transactionReference,
+        paymentStatus,
+        { paymentReference, walletTxId: metadata.walletTxId },
+      );
       return { success: true };
     }
-    this.logger.error(
-      `Missing transactionReference in webhook: ${JSON.stringify(webhookData)}`,
+
+    this.logger.log(`Full webhook payload: ${JSON.stringify(webhookData)}`);
+
+    // ── 3. Extract transactionReference ──
+    let transactionRef = webhookData.transactionReference;
+    if (!transactionRef && webhookData.eventData) {
+      transactionRef = webhookData.eventData.transactionReference;
+    }
+
+    if (!transactionRef) {
+      if (webhookData.eventType === 'TEST' || webhookData.test === true) {
+        this.logger.log('Ignoring test webhook');
+        return { success: true };
+      }
+      this.logger.error(
+        `Missing transactionReference in webhook: ${JSON.stringify(webhookData)}`,
+      );
+      throw new BadRequestException('Missing transactionReference');
+    }
+
+    this.logger.log(`Webhook received for transaction: ${transactionRef}`);
+
+    // ── 4. Find the order ──
+    const order = await this.prisma.order.findFirst({
+      where: { monnifyReference: transactionRef },
+    });
+    if (!order) {
+      this.logger.error(`Order not found for transaction: ${transactionRef}`);
+      throw new NotFoundException(
+        `Order not found for reference ${transactionRef}`,
+      );
+    }
+
+    // ── 5. Idempotent payment status update — PAYMENT ONLY, not order status ──
+    const paymentUpdate = await this.prisma.order.updateMany({
+      where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
+      data: {
+        paymentStatus: PaymentStatus.PAID,
+        paymentReference: paymentReference ?? order.paymentReference,
+      },
+    });
+
+    if (paymentUpdate.count === 0) {
+      this.logger.warn(`Webhook already processed for order ${order.id}`);
+      return { success: true };
+    }
+
+    // ── 6. Verify with Monnify (final safety) ──
+    const verification = await this.verifyPayment(transactionRef);
+    if (verification?.responseBody?.paymentStatus !== 'PAID') {
+      // Rollback payment status only
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: { paymentStatus: PaymentStatus.PENDING },
+      });
+      this.logger.error(
+        `Verification mismatch for order ${order.id}: ${verification?.responseBody?.paymentStatus}`,
+      );
+      throw new BadRequestException('Payment verification failed');
+    }
+
+    // ── 7. Transition ORDER_PLACED → CONFIRMED (this is the REAL status change) ──
+    this.logger.log(
+      `Order ${order.orderNumber} marked as PAID, transitioning to CONFIRMED`,
     );
-    throw new BadRequestException('Missing transactionReference');
+    try {
+      await this.orderService.transition(order.id, OrderStatus.CONFIRMED, {
+        actorId: order.userId,
+        actorRole: 'CUSTOMER',
+        reason: 'Payment confirmed via webhook',
+      });
+    } catch (err) {
+      // If it's already CONFIRMED, that's fine (idempotency)
+      if (
+        err instanceof BadRequestException &&
+        String(err.message).includes('Invalid transition')
+      ) {
+        this.logger.warn(
+          `Order ${order.id} already CONFIRMED; skipping transition`,
+        );
+      } else {
+        this.logger.error(
+          `Transition failed for order ${order.id}: ${err instanceof Error ? err.message : err}`,
+        );
+        throw err;
+      }
+    }
+
+    // ── 8. Notify vendors and customer ──
+
+    // ── 8. Queue vendor and customer notifications ──
+
+    this.logger.log(
+      `Queueing payment confirmation notifications for order ${order.orderNumber}`,
+    );
+
+    // 1. Queue customer notification
+    await this.customerNotificationQueue.add(
+      'order-confirmed',
+      {
+        orderId: order.id,
+      },
+      {
+        jobId: `customer-order-confirmed-${order.id}`,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 3000,
+        },
+        removeOnComplete: true,
+      },
+    ).catch((err) => {
+      this.logger.error(
+        `Failed to queue customer notification for order ${order.id}`,
+        err,
+      );
+    });
+
+    // 2. Fetch all stores associated with the order
+    const orderItems = await this.prisma.order.findUnique({
+      where: { id: order.id },
+      select: {
+        items: {
+          select: {
+            storeId: true,
+          },
+        },
+      },
+    });
+
+    // 3. Queue vendor notifications
+    const storeIds = [
+      ...new Set(
+        (orderItems?.items ?? [])
+          .map((item) => item.storeId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+
+    for (const storeId of storeIds) {
+      await this.vendorNotificationQueue.add(
+        'new-order',
+        {
+          orderId: order.id,
+          storeId,
+        },
+        {
+          jobId: `vendor-new-order-${order.id}-${storeId}`,
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 3000,
+          },
+          removeOnComplete: true,
+        },
+      ).catch((err) => {
+        this.logger.error(
+          `Failed to queue vendor notification for order ${order.id}, store ${storeId}`,
+          err,
+        );
+      });
+    }
+
+    this.logger.log(
+      `Payment confirmation notification jobs queued for order ${order.orderNumber}`,
+    );
+
   }
 
-  this.logger.log(`Webhook received for transaction: ${transactionRef}`);
 
-  // ── 4. Find the order ──
-  const order = await this.prisma.order.findFirst({
-    where: { monnifyReference: transactionRef },
-  });
-  if (!order) {
-    this.logger.error(`Order not found for transaction: ${transactionRef}`);
-    throw new NotFoundException(
-      `Order not found for reference ${transactionRef}`,
+  async handleWebhookTest(
+    rawBody: string,
+    signature: string,
+  ): Promise<{ success: true }> {
+    this.logger.log('Processing webhook');
+
+    // ── 1. Verify signature ──
+    if (!this.verifyWebhookSignature(rawBody, signature)) {
+      this.logger.error('Invalid webhook signature');
+      throw new ForbiddenException('Invalid signature');
+    }
+
+    let webhookData: any;
+    try {
+      webhookData = JSON.parse(rawBody);
+    } catch (e) {
+      throw new BadRequestException('Invalid JSON payload');
+    }
+
+    const eventData = webhookData.eventData;
+    const metadata = eventData.metaData || {};
+    const paymentReference = eventData.paymentReference;
+    const paymentStatus = eventData.paymentStatus;
+
+    // ── 2. Wallet funding route (unchanged) ──
+    if (
+      metadata.walletTxId ||
+      metadata.entityType === 'wallet' ||
+      paymentReference?.startsWith('FUND-')
+    ) {
+      await this.walletService.handleFundingWebhook(
+        eventData.transactionReference,
+        paymentStatus,
+        { paymentReference, walletTxId: metadata.walletTxId },
+      );
+      return { success: true };
+    }
+
+    this.logger.log(`Full webhook payload: ${JSON.stringify(webhookData)}`);
+
+    // ── 3. Extract transactionReference ──
+    let transactionRef = webhookData.transactionReference;
+    if (!transactionRef && webhookData.eventData) {
+      transactionRef = webhookData.eventData.transactionReference;
+    }
+
+    if (!transactionRef) {
+      if (webhookData.eventType === 'TEST' || webhookData.test === true) {
+        this.logger.log('Ignoring test webhook');
+        return { success: true };
+      }
+      this.logger.error(
+        `Missing transactionReference in webhook: ${JSON.stringify(webhookData)}`,
+      );
+      throw new BadRequestException('Missing transactionReference');
+    }
+
+    this.logger.log(`Webhook received for transaction: ${transactionRef}`);
+
+    // ── 4. Find the order ──
+    const order = await this.prisma.order.findFirst({
+      where: { monnifyReference: transactionRef },
+    });
+    if (!order) {
+      this.logger.error(`Order not found for transaction: ${transactionRef}`);
+      throw new NotFoundException(
+        `Order not found for reference ${transactionRef}`,
+      );
+    }
+
+    // ── 5. Idempotent payment status update — PAYMENT ONLY, not order status ──
+    const paymentUpdate = await this.prisma.order.updateMany({
+      where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
+      data: {
+        paymentStatus: PaymentStatus.PAID,
+        paymentReference: paymentReference ?? order.paymentReference,
+      },
+    });
+
+    if (paymentUpdate.count === 0) {
+      this.logger.warn(`Webhook already processed for order ${order.id}`);
+      return { success: true };
+    }
+
+    // ── 6. Verify with Monnify (final safety) ──
+    const verification = await this.verifyPayment(transactionRef);
+    if (verification?.responseBody?.paymentStatus !== 'PAID') {
+      // Rollback payment status only
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: { paymentStatus: PaymentStatus.PENDING },
+      });
+      this.logger.error(
+        `Verification mismatch for order ${order.id}: ${verification?.responseBody?.paymentStatus}`,
+      );
+      throw new BadRequestException('Payment verification failed');
+    }
+
+    // ── 7. Transition ORDER_PLACED → CONFIRMED (this is the REAL status change) ──
+    this.logger.log(
+      `Order ${order.orderNumber} marked as PAID, transitioning to CONFIRMED`,
     );
-  }
+    try {
+      await this.orderService.transition(order.id, OrderStatus.CONFIRMED, {
+        actorId: order.userId,
+        actorRole: 'CUSTOMER',
+        reason: 'Payment confirmed via webhook',
+      });
+    } catch (err) {
+      // If it's already CONFIRMED, that's fine (idempotency)
+      if (
+        err instanceof BadRequestException &&
+        String(err.message).includes('Invalid transition')
+      ) {
+        this.logger.warn(
+          `Order ${order.id} already CONFIRMED; skipping transition`,
+        );
+      } else {
+        this.logger.error(
+          `Transition failed for order ${order.id}: ${err instanceof Error ? err.message : err}`,
+        );
+        throw err;
+      }
+    }
 
-  // ── 5. Idempotent payment status update — PAYMENT ONLY, not order status ──
-  const paymentUpdate = await this.prisma.order.updateMany({
-    where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
-    data: {
-      paymentStatus: PaymentStatus.PAID,
-      paymentReference: paymentReference ?? order.paymentReference,
-    },
-  });
+    // ── 8. Notify vendors and customer ──
+    this.logger.log(`Notifying vendors for order ${order.orderNumber}`);
+    await this.notificationService
+      .notifyVendorsForOrder(order.id)
+      .catch((e) =>
+        this.logger.error(`Vendor notification failed: ${e.message}`),
+      );
 
-  if (paymentUpdate.count === 0) {
-    this.logger.warn(`Webhook already processed for order ${order.id}`);
+
+
+    this.logger.log(`Notifying customer for order ${order.orderNumber}`);
+    await this.notificationService
+      .notifyCustomerForOrder(order.id)
+      .catch((e) =>
+        this.logger.error(`Customer notification failed: ${e.message}`),
+      );
+
+    this.logger.log(`Order ${order.orderNumber} marked as PAID via webhook`);
     return { success: true };
   }
-
-  // ── 6. Verify with Monnify (final safety) ──
-  const verification = await this.verifyPayment(transactionRef);
-  if (verification?.responseBody?.paymentStatus !== 'PAID') {
-    // Rollback payment status only
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: { paymentStatus: PaymentStatus.PENDING },
-    });
-    this.logger.error(
-      `Verification mismatch for order ${order.id}: ${verification?.responseBody?.paymentStatus}`,
-    );
-    throw new BadRequestException('Payment verification failed');
-  }
-
-  // ── 7. Transition ORDER_PLACED → CONFIRMED (this is the REAL status change) ──
-  this.logger.log(
-    `Order ${order.orderNumber} marked as PAID, transitioning to CONFIRMED`,
-  );
-  try {
-    await this.orderService.transition(order.id, OrderStatus.CONFIRMED, {
-      actorId: order.userId,
-      actorRole: 'CUSTOMER',
-      reason: 'Payment confirmed via webhook',
-    });
-  } catch (err) {
-    // If it's already CONFIRMED, that's fine (idempotency)
-    if (
-      err instanceof BadRequestException &&
-      String(err.message).includes('Invalid transition')
-    ) {
-      this.logger.warn(
-        `Order ${order.id} already CONFIRMED; skipping transition`,
-      );
-    } else {
-      this.logger.error(
-        `Transition failed for order ${order.id}: ${err instanceof Error ? err.message : err}`,
-      );
-      throw err;
-    }
-  }
-
-  // ── 8. Notify vendors and customer ──
-  this.logger.log(`Notifying vendors for order ${order.orderNumber}`);
-  await this.notificationService
-    .notifyVendorsForOrder(order.id)
-    .catch((e) =>
-      this.logger.error(`Vendor notification failed: ${e.message}`),
-    );
-
-    
-
-  this.logger.log(`Notifying customer for order ${order.orderNumber}`);
-  await this.notificationService
-    .notifyCustomerForOrder(order.id)
-    .catch((e) =>
-      this.logger.error(`Customer notification failed: ${e.message}`),
-    );
-
-  this.logger.log(`Order ${order.orderNumber} marked as PAID via webhook`);
-  return { success: true };
-}
 
 
 
@@ -525,84 +739,84 @@ private async postToMonnify<T = any>(url: string, payload: any, timeoutMs = 1500
 
 
   // ==================== VERIFICATION & CALLBACK ====================
-async verifyPaymentAndUpdate(transactionReference: string) {
-  this.logger.log(
-    `Verifying and updating for transaction: ${transactionReference}`,
-  );
+  async verifyPaymentAndUpdate(transactionReference: string) {
+    this.logger.log(
+      `Verifying and updating for transaction: ${transactionReference}`,
+    );
 
-  const order = await this.prisma.order.findFirst({
-    where: {
-      OR: [
-        { monnifyReference: transactionReference },
-        { paymentReference: transactionReference },
-      ],
-    },
-  });
+    const order = await this.prisma.order.findFirst({
+      where: {
+        OR: [
+          { monnifyReference: transactionReference },
+          { paymentReference: transactionReference },
+        ],
+      },
+    });
 
-  if (!order) {
-    throw new NotFoundException('Order not found for this transaction');
-  }
+    if (!order) {
+      throw new NotFoundException('Order not found for this transaction');
+    }
 
-  // Idempotent payment status update
-  const paymentUpdate = await this.prisma.order.updateMany({
-    where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
-    data: { paymentStatus: PaymentStatus.PAID },
-  });
+    // Idempotent payment status update
+    const paymentUpdate = await this.prisma.order.updateMany({
+      where: { id: order.id, paymentStatus: PaymentStatus.PENDING },
+      data: { paymentStatus: PaymentStatus.PAID },
+    });
 
-  if (paymentUpdate.count === 0) {
-    this.logger.warn(`Payment already processed for order ${order.id}`);
+    if (paymentUpdate.count === 0) {
+      this.logger.warn(`Payment already processed for order ${order.id}`);
+      return {
+        status: 'PAID',
+        message: 'Payment already processed',
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      };
+    }
+
+    // Verify with Monnify
+    this.logger.log(
+      `Re-verifying payment with Monnify for order ${order.orderNumber}`,
+    );
+    const verification = await this.verifyPayment(transactionReference);
+    if (verification?.responseBody?.paymentStatus !== 'PAID') {
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: { paymentStatus: PaymentStatus.PENDING },
+      });
+      throw new BadRequestException('Payment not confirmed by Monnify');
+    }
+
+    // Transition ORDER_PLACED → CONFIRMED (correct target status)
+    this.logger.log(`Transitioning order ${order.orderNumber} to CONFIRMED`);
+    try {
+      await this.orderService.transition(order.id, OrderStatus.CONFIRMED, {
+        actorId: order.userId,
+        actorRole: 'CUSTOMER',
+        reason: 'Payment verified via callback',
+      });
+    } catch (err) {
+      if (
+        err instanceof BadRequestException &&
+        String(err.message).includes('Invalid transition')
+      ) {
+        this.logger.warn(`Order ${order.id} already CONFIRMED; skipping`);
+      } else {
+        this.logger.error(err);
+        throw err;
+      }
+    }
+
+    this.logger.log(`Notifying vendors for order ${order.orderNumber}`);
+    await this.notificationService
+      .notifyVendorsForOrder(order.id)
+      .catch((e) => this.logger.error(e));
+
     return {
       status: 'PAID',
-      message: 'Payment already processed',
       orderId: order.id,
       orderNumber: order.orderNumber,
     };
   }
-
-  // Verify with Monnify
-  this.logger.log(
-    `Re-verifying payment with Monnify for order ${order.orderNumber}`,
-  );
-  const verification = await this.verifyPayment(transactionReference);
-  if (verification?.responseBody?.paymentStatus !== 'PAID') {
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: { paymentStatus: PaymentStatus.PENDING },
-    });
-    throw new BadRequestException('Payment not confirmed by Monnify');
-  }
-
-  // Transition ORDER_PLACED → CONFIRMED (correct target status)
-  this.logger.log(`Transitioning order ${order.orderNumber} to CONFIRMED`);
-  try {
-    await this.orderService.transition(order.id, OrderStatus.CONFIRMED, {
-      actorId: order.userId,
-      actorRole: 'CUSTOMER',
-      reason: 'Payment verified via callback',
-    });
-  } catch (err) {
-    if (
-      err instanceof BadRequestException &&
-      String(err.message).includes('Invalid transition')
-    ) {
-      this.logger.warn(`Order ${order.id} already CONFIRMED; skipping`);
-    } else {
-      this.logger.error(err);
-      throw err;
-    }
-  }
-
-  this.logger.log(`Notifying vendors for order ${order.orderNumber}`);
-  await this.notificationService
-    .notifyVendorsForOrder(order.id)
-    .catch((e) => this.logger.error(e));
-
-  return {
-    status: 'PAID',
-    orderId: order.id,
-    orderNumber: order.orderNumber,
-  };
-}
 
   async verifyPayment(transactionReference: string) {
     this.logger.log(`Verifying payment for transactionReference: ${transactionReference}`);
@@ -729,27 +943,27 @@ async verifyPaymentAndUpdate(transactionReference: string) {
 
 
   // In monnify.service.ts
-async initializeTransaction(payload: any): Promise<any> {
-  this.logger.log(`Initializing Monnify transaction: ${JSON.stringify(payload)}`);
-  try {
-    const data = await this.postToMonnify(
-      `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
-      payload,
-    );
-    if (!data?.requestSuccessful) {
-      throw new Error(data?.responseMessage || 'Initialization failed');
+  async initializeTransaction(payload: any): Promise<any> {
+    this.logger.log(`Initializing Monnify transaction: ${JSON.stringify(payload)}`);
+    try {
+      const data = await this.postToMonnify(
+        `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
+        payload,
+      );
+      if (!data?.requestSuccessful) {
+        throw new Error(data?.responseMessage || 'Initialization failed');
+      }
+      return data;
+    } catch (error) {
+      this.logger.error(
+        `Monnify initialization failed: ${axios.isAxiosError(error) ? JSON.stringify(error.response?.data) : String(error)}`,
+      );
+      throw new HttpException(
+        this.extractMonnifyErrorMessage(error),
+        HttpStatus.BAD_REQUEST,
+      );
     }
-    return data;
-  } catch (error) {
-    this.logger.error(
-      `Monnify initialization failed: ${axios.isAxiosError(error) ? JSON.stringify(error.response?.data) : String(error)}`,
-    );
-    throw new HttpException(
-      this.extractMonnifyErrorMessage(error),
-      HttpStatus.BAD_REQUEST,
-    );
   }
-}
 
 
   ////DISBURSTMENT//////////
@@ -800,5 +1014,5 @@ async initializeTransaction(payload: any): Promise<any> {
     }
   }
 
- 
+
 }
