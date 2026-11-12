@@ -53,7 +53,13 @@ export class DriverService {
     @Inject(forwardRef(() => DriverGateway))
     public readonly driverGateway: DriverGateway,
     @Inject(forwardRef(() => DriverAssignmentService))
-    private readonly driverAssignment: DriverAssignmentService) {
+    private readonly driverAssignment: DriverAssignmentService,
+    @InjectQueue(QUEUES.CUSTOMER_NOTIFICATION)
+    private customerNotificationQueue: Queue,
+    @InjectQueue(QUEUES.VENDOR_NOTIFICATION)
+    private vendorNotificationQueue: Queue,
+
+  ) {
     this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');
     if (!this.googleMapsApiKey) {
       this.logger.warn(
@@ -327,7 +333,7 @@ export class DriverService {
     return driver;
   }
 
- 
+
   /**
    * Save Step 2: Vehicle Information
    */
@@ -1315,7 +1321,214 @@ export class DriverService {
   // Post-transition side effects now wrapped in a single transaction,
   // and the driver's earning is credited atomically with them.
   // ================================================================= */
-  async confirmDelivery(orderId: string, driverId: string, orderCode: string) {
+
+  async confirmDelivery(
+    orderId: string,
+    driverId: string,
+    orderCode: string,
+  ) {
+    // ── 1. Validations ──────────────────────────────────────────────
+
+    const assignment = await this.prisma.driverAssignment.findUnique({
+      where: { orderId },
+      select: {
+        driverId: true,
+        assignmentStatus: true,
+      },
+    });
+
+    if (!assignment || assignment.driverId !== driverId) {
+      throw new BadRequestException(
+        'You are not assigned to this order',
+      );
+    }
+
+    if (assignment.assignmentStatus !== AssignmentStatus.ASSIGNED) {
+      throw new BadRequestException('Order not in assigned state');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        userId: true,
+        orderNumber: true,
+        orderCode: true,
+        items: {
+          select: { storeId: true },
+          where: { storeId: { not: null } },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new BadRequestException('Order not found');
+    }
+
+    if (order.orderCode !== orderCode) {
+      throw new BadRequestException(
+        'Invalid order confirmation code',
+      );
+    }
+
+    // ── 2. Transition order FIRST ───────────────────────────────────
+
+    await this.orderService.transition(
+      orderId,
+      OrderStatus.DELIVERED,
+      {
+        actorId: driverId,
+        actorRole: Role.DISPATCHER,
+        respondedAt: new Date(),
+      },
+    );
+
+    // ── 3. Atomic side effects ──────────────────────────────────────
+
+    await this.prisma.$transaction(async (tx) => {
+      // 3a. Driver profile
+      await tx.driverProfile.update({
+        where: { userId: driverId },
+        data: {
+          status: DriverStatus.ONLINE,
+          totalDeliveries: { increment: 1 },
+        },
+      });
+
+      // 3b. Expire assignment
+      await tx.driverAssignment.update({
+        where: { orderId },
+        data: {
+          deliveryConfirmedAt: new Date(),
+          assignmentStatus: AssignmentStatus.EXPIRED,
+        },
+      });
+
+      // 3c. Credit driver's earning
+      await this.creditDriverEarningOnDelivery(
+        tx,
+        orderId,
+        driverId,
+      );
+    });
+
+    // ── 4. Queue customer delivery notification ────────────────────
+
+    await this.customerNotificationQueue.add(
+      'order-delivered',
+      {
+        orderId,
+        driverId,
+      },
+      {
+        jobId: `customer-order-delivered-${orderId}`,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 3000,
+        },
+        removeOnComplete: true,
+      },
+    ).catch((err) => {
+      this.logger.error(
+        `Failed to queue customer delivery notification for order ${orderId}`,
+        err,
+      );
+    });
+
+    // ── 5. Queue vendor delivery notifications ─────────────────────
+
+    const storeIds = [
+      ...new Set(
+        order.items
+          .map((item) => item.storeId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+
+    for (const storeId of storeIds) {
+      await this.vendorNotificationQueue.add(
+        'order-delivered',
+        {
+          orderId,
+          driverId,
+          storeId,
+        },
+        {
+          jobId: `vendor-order-delivered-${orderId}-${storeId}`,
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 3000,
+          },
+          removeOnComplete: true,
+        },
+      ).catch((err) => {
+        this.logger.error(
+          `Failed to queue vendor delivery notification for order ${orderId}, store ${storeId}`,
+          err,
+        );
+      });
+    }
+
+    // ── 6. Remove ETA scheduler ─────────────────────────────────────
+
+    await this.assignmentQueue
+      .removeJobScheduler(`eta-${orderId}`)
+      .catch(() => null);
+
+    // ── 7. Customer rating request ─────────────────────────────────
+
+    await this.ratingService
+      .createRatingRequest(
+        orderId,
+        order.userId,
+        Role.CUSTOMER,
+        driverId,
+      )
+      .catch((err) =>
+        this.logger.error(
+          `Customer rating request failed for order ${orderId}`,
+          err,
+        ),
+      );
+
+    // ── 8. Vendor rating requests ──────────────────────────────────
+
+    for (const storeId of storeIds) {
+      const store = await this.prisma.store.findUnique({
+        where: { id: storeId },
+        select: { userId: true },
+      });
+
+      if (store?.userId) {
+        await this.ratingService
+          .createRatingRequest(
+            orderId,
+            store.userId,
+            Role.VENDOR,
+            driverId,
+          )
+          .catch((err) =>
+            this.logger.error(
+              `Vendor rating request failed for order ${orderId}, store ${storeId}`,
+              err,
+            ),
+          );
+      }
+    }
+
+    this.logger.log(
+      `Order ${orderId} delivered by driver ${driverId}. Notifications queued.`,
+    );
+
+    return {
+      success: true,
+      message: 'Order delivered successfully',
+    };
+  }
+
+
+  async confirmDeliveryOld(orderId: string, driverId: string, orderCode: string) {
     // ── Validations ─────────────────────────────────────────────────
     const assignment = await this.prisma.driverAssignment.findUnique({
       where: { orderId },

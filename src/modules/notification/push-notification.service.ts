@@ -95,7 +95,167 @@ export class PushNotificationService {
     );
   }
 
-  async sendToDriver(
+
+  
+private async sendPushNotification(
+  userId: string,
+  recipientType: string,
+  payload: PushNotificationPayload,
+  channelId = 'general',
+): Promise<boolean> {
+  this.logger.log(
+    `[sendPushNotification] enter ${recipientType}=${userId} enabled=${this.isEnabled}`,
+  );
+
+  if (!this.isEnabled) {
+    this.logger.warn(
+      `[sendPushNotification] DISABLED – would send "${payload.title}" to ${recipientType} ${userId}`,
+    );
+    return false;
+  }
+
+  try {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { fcmToken: true },
+    });
+
+    if (!user?.fcmToken) {
+      this.logger.warn(
+        `${recipientType} ${userId} has no FCM token`,
+      );
+      return false;
+    }
+
+    // FCM requires every data value to be a string
+    const data: Record<string, string> = Object.fromEntries(
+      Object.entries(payload.data ?? {}).map(([k, v]) => [
+        k,
+        String(v),
+      ]),
+    );
+
+    const message: admin.messaging.Message = {
+      notification: {
+        title: payload.title,
+        body: payload.body,
+        imageUrl: payload.imageUrl,
+      },
+      data,
+      android: {
+        priority: 'high',
+        notification: {
+          channelId,
+          sound: 'default',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          priority: 'max',
+        },
+      },
+      apns: {
+        headers: { 'apns-priority': '10' },
+        payload: {
+          aps: {
+            sound: payload.sound || 'default',
+            badge: 1,
+          },
+        },
+      },
+      token: user.fcmToken,
+    };
+
+    this.logger.log(
+      `Sending push to ${recipientType} ${userId} token=${user.fcmToken} msg=${JSON.stringify(message)}`,
+    );
+
+    const response = await admin.messaging().send(message);
+
+    this.logger.log(
+      `Push OK ${recipientType} ${userId} messageId=${response}`,
+    );
+
+    return true;
+  } catch (error: any) {
+    const code: string | undefined = error?.code;
+
+    const tokenErrors = new Set([
+      'messaging/invalid-registration-token',
+      'messaging/registration-token-not-registered',
+      'messaging/unregistered',
+      'messaging/mismatched-credential',
+    ]);
+
+    this.logger.error(
+      `Push FAILED ${recipientType} ${userId} code=${code ?? 'unknown'} error=${error?.message ?? error}`,
+      error,
+    );
+
+    if (code && tokenErrors.has(code)) {
+      await this.prisma.user
+        .update({
+          where: { id: userId },
+          data: { fcmToken: null },
+        })
+        .catch((e) => this.logger.error(e));
+    }
+
+    return false;
+  }
+}
+
+
+
+async sendToUser(
+  userId: string,
+  payload: PushNotificationPayload,
+): Promise<boolean> {
+  return this.sendPushNotification(
+    userId,
+    'user',
+    payload,
+    'delivery_requests_v2', //general
+  );
+}
+
+async sendToCustomer(
+  userId: string,
+  payload: PushNotificationPayload,
+): Promise<boolean> {
+  return this.sendPushNotification(
+    userId,
+    'customer',
+    payload,
+    'delivery_requests_v2',
+  );
+}
+
+async sendToDriver(
+  driverId: string,
+  payload: PushNotificationPayload,
+): Promise<boolean> {
+  return this.sendPushNotification(
+    driverId,
+    'driver',
+    payload,
+    'delivery_requests_v2',
+  );
+}
+
+async sendToVendor(
+  vendorId: string,
+  payload: PushNotificationPayload,
+): Promise<boolean> {
+  return this.sendPushNotification(
+    vendorId,
+    'vendor',
+    payload,
+    'delivery_requests_v2',
+  );
+}
+
+
+
+  async sendToDriverOld(
     driverId: string,
     payload: PushNotificationPayload,
   ): Promise<boolean> {
@@ -187,38 +347,184 @@ export class PushNotificationService {
   /**
    * Send push notification to a customer.
    */
-  async sendToCustomer(
-    userId: string,
-    payload: PushNotificationPayload,
-  ): Promise<boolean> {
-    if (!this.isEnabled) return false;
 
-    try {
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { fcmToken: true },
-      });
-      if (!user?.fcmToken) return false;
+async sendToCustomerOld(
+  userId: string,
+  payload: PushNotificationPayload,
+): Promise<boolean> {
+  this.logger.log(
+    `[sendToCustomer] enter user=${userId} enabled=${this.isEnabled}`,
+  );
 
-      const message: admin.messaging.Message = {
-        notification: {
-          title: payload.title,
-          body: payload.body,
-          imageUrl: payload.imageUrl,
-        },
-        data: payload.data || {},
-        token: user.fcmToken,
-      };
-      await admin.messaging().send(message);
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Failed to send push to customer ${userId}`,
-        error,
-      );
+  if (!this.isEnabled) {
+    this.logger.warn(
+      `[sendToCustomer] DISABLED – would send "${payload.title}" to ${userId}`,
+    );
+    return false;
+  }
+
+  try {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { fcmToken: true, deviceType: true },
+    });
+
+    if (!user?.fcmToken) {
+      this.logger.warn(`Customer ${userId} has no FCM token`);
       return false;
     }
+
+    // FCM requires every data value to be a string
+    const data: Record<string, string> = Object.fromEntries(
+      Object.entries(payload.data ?? {}).map(([k, v]) => [
+        k,
+        String(v),
+      ]),
+    );
+
+    const message: admin.messaging.Message = {
+      notification: {
+        title: payload.title,
+        body: payload.body,
+        imageUrl: payload.imageUrl,
+      },
+      data,
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'delivery_requests_v2',
+          sound: 'default',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          priority: 'max',
+        },
+      },
+      apns: {
+        headers: { 'apns-priority': '10' },
+        payload: {
+          aps: {
+            sound: payload.sound || 'default',
+            badge: 1,
+          },
+        },
+      },
+      token: user.fcmToken,
+    };
+
+    this.logger.log(
+      `Sending push to customer ${userId} token=${user.fcmToken} msg=${JSON.stringify(message)}`,
+    );
+
+    const response = await admin.messaging().send(message);
+
+    this.logger.log(
+      `Push OK customer ${userId} messageId=${response}`,
+    );
+
+    return true;
+  } catch (error: any) {
+    const code: string | undefined = error?.code;
+
+    const knownTokenErrors = new Set([
+      'messaging/invalid-registration-token',
+      'messaging/registration-token-not-registered',
+      'messaging/unregistered',
+      'messaging/mismatched-credential',
+    ]);
+
+    this.logger.error(
+      `Push FAILED customer ${userId} code=${code ?? 'unknown'} error=${error?.message ?? error}`,
+      error,
+    );
+
+    if (code && knownTokenErrors.has(code)) {
+      await this.prisma.user
+        .update({
+          where: { id: userId },
+          data: { fcmToken: null },
+        })
+        .catch((e) => this.logger.error(e));
+    }
+
+    return false;
   }
+}
+
+
+async sendToUserOld(
+  userId: string,
+  payload: PushNotificationPayload,
+): Promise<boolean> {
+  this.logger.log(`[sendToUser] enter userId=${userId} enabled=${this.isEnabled}`);
+  if (!this.isEnabled) {
+    this.logger.warn(`[sendToUser] DISABLED – would send "${payload.title}" to ${userId}`);
+    return false;
+  }
+
+  try {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { fcmToken: true },
+    });
+    if (!user?.fcmToken) {
+      this.logger.warn(`User ${userId} has no FCM token`);
+      return false;
+    }
+
+    const data: Record<string, string> = Object.fromEntries(
+      Object.entries(payload.data ?? {}).map(([k, v]) => [k, String(v)]),
+    );
+
+    const message: admin.messaging.Message = {
+      notification: {
+        title: payload.title,
+        body: payload.body,
+        imageUrl: payload.imageUrl,
+      },
+      data,
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'general',      // ← app must create this channel at IMPORTANCE_HIGH
+          sound: 'default',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          priority: 'max',
+        },
+      },
+      apns: {
+        headers: { 'apns-priority': '10' },
+        payload: { aps: { sound: payload.sound || 'default', badge: 1 } },
+      },
+      token: user.fcmToken,
+    };
+
+    this.logger.log(`Sending push to user ${userId} token=${user.fcmToken} msg=${JSON.stringify(message)}`);
+    const response = await admin.messaging().send(message);
+    this.logger.log(`Push OK user ${userId} messageId=${response}`);
+    return true;
+  } catch (error: any) {
+    const code: string | undefined = error?.code;
+    const tokenErrors = new Set([
+      'messaging/invalid-registration-token',
+      'messaging/registration-token-not-registered',
+      'messaging/unregistered',
+      'messaging/mismatched-credential',
+    ]);
+    this.logger.error(
+      `Push FAILED user ${userId} code=${code ?? 'unknown'} error=${error?.message ?? error}`,
+      error,
+    );
+    if (code && tokenErrors.has(code)) {
+      await this.prisma.user
+        .update({ where: { id: userId }, data: { fcmToken: null } })
+        .catch((e) => this.logger.error(e));
+    }
+    return false;
+  }
+}
+
+
 
   /**
    * Send to multiple devices (max 500 tokens per batch).
@@ -292,7 +598,7 @@ async sendPickupPush(
   orderId: string,
   driverName?: string,
 ): Promise<boolean> {
-  return this.sendToUser(userId, {
+  return this.sendToCustomer(userId, {
     title: 'Order Picked Up',
     body: driverName
       ? `${driverName} has picked up your order #${orderId}.`
@@ -306,54 +612,7 @@ async sendPickupPush(
 }
 
 
-async sendToUser(
-  userId: string,
-  payload: PushNotificationPayload,
-): Promise<boolean> {
-  if (!this.isEnabled) return false;
 
-  try {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { fcmToken: true },
-    });
-
-    if (!user?.fcmToken) return false;
-
-    const message: admin.messaging.Message = {
-      notification: {
-        title: payload.title,
-        body: payload.body,
-        imageUrl: payload.imageUrl,
-      },
-      data: payload.data || {},
-      android: {
-        priority: payload.priority === 'high' ? 'high' : 'normal',
-        notification: {
-          sound: payload.sound || 'default',
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: payload.sound || 'default',
-            badge: 1,
-          },
-        },
-      },
-      token: user.fcmToken,
-    };
-
-    await admin.messaging().send(message);
-    return true;
-  } catch (error) {
-    this.logger.error(
-      `Failed to send push to user ${userId}: ${error}`,
-      error,
-    );
-    return false;
-  }
-}
 
 
 

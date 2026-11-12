@@ -6,10 +6,16 @@ import { VendorNotificationGateway } from '../../common/map-gateway/vendor-notif
 import { MapGateway } from '../../common/map-gateway/map.gateway';
 import { PushNotificationService } from './push-notification.service';
 import { DriverModule } from '../driver/driver.module';
+import { BullModule } from '@nestjs/bullmq';
+import { QUEUES } from '../../shared/constants';
 
 @Module({
   imports: [
     forwardRef(() => DriverModule),
+    BullModule.registerQueue(
+      { name: QUEUES.CUSTOMER_NOTIFICATION },
+      { name: QUEUES.VENDOR_NOTIFICATION },
+   ),
   ],
   controllers: [NotificationController],
   providers: [

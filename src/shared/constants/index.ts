@@ -53,7 +53,8 @@ export const QUEUES = {
     GEOCODE_STORE: '{geocode-store}',
     GEOCODE_STORE_JOB: '{geocode-store-job}',
     PREPARATION: '{preparation}',
-  
+    CUSTOMER_NOTIFICATION: '{customer-notification}',
+    VENDOR_NOTIFICATION: '{vendor-notification}',
 } as const;
 
 export type QueueName = typeof QUEUES[keyof typeof QUEUES];
