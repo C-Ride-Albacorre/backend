@@ -419,45 +419,7 @@ export class DriverEarningsService {
     };
   }
 
-  private async getWalletSnapshotold2(driverId: string) {
-  const wallet = await this.prisma.wallet.findUnique({
-    where: { userId: driverId },
-    select: { balance: true, currency: true },
-  });
 
-  const pending = await this.prisma.walletTransaction.aggregate({
-    where: {
-      wallet: { userId: driverId },
-      status: 'PENDING',
-      type: 'CREDIT',
-    },
-    _sum: { amount: true },
-  });
-
-  // Today's earnings — always "today", regardless of the dashboard's period.
-  const { start: todayStart, end: todayEnd } = this.resolveRange(
-    EarningsPeriod.TODAY,
-  );
-
-  const todayAgg = await this.prisma.driverEarning.aggregate({
-    where: {
-      driverId,
-      earnedAt: { gte: todayStart, lte: todayEnd },
-      status: { in: ['EARNED', 'CLEARED'] },
-    },
-    _sum: { totalAmount: true },
-  });
-
-  return {
-    /** Real wallet balance — what the driver can withdraw right now. */
-    availableBalance: Helper.round2(wallet?.balance ?? 0),
-    /** Earnings inside the hold window — not yet withdrawable. */
-    pendingBalance: Helper.round2(pending._sum.amount ?? 0),
-    /** Today's earnings, independent of the dashboard's selected period. */
-    todayEarnings: Helper.round2(todayAgg._sum.totalAmount ?? 0),
-    currency: wallet?.currency ?? 'NGN',
-  };
-}
 
 private async getWalletSnapshot(driverId: string) {
   const { start: todayStart, end: todayEnd } = this.resolveRange(

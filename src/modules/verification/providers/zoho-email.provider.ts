@@ -178,6 +178,8 @@ async sendOrderConfirmation(
   );
 }
 
+
+
 private generatePickupConfirmationEmail(
   orderNumber: string,
   driverName?: string,
@@ -822,5 +824,519 @@ private generateStoreSuspensionEmail(
   `;
 }
 
+
+async sendVendorOrderAcceptedNotification(
+  to: string,
+  orderNumber: string,
+  body: string,
+): Promise<any> {
+  const subject = `Order #${orderNumber} accepted`;
+  const html = this.generateVendorOrderAcceptedEmail(orderNumber, body);
+
+  this.logger.log(
+    `Sending vendor order accepted notification email to ${to}`,
+  );
+
+  return this.sendEmail(
+    to,
+    subject,
+    `Your order #${orderNumber} has been accepted.`,
+    html,
+  );
+}
+
+private generateVendorOrderAcceptedEmail(
+  orderNumber: string,
+  body: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Order Accepted</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Order Accepted 🎉
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            ${body}
+          </p>
+
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #666;">Order Number</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${orderNumber}
+            </h3>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            Please review the order details and proceed accordingly.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+
+async sendVendorOrderReadyNotification(
+  to: string,
+  orderNumber: string,
+  storeName: string,
+): Promise<any> {
+  const subject = `Order #${orderNumber} marked ready`;
+
+  const html = this.generateVendorOrderReadyEmail(
+    orderNumber,
+    storeName,
+  );
+
+  this.logger.log(
+    `Sending vendor order ready notification email to ${to}`,
+  );
+
+  return this.sendEmail(
+    to,
+    subject,
+    `Order #${orderNumber} for ${storeName} has been marked ready. Driver dispatch has started.`,
+    html,
+  );
+}
+
+private generateVendorOrderReadyEmail(
+  orderNumber: string,
+  storeName: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Order Ready Successfully</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Order Ready Successfully 🎉
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Order #${orderNumber} for ${storeName} has been marked ready.
+          </p>
+
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #666;">Order Number</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${orderNumber}
+            </h3>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            Driver dispatch has started. Please ensure the order is ready for pickup.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+async sendCustomerOrderCancelledNotification(
+  to: string,
+  orderNumber: string,
+  reason?: string,
+): Promise<any> {
+  const subject = `Order #${orderNumber} has been cancelled`;
+
+  const html = this.generateCustomerOrderCancelledEmail(
+    orderNumber,
+    reason,
+  );
+
+  this.logger.log(
+    `Sending customer order cancelled notification email to ${to}`,
+  );
+
+  return this.sendEmail(
+    to,
+    subject,
+    `Unfortunately, your order #${orderNumber} has been cancelled by the store.${reason ? ` Reason: ${reason}` : ''}`,
+    html,
+  );
+}
+
+private generateCustomerOrderCancelledEmail(
+  orderNumber: string,
+  reason?: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Order Cancelled</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #dc3545; text-align: center;">
+            Order Cancelled ❌
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Unfortunately, your order has been cancelled by the store.
+          </p>
+
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #666;">Order Number</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${orderNumber}
+            </h3>
+          </div>
+
+          ${
+            reason
+              ? `
+                <div style="background: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0;">
+                  <p style="margin: 0; color: #856404;">
+                    <strong>Cancellation Reason:</strong> ${reason}
+                  </p>
+                </div>
+              `
+              : ''
+          }
+
+          <p style="font-size: 16px; color: #555555;">
+            We apologize for any inconvenience caused. Thank you for your understanding.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+
+async sendCustomerOrderDeliveredNotification(
+  to: string,
+  orderNumber: string,
+): Promise<any> {
+  const subject = `Order #${orderNumber} delivered successfully`;
+
+  const html = this.generateCustomerOrderDeliveredEmail(orderNumber);
+
+  this.logger.log(
+    `Sending customer order delivered notification email to ${to}`,
+  );
+
+  return this.sendEmail(
+    to,
+    subject,
+    `Your order #${orderNumber} has been successfully delivered. Thank you for ordering with us!`,
+    html,
+  );
+}
+
+private generateCustomerOrderDeliveredEmail(
+  orderNumber: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Order Delivered Successfully</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #28a745; text-align: center;">
+            Order Delivered Successfully! 🎉
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Your order has been successfully delivered.
+          </p>
+
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #666;">Order Number</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${orderNumber}
+            </h3>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            We hope you enjoy your order. Thank you for choosing us!
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            We look forward to serving you again.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+async sendVendorDriverAssignedNotification(
+  to: string,
+  orderNumber: string,
+  storeName: string,
+): Promise<any> {
+  const subject = `Driver assigned to order #${orderNumber}`;
+
+  const html = this.generateVendorDriverAssignedEmail(
+    orderNumber,
+    storeName,
+  );
+
+  this.logger.log(
+    `Sending vendor driver assigned notification email to ${to}`,
+  );
+
+  return this.sendEmail(
+    to,
+    subject,
+    `A driver has accepted order #${orderNumber} and is assigned to pick it up from ${storeName}.`,
+    html,
+  );
+}
+
+private generateVendorDriverAssignedEmail(
+  orderNumber: string,
+  storeName: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Driver Assigned</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Driver Assigned to Your Order 🚗
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            A driver has accepted your order and is assigned to pick it up.
+          </p>
+
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #666;">Order Number</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${orderNumber}
+            </h3>
+            <p style="margin: 0; color: #666;">Store</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${storeName}
+            </h3>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            Please ensure the order is prepared and ready for pickup when the driver arrives.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+
+async sendVendorDriverArrivedNotification(
+  to: string,
+  orderNumber: string,
+  storeName: string,
+): Promise<any> {
+  const subject = 'Driver Arrived at Your Store 🚗';
+
+  const html = this.generateVendorDriverArrivedEmail(
+    orderNumber,
+    storeName,
+  );
+
+  this.logger.log(
+    `Sending vendor driver arrived notification email to ${to}`,
+  );
+
+  return this.sendEmail(
+    to,
+    subject,
+    `The driver has arrived at ${storeName} to pick up order #${orderNumber}. Please hand over the order.`,
+    html,
+  );
+}
+
+private generateVendorDriverArrivedEmail(
+  orderNumber: string,
+  storeName: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Driver Arrived at Store</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Driver Arrived at Your Store 🚗
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            The driver has arrived at your store to pick up the order.
+          </p>
+
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #666;">Order Number</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${orderNumber}
+            </h3>
+            <p style="margin: 0; color: #666;">Store</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${storeName}
+            </h3>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            Please hand over the order to the driver so delivery can proceed.
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Thank you for your cooperation.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+
+async sendVendorOrderDeliveredNotification(
+  to: string,
+  orderNumber: string,
+  storeName: string,
+): Promise<any> {
+  const subject = `Order #${orderNumber} delivered successfully`;
+
+  const html = this.generateVendorOrderDeliveredEmail(
+    orderNumber,
+    storeName,
+  );
+
+  this.logger.log(
+    `Sending vendor order delivered notification email to ${to}`,
+  );
+
+  return this.sendEmail(
+    to,
+    subject,
+    `Order #${orderNumber} from ${storeName} has been successfully delivered to the customer.`,
+    html,
+  );
+}
+
+private generateVendorOrderDeliveredEmail(
+  orderNumber: string,
+  storeName: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Order Delivered Successfully</title>
+      </head>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #28a745; text-align: center;">
+            Order Delivered Successfully! 🎉
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Your order has been successfully delivered to the customer.
+          </p>
+
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #666;">Order Number</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${orderNumber}
+            </h3>
+            <p style="margin: 0; color: #666;">Store</p>
+            <h3 style="margin: 10px 0; color: #000;">
+              ${storeName}
+            </h3>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            Thank you for successfully fulfilling this order.
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            We appreciate your continued partnership!
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
 
 }

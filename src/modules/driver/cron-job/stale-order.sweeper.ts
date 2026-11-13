@@ -15,12 +15,12 @@ export class StaleOrderSweeper {
   ) {}
 
   @Cron(CronExpression.EVERY_10_MINUTES)
-  async sweepStaleAcceptedOrders() {
+  async sweepStaleProcessingOrders() {
     const cutoff = new Date(Date.now() - 30 * 60 * 1000); // 30 minutes
 
     const staleOrders = await this.prisma.order.findMany({
       where: {
-        orderStatus: OrderStatus.ORDER_ACCEPTED,
+        orderStatus: OrderStatus.ORDER_PROCESSING,
         createdAt: { lt: cutoff },
       },
       select: { id: true, orderNumber: true },
@@ -28,7 +28,7 @@ export class StaleOrderSweeper {
 
     if (!staleOrders.length) return;
 
-    this.logger.warn(`Sweeping ${staleOrders.length} stale ACCEPTED orders`);
+    this.logger.warn(`Sweeping ${staleOrders.length} stale PROCESSING orders`);
 
     for (const order of staleOrders) {
       try {

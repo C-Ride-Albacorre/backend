@@ -67,6 +67,7 @@ export class VendorNotificationProcessor extends WorkerHost {
                 }
                 break;
             };
+
             case 'order-accepted': {
                 const { orderId, storeId, prepMins } = job.data;
 
@@ -115,25 +116,28 @@ export class VendorNotificationProcessor extends WorkerHost {
                     },
                 });
 
-                await this.pushService.sendToVendor(store.userId, {
-                    title,
-                    body,
-                    data: {
-                        orderId: String(orderId),
-                        orderNumber: order.orderNumber,
-                        storeId: String(storeId),
-                        prepMins: String(prepMins),
-                        type: 'ORDER_ACCEPTED',
-                    },
-                    priority: 'high',
-                    sound: 'default',
-                });
+                if (false) {
+                    await this.pushService.sendToVendor(store.userId, {
+                        title,
+                        body,
+                        data: {
+                            orderId: String(orderId),
+                            orderNumber: order.orderNumber,
+                            storeId: String(storeId),
+                            prepMins: String(prepMins),
+                            type: 'ORDER_ACCEPTED',
+                        },
+                        priority: 'high',
+                        sound: 'default',
+                    });
+                }
 
-                if (vendor?.email) {
-                    await this.zohoEmailProvider.sendEmail(
+                if (false && vendor?.email) {
+
+                    await this.zohoEmailProvider.sendVendorOrderAcceptedNotification(
                         vendor.email,
-                        `Order #${order.orderNumber} accepted`,
-                        `<p>${body}</p>`,
+                        `${order.orderNumber}`,
+                        body,
                     );
                 }
 
@@ -186,25 +190,27 @@ export class VendorNotificationProcessor extends WorkerHost {
                             storeId,
                             reason: reason ?? null,
                             type: 'ORDER_DECLINED',
+                            declinedAt: new Date(),
                         },
                     },
                 });
 
-                await this.pushService.sendToVendor(store.userId, {
-                    title,
-                    body,
-                    data: {
-                        orderId: String(orderId),
-                        orderNumber: order.orderNumber,
-                        storeId: String(storeId),
-                        reason: reason ?? '',
-                        type: 'ORDER_DECLINED',
-                    },
-                    priority: 'high',
-                    sound: 'default',
-                });
-
-                if (vendor?.email) {
+                if (false) {
+                    await this.pushService.sendToVendor(store.userId, {
+                        title,
+                        body,
+                        data: {
+                            orderId: String(orderId),
+                            orderNumber: order.orderNumber,
+                            storeId: String(storeId),
+                            reason: reason ?? '',
+                            type: 'ORDER_DECLINED',
+                        },
+                        priority: 'high',
+                        sound: 'default',
+                    });
+                }
+                if (false && vendor?.email) {
                     await this.zohoEmailProvider.sendEmail(
                         vendor.email,
                         `Order #${order.orderNumber} declined`,
@@ -270,25 +276,26 @@ export class VendorNotificationProcessor extends WorkerHost {
                 });
 
                 // Push notification
-                await this.pushService.sendToVendor(store.userId, {
-                    title,
-                    body,
-                    data: {
-                        orderId: String(orderId),
-                        orderNumber: order.orderNumber,
-                        storeId: String(storeId),
-                        type: 'ORDER_READY',
-                    },
-                    priority: 'high',
-                    sound: 'default',
-                });
-
+                if (false) {
+                    await this.pushService.sendToVendor(store.userId, {
+                        title,
+                        body,
+                        data: {
+                            orderId: String(orderId),
+                            orderNumber: order.orderNumber,
+                            storeId: String(storeId),
+                            type: 'ORDER_READY',
+                        },
+                        priority: 'high',
+                        sound: 'default',
+                    });
+                }
                 // Email notification
-                if (vendor?.email) {
-                    await this.zohoEmailProvider.sendEmail(
+                if (false && vendor?.email) {
+                    await this.zohoEmailProvider.sendVendorOrderReadyNotification(
                         vendor.email,
-                        `Order #${order.orderNumber} marked ready`,
-                        `<p>${body}</p>`,
+                        `${order.orderNumber}`,
+                        store.storeName,
                     );
                 }
 
@@ -354,6 +361,7 @@ export class VendorNotificationProcessor extends WorkerHost {
                 });
 
                 // Push notification
+
                 await this.pushService.sendToVendor(store.userId, {
                     title,
                     body,
@@ -370,10 +378,10 @@ export class VendorNotificationProcessor extends WorkerHost {
 
                 // Email notification
                 if (vendor?.email) {
-                    await this.zohoEmailProvider.sendEmail(
+                    await this.zohoEmailProvider.sendVendorDriverAssignedNotification(
                         vendor.email,
-                        `Driver assigned to order #${order.orderNumber}`,
-                        `<p>${body}</p>`,
+                        `${order.orderNumber}`,
+                        store.storeName,
                     );
                 }
 
@@ -438,7 +446,8 @@ export class VendorNotificationProcessor extends WorkerHost {
                 });
 
                 // 2. Push notification
-                await this.pushService.sendToUser(store.userId, {
+
+                await this.pushService.sendToVendor(store.userId, {
                     title,
                     body,
                     data: {
@@ -453,7 +462,7 @@ export class VendorNotificationProcessor extends WorkerHost {
                 });
 
                 // 3. Email notification
-                if (vendor?.email) {
+                if (false && vendor?.email) {
                     await this.zohoEmailProvider.sendEmail(
                         vendor.email,
                         `Order #${order.orderNumber} picked up by driver`,
@@ -524,7 +533,7 @@ export class VendorNotificationProcessor extends WorkerHost {
                 });
 
                 // 2. Push notification
-                await this.pushService.sendToUser(store.userId, {
+                await this.pushService.sendToVendor(store.userId, {
                     title,
                     body,
                     data: {
@@ -540,10 +549,10 @@ export class VendorNotificationProcessor extends WorkerHost {
 
                 // 3. Email notification
                 if (vendor?.email) {
-                    await this.zohoEmailProvider.sendEmail(
+                    await this.zohoEmailProvider.sendVendorDriverArrivedNotification(
                         vendor.email,
-                        title,
-                        `<p>${body}</p>`,
+                        `${order.orderNumber}`,
+                        store.storeName,
                     );
                 }
 
@@ -621,14 +630,10 @@ export class VendorNotificationProcessor extends WorkerHost {
 
                 // 3. Email notification
                 if (vendor?.email) {
-                    await this.zohoEmailProvider.sendEmail(
+                    await this.zohoEmailProvider.sendVendorOrderDeliveredNotification(
                         vendor.email,
-                        `Order #${order.orderNumber} delivered successfully`,
-                        `
-        <h2>Order Delivered Successfully!</h2>
-        <p>${body}</p>
-        <p>Thank you for fulfilling this order.</p>
-      `,
+                        `${order.orderNumber}`,
+                        store.storeName,
                     );
                 }
 

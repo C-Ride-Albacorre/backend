@@ -464,35 +464,4 @@ export class DriverAssignmentProcessor extends WorkerHost {
   }
 
 
-  private async handleDriverTimeoutOld(job: Job<{ orderId: string; driverId: string }>) {
-    const { orderId, driverId } = job.data;
-    const service = this.driverAssignmentService;
-
-    const pendingKey = `order:${orderId}:pending:${driverId}`;
-    const driverPendingSet = `driver:${driverId}:pending_claims`;
-
-    // Atomic claim
-    const claimed = await service.redis.del(pendingKey);
-    if (!claimed) {
-      this.logger.debug(`Timeout for driver ${driverId}, order ${orderId} ignored – key already claimed`);
-      return;
-    }
-
-    await service.redis.srem(driverPendingSet, orderId);
-
-    // DB check before proceeding
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      select: { orderStatus: true },
-    });
-    if (!order || order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
-      this.logger.debug(`Order ${orderId} is no longer ACCEPTED; not notifying next driver`);
-      return;
-    }
-
-    service.driverGateway?.emitRequestTimeout(driverId, orderId);
-    await service.tryNextDriver(orderId);
-  }
-
-
 }

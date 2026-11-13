@@ -36,9 +36,14 @@ export class DriverAssignmentService {
   public readonly logger = new Logger(DriverAssignmentService.name);
   private readonly googleMapsApiKey: string;
   private readonly driverSockets = new Map<string, string>();
-  private readonly DEFAULT_RADIUS_METERS = 10000;
-  private readonly TTL_SECONDS = 300;
+  // private readonly DEFAULT_RADIUS_METERS = 10000;
+  // private readonly TTL_SECONDS = 300;
   private readonly retryRadiiMeters = [10_000, 20_000];
+  private readonly DEFAULT_RADIUS_METERS = 10_000;
+  private readonly DRIVER_RESPONSE_TIMEOUT_SECONDS = 60;
+  private readonly PENDING_CLAIM_TTL_SECONDS = 90;
+  private readonly DISPATCH_RETRY_DELAY_MS = 30_000;
+  private readonly ASSIGNMENT_TIMEOUT_SECONDS = 180;
 
   constructor(
     public prisma: PrismaService,
@@ -85,11 +90,20 @@ export class DriverAssignmentService {
         data: { dispatchRadiusMeters: this.DEFAULT_RADIUS_METERS },
       });
 
+      await this.assignmentQueue.add(
+        'assignment-timeout',
+        { orderId },
+        {
+          delay: this.ASSIGNMENT_TIMEOUT_SECONDS * 1000,
+          jobId: `assignment-timeout-${orderId}`,
+          removeOnComplete: true,
+        },
+      );
+
       // Enqueue the search job
       this.logger.log(`Enqueuing driver search job for order ${orderId} with assignment ID ${assignment.id}`);
       await this.assignmentQueue.add(
         'search-and-notify',
-        // { orderId, assignmentId: assignment.id, vendorLocation },
         {
           orderId,
           assignmentId: assignment.id,
@@ -199,7 +213,7 @@ export class DriverAssignmentService {
       const seedPipeline = this.redis.pipeline();
       for (const driver of drivers) {
         const pendingKey = `order:${orderId}:pending:${driver.userId}`;
-        seedPipeline.setex(pendingKey, this.TTL_SECONDS, 'pending');
+        seedPipeline.setex(pendingKey, this.PENDING_CLAIM_TTL_SECONDS, 'pending');
         seedPipeline.sadd(`driver:${driver.userId}:pending_claims`, orderId);
         seedPipeline.sadd(`order:${orderId}:pending_drivers`, driver.userId);
       }
@@ -294,7 +308,7 @@ export class DriverAssignmentService {
             'driver-response-timeout',
             { orderId: o.orderId, driverId: driver.userId },
             {
-              delay: this.TTL_SECONDS * 1000,
+              delay: this.DRIVER_RESPONSE_TIMEOUT_SECONDS * 1000,
               jobId: `timeout-${o.orderId}-${driver.userId}`,
               removeOnComplete: true,
             },
@@ -302,15 +316,15 @@ export class DriverAssignmentService {
         }
       }
 
-      await this.assignmentQueue.add(
-        'assignment-timeout',
-        { orderId },
-        {
-          delay: this.TTL_SECONDS * 1000,
-          jobId: `assignment-timeout-${orderId}`,
-          removeOnComplete: true,
-        },
-      );
+      // await this.assignmentQueue.add(
+      //   'assignment-timeout',
+      //   { orderId },
+      //   {
+      //     delay: this.ASSIGNMENT_TIMEOUT_SECONDS * 1000,
+      //     jobId: `assignment-timeout-${orderId}`,
+      //     removeOnComplete: true,
+      //   },
+      // );
 
       this.logger.log(
         `Notified ${drivers.length} drivers for order ${orderId}`,
@@ -1275,7 +1289,7 @@ export class DriverAssignmentService {
           'retry-driver-search',
           { orderId, radius, attempt: attempt + 1 },
           {
-            delay: 30_000,
+            delay: this.DISPATCH_RETRY_DELAY_MS,
             jobId: `retry-${orderId}-${attempt}`,
             removeOnComplete: true,
           },
