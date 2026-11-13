@@ -68,7 +68,7 @@ export class PaymentController {
     status: 500,
     description: 'Internal server error during verification',
   })
-async paymentCallback(
+async paymentCallbackNew(
   @Query('transactionReference') transactionReference: string,
   @Query('paymentReference') paymentReference: string,
   @Res() res: Response,
@@ -157,7 +157,7 @@ async paymentCallback(
   }
 }
 
-  async paymentCallbackOld(
+  async paymentCallback(
     @Query('transactionReference') transactionReference: string,
     @Query('paymentReference') paymentReference: string,
     @Res() res: Response,
