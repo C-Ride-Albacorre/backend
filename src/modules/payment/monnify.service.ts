@@ -1003,7 +1003,100 @@ if (paymentUpdate.count === 0) {
 
 
   // ==================== VERIFICATION & CALLBACK ====================
-  async verifyPaymentAndUpdate(transactionReference: string) {
+  
+
+async verifyPaymentAndUpdate(transactionReference: string) {
+  this.logger.log(
+    `Verifying and updating for transaction: ${transactionReference}`,
+  );
+
+  const order = await this.prisma.order.findFirst({
+    where: {
+      OR: [
+        { monnifyReference: transactionReference },
+        { paymentReference: transactionReference },
+      ],
+    },
+  });
+
+  if (!order) {
+    throw new NotFoundException(
+      'Order not found for this transaction',
+    );
+  }
+
+  // Verify with Monnify FIRST
+  const verification = await this.verifyPayment(transactionReference);
+
+  if (verification?.responseBody?.paymentStatus !== 'PAID') {
+    throw new BadRequestException(
+      'Payment not confirmed by Monnify',
+    );
+  }
+
+  // Update payment status only after verification
+  const paymentUpdate = await this.prisma.order.updateMany({
+    where: {
+      id: order.id,
+      paymentStatus: PaymentStatus.PENDING,
+    },
+    data: {
+      paymentStatus: PaymentStatus.PAID,
+    },
+  });
+
+  if (paymentUpdate.count === 0) {
+    this.logger.warn(
+      `Payment already processed for order ${order.id}`,
+    );
+
+    return {
+      status: 'PAID',
+      message: 'Payment already processed',
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+    };
+  }
+
+  // Transition order
+  try {
+    await this.orderService.transition(
+      order.id,
+      OrderStatus.CONFIRMED,
+      {
+        actorId: order.userId,
+        actorRole: 'CUSTOMER',
+        reason: 'Payment verified via callback',
+      },
+    );
+  } catch (err) {
+    if (
+      err instanceof BadRequestException &&
+      String(err.message).includes('Invalid transition')
+    ) {
+      this.logger.warn(
+        `Order ${order.id} already CONFIRMED; skipping`,
+      );
+    } else {
+      throw err;
+    }
+  }
+
+  // Notify vendors
+  await this.notificationService
+    .notifyVendorsForOrder(order.id)
+    .catch((e) => this.logger.error(e));
+
+  return {
+    status: 'PAID',
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+  };
+}
+
+
+
+  async verifyPaymentAndUpdateold(transactionReference: string) {
     this.logger.log(
       `Verifying and updating for transaction: ${transactionReference}`,
     );
