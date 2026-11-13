@@ -66,7 +66,72 @@ export class PaymentController {
     status: 500,
     description: 'Internal server error during verification',
   })
-  async paymentCallback(
+  
+async paymentCallback(
+  @Query('transactionReference') transactionReference: string,
+  @Query('paymentReference') paymentReference: string,
+  @Res() res: Response,
+) {
+  const frontendUrl = this.configService.get('FRONTEND_URL');
+
+  let orderId = '';
+
+  console.log('Callback received:', {
+    transactionReference,
+    paymentReference,
+  });
+
+  try {
+    let result;
+
+    if (transactionReference) {
+      result = await this.monnifyService.verifyPaymentAndUpdate(
+        transactionReference,
+      );
+    } else if (paymentReference) {
+      result = await this.monnifyService.verifyByPaymentReference(
+        paymentReference,
+      );
+    } else {
+      return res.redirect(
+        `${frontendUrl}/payment/error?reason=missing_reference`,
+      );
+    }
+
+    // Assign immediately after verification
+    orderId = result?.orderId || '';
+
+    console.log('Verification result:', result);
+    console.log('Resolved orderId:', orderId);
+
+    const params = new URLSearchParams({
+      status: result.status || 'UNKNOWN',
+      orderId,
+      orderNumber: result.orderNumber || '',
+    });
+
+    return res.redirect(
+      `${frontendUrl}/payment/result?${params.toString()}`,
+    );
+
+  } catch (error) {
+    console.error('Payment callback error:', error);
+
+    const ref = transactionReference || paymentReference;
+
+    const params = new URLSearchParams({
+      reason: 'verification_failed',
+      ref: ref || '',
+      orderId,
+    });
+
+    return res.redirect(
+      `${frontendUrl}/payment/error?${params.toString()}`,
+    );
+  }
+}
+
+  async paymentCallbackOld(
     @Query('transactionReference') transactionReference: string,
     @Query('paymentReference') paymentReference: string,
     @Res() res: Response,
