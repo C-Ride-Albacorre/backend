@@ -74,7 +74,7 @@ export const RedisProvider: Provider = {
 
       enableReadyCheck: true,
 
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: null,
 
       connectTimeout: 10000,
 
