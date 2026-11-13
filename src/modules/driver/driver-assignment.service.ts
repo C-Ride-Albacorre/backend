@@ -1166,7 +1166,118 @@ export class DriverAssignmentService {
 
 
   // inside DriverAssignmentService
-  public async getRouteDetails(
+  
+public async getRouteDetails(
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): Promise<{ durationSec: number; polyline: string }> {
+  this.logger.log(
+    `Getting route details from (${origin.lat}, ${origin.lng}) to (${destination.lat}, ${destination.lng})`,
+  );
+
+  if (!this.googleMapsApiKey) {
+    this.logger.warn(
+      'Google Maps API key not configured, using fallback for route details',
+    );
+
+    return {
+      durationSec: this.estimateEtaFallback(origin, destination),
+      polyline: '',
+    };
+  }
+
+  try {
+    this.logger.log('Calling Google Routes API for route details');
+
+    const url =
+      'https://routes.googleapis.com/directions/v2:computeRoutes';
+
+    const requestBody = {
+      origin: {
+        location: {
+          latLng: {
+            latitude: origin.lat,
+            longitude: origin.lng,
+          },
+        },
+      },
+      destination: {
+        location: {
+          latLng: {
+            latitude: destination.lat,
+            longitude: destination.lng,
+          },
+        },
+      },
+      travelMode: 'DRIVE',
+      routingPreference: 'TRAFFIC_AWARE',
+      polylineQuality: 'HIGH_QUALITY',
+      polylineEncoding: 'ENCODED_POLYLINE',
+    };
+
+    const response = await axios.post(url, requestBody, {
+      timeout: 8000,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': this.googleMapsApiKey,
+        'X-Goog-FieldMask':
+          'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline',
+      },
+    });
+
+    this.logger.log(
+      `Received response from Routes API: status ${response.status}`,
+    );
+
+    const route = response.data.routes?.[0];
+
+    if (!route) {
+      throw new Error(
+        `No route found. Response: ${JSON.stringify(response.data)}`,
+      );
+    }
+
+    // Routes API returns duration as a string, e.g. "325s"
+    const durationSec = Number.parseFloat(
+      route.duration?.replace('s', ''),
+    );
+
+    if (!Number.isFinite(durationSec) || durationSec <= 0) {
+      this.logger.warn(
+        `Invalid duration in Routes API response: ${route.duration}`,
+      );
+      throw new Error('No valid duration in Routes API response');
+    }
+
+    const polyline =
+      route.polyline?.encodedPolyline ?? '';
+
+    if (!polyline) {
+      this.logger.warn('Routes API returned an empty polyline');
+    }
+
+    this.logger.log(
+      `Route successfully retrieved. Duration: ${durationSec}s, Distance: ${route.distanceMeters}m, Polyline length: ${polyline.length}`,
+    );
+
+    return {
+      durationSec,
+      polyline,
+    };
+  } catch (error) {
+    this.logger.warn(
+      `Routes API failed, using fallback`,
+      error instanceof Error ? error.stack : String(error),
+    );
+
+    return {
+      durationSec: this.estimateEtaFallback(origin, destination),
+      polyline: '',
+    };
+  }
+}
+
+  public async getRouteDetailsOld(
     origin: { lat: number; lng: number },
     destination: { lat: number; lng: number },
   ): Promise<{ durationSec: number; polyline: string }> {
