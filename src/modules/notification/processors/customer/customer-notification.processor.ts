@@ -112,7 +112,7 @@ export class CustomerNotificationProcessor extends WorkerHost {
                     sound: 'default',
                 });
 
-                if (order.user?.email) {
+                if (false && order.user?.email) {
                     await this.zohoEmailProvider.sendEmail(
                         order.user.email,
                         `Order #${order.orderNumber} is being prepared`,
@@ -176,10 +176,10 @@ export class CustomerNotificationProcessor extends WorkerHost {
                 });
 
                 if (order.user?.email) {
-                    await this.zohoEmailProvider.sendEmail(
+                    await this.zohoEmailProvider.sendCustomerOrderCancelledNotification(
                         order.user.email,
-                        `Order #${order.orderNumber} has been cancelled`,
-                        `<p>${body}</p>`,
+                        `${order.orderNumber}`,
+                        reason,
                     );
                 }
 
@@ -239,7 +239,7 @@ export class CustomerNotificationProcessor extends WorkerHost {
                 });
 
                 // Email notification
-                if (order.user?.email) {
+                if (false && order.user?.email) {
                     await this.zohoEmailProvider.sendEmail(
                         order.user.email,
                         `Order #${order.orderNumber} is ready`,
@@ -307,7 +307,7 @@ export class CustomerNotificationProcessor extends WorkerHost {
                 });
 
                 // Email notification
-                if (order.user?.email) {
+                if (false && order.user?.email) {
                     await this.zohoEmailProvider.sendEmail(
                         order.user.email,
                         `Driver assigned to order #${order.orderNumber}`,
@@ -375,7 +375,7 @@ export class CustomerNotificationProcessor extends WorkerHost {
                 });
 
                 // 3. Email notification
-                if (order.user?.email) {
+                if (false && order.user?.email) {
                     await this.zohoEmailProvider.sendEmail(
                         order.user.email,
                         `Your order #${order.orderNumber} has been picked up`,
@@ -452,7 +452,7 @@ export class CustomerNotificationProcessor extends WorkerHost {
                 });
 
                 // 3. Email notification
-                if (order.user?.email) {
+                if (false && order.user?.email) {
                     await this.zohoEmailProvider.sendEmail(
                         order.user.email,
                         title,
@@ -521,14 +521,9 @@ export class CustomerNotificationProcessor extends WorkerHost {
 
                 // 3. Email notification
                 if (order.user?.email) {
-                    await this.zohoEmailProvider.sendEmail(
+                    await this.zohoEmailProvider.sendCustomerOrderDeliveredNotification(
                         order.user.email,
-                        `Order #${order.orderNumber} delivered successfully`,
-                        `
-        <h2>Order Delivered Successfully!</h2>
-        <p>${body}</p>
-        <p>We hope you enjoy your order. Thank you for choosing us!</p>
-      `,
+                        `${order.orderNumber}`,
                     );
                 }
 
