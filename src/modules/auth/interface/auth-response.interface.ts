@@ -11,6 +11,7 @@ export interface AuthResponse {
     phoneNumber?: string;
     role: Role;
     isNewUser?: boolean;
+    hasEmail?: boolean;
   };
 }
 

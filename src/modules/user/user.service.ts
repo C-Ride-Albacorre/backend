@@ -109,6 +109,7 @@ async createCustomer(
       verificationIdentifier: registrationInput,
       user: existingUser,
       isNewUser: true,
+      hasEmail: !!existingUser.email,
     };
   }
 
@@ -156,6 +157,7 @@ async createCustomer(
     verificationIdentifier: registrationInput,
     user,
     isNewUser: true,
+    hasEmail: !!user.email,
   };
 }
 /**
@@ -347,7 +349,7 @@ private async ensureWalletExists(userId: string): Promise<void> {
     identifier: string,
     verificationMethod: string,
   ): Promise<
-    | { success: true; user: User; isNewUser: boolean }
+    | { success: true; user: User; isNewUser: boolean; hasEmail: boolean }
     | {
       success: false;
       status: 'UNVERIFIED';
@@ -444,6 +446,7 @@ const user = await this.userRepository.findExistingUser(
       success: true,
       user: updatedUser,
       isNewUser, // ✅ include this
+      hasEmail: !!updatedUser.email, // ✅ include this
     };
   }
 
