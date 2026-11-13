@@ -124,31 +124,8 @@ export class AuthController {
   }
 
   //CUSTOMER
-  // @Post('/customer/signup')
-  // @ApiOperation({ summary: 'Sign up a new customer' })
-  // @ApiBody({
-  //   type: CreateCustomerDto,
-  //   description: 'Sign up a new customer',
-  //   required: true,
-  //   schema: {
-  //     example: { email: 'user@example.com', password: 'password' },
-  //   },
-  // })
-  // @ApiResponse({
-  //   status: 201,
-  //   description: 'User successfully registered',
-  //   type: ApiResponseDto<AuthResponseDto>,
-  // })
-  // @ApiResponse({
-  //   status: 400,
-  //   description: 'Validation or bad request error',
-  //   type: ApiErrorResponseDto,
-  // })
-  // async registerCustomer(@Body() dto: CreateCustomerDto) {
-  //   return this.authService.registerCustomer(dto);
-  // }
-
-  @Post('/customer/signup')
+  
+@Post('/customer/signup')
 @ApiOperation({ summary: 'Sign up a new customer' })
 @ApiHeader({
   name: 'x-session-id',
@@ -191,19 +168,7 @@ async registerCustomer(
   async verifyRegistration(@Body() verifyOtpDto: VerifyOtpDto) {
     return this.authService.verifyRegistration(verifyOtpDto);
   }
-  // @Post('/customer/verify')
-  // @UseGuards(JwtAuthGuard)
-  // @ApiBearerAuth()
-  // @ApiOperation({ summary: 'Verify registration OTP' })
-  // @ApiResponse({
-  //   status: 200,
-  //   description: 'Verification successful',
-  //   type: AuthResponseDto,
-  // })
-  // @ApiResponse({ status: 401, description: 'Invalid OTP' })
-  // async verifyRegistration(@Req() req, @Body() dto: VerifyOtpDto) {
-  //   return this.authService.verifyRegistration(req.user.id, dto);
-  // }
+
 
   @Post('resend-verification-token')
   @ApiOperation({

@@ -29,6 +29,9 @@ export class AuthResponseDto {
   refreshToken: string;
 
   @ApiProperty()
+  hasEmail: boolean;
+
+  @ApiProperty()
   user: {
     id: string;
     email: string;

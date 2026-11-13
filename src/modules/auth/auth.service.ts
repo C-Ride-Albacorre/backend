@@ -538,6 +538,7 @@ export class AuthService {
       verificationMethod,
       {
         isNewUser: !result.user.lastLoginAt,
+        hasEmail: !!result.user.email,
       },
     );
   }
@@ -689,7 +690,7 @@ export class AuthService {
     user: User,
     identifier: string,
     verificationMethod: 'email' | 'phone',
-    meta?: { isNewUser?: boolean },
+    meta?: { isNewUser?: boolean, hasEmail?: boolean },
   ): Promise<AuthResponse> {
     const tokens = await this.generateTokens(user);
 
@@ -709,6 +710,8 @@ export class AuthService {
         email: user.email,
         role: user.role,
         isNewUser: meta?.isNewUser ?? false,
+              hasEmail: !!user.email,
+
       },
     };
   }
@@ -1778,7 +1781,7 @@ async loginWithGoogleIdToken(dto: GoogleMobileLoginDto) {
     accessToken: auth.accessToken,
     refreshToken: auth.refreshToken,
     user: this.serializeUser(user),
-    nextAction: 'Complete onboarding',
+    //nextAction: 'Complete onboarding',
   };
 }
 
