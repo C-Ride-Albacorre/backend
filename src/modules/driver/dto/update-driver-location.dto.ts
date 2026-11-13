@@ -1,7 +1,7 @@
 // dto/update-driver-location.dto.ts
 
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, IsString } from 'class-validator';
+import { IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class UpdateDriverLocationDto {
   @ApiProperty({
@@ -15,6 +15,7 @@ export class UpdateDriverLocationDto {
     example: 'ord_98765',
     description: 'Order identifier',
   })
+  @IsOptional()
   @IsString()
   orderId: string;
 
