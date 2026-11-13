@@ -79,6 +79,8 @@ export class PaymentController {
     const frontendUrl = this.configService.get('FRONTEND_URL');
     console.log('frontendUrl:', frontendUrl); // <<-- log this
 
+      let orderId = '';
+
     if (!transactionReference && !paymentReference) {
       this.logger.error('Missing transactionReference and paymentReference in callback');
       return res.redirect(
@@ -100,8 +102,9 @@ export class PaymentController {
         result =
           await this.monnifyService.verifyByPaymentReference(paymentReference);
       }
+      orderId = result.orderId;
 
-      const params = new URLSearchParams({
+      let params = new URLSearchParams({
         status: result.status,
         orderId: result.orderId,
         orderNumber: result.orderNumber,
@@ -115,7 +118,7 @@ export class PaymentController {
       const ref = transactionReference || paymentReference;
       console.log('Redirect URL - ERROR:', `${frontendUrl}/payment/error?reason=verification_failed&ref=${ref}`);
       return res.redirect(
-        `${frontendUrl}/payment/error?reason=verification_failed&ref=${ref}`,
+        `${frontendUrl}/payment/error?reason=verification_failed&ref=${ref}&orderId=${orderId}`,
       );
     }
   }
