@@ -1175,7 +1175,63 @@ async verifyPaymentAndUpdate(transactionReference: string) {
     };
   }
 
-  async verifyPayment(transactionReference: string) {
+  
+async verifyPayment(transactionReference: string) {
+  this.logger.log(
+    `Verifying Monnify transaction: ${transactionReference}`,
+  );
+
+  const accessToken = await this.getAccessToken();
+
+  try {
+    const response = await axios.get(
+      `${this.baseUrl}/api/v1/merchant/transactions/query`,
+      {
+        params: { transactionReference },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        timeout: 15000,
+      },
+    );
+
+    this.logger.debug(
+      `Monnify response: ${JSON.stringify(response.data)}`,
+    );
+
+    if (!response.data?.requestSuccessful) {
+      throw new BadRequestException(
+        `Monnify rejected verification: ${
+          response.data?.responseMessage || 'Unknown error'
+        }`,
+      );
+    }
+
+    return response.data;
+
+  } catch (error) {
+    const axiosError = error as any;
+
+    this.logger.error(
+      'Monnify verification error',
+      JSON.stringify({
+        message: axiosError.message,
+        status: axiosError.response?.status,
+        response: axiosError.response?.data,
+      }),
+    );
+
+    throw new HttpException(
+      axiosError.response?.data?.responseMessage ||
+        axiosError.message ||
+        'Payment verification failed',
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}
+
+
+  async verifyPaymentOld(transactionReference: string) {
     this.logger.log(`Verifying payment for transactionReference: ${transactionReference}`);
     const accessToken = await this.getAccessToken();
     try {
@@ -1197,6 +1253,7 @@ async verifyPaymentAndUpdate(transactionReference: string) {
         'Payment verification failed',
         HttpStatus.BAD_REQUEST,
       );
+      
     }
   }
 
