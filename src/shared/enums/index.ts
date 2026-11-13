@@ -79,3 +79,10 @@ export enum ApprovalAction {
   REJECT = 'REJECT',
   SUSPEND = 'SUSPEND',
 }
+
+export enum MonnifyPaymentMethod {
+  CARD = 'CARD',
+  ACCOUNT_TRANSFER = 'ACCOUNT_TRANSFER',
+  USSD = 'USSD',
+  QR_CODE = 'QR_CODE',
+}

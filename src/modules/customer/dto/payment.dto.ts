@@ -2,13 +2,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsUUID, IsString, IsEnum, IsOptional, IsObject, ValidateNested, IsNumber, IsEmail } from 'class-validator';
+import { MonnifyPaymentMethod } from '../../../shared/enums';
 
-export enum MonnifyPaymentMethod {
-  CARD = 'CARD',
-  ACCOUNT_TRANSFER = 'ACCOUNT_TRANSFER',
-  USSD = 'USSD',
-  QR_CODE = 'QR_CODE',
-}
 
 export class InitializePaymentDto {
   @ApiProperty()
@@ -46,11 +41,14 @@ export class MonnifyPaymentResponse {
     transactionReference: string;
     paymentReference: string;
     checkoutUrl?: string;
+    enabledPaymentMethod?: string[];
     qrCodeImage?: string;
     ussdCode?: string;
     bankName?: string;
     accountNumber?: string;
     amount: number;
+    [key: string]: any;
+
   };
 }
 

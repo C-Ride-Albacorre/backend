@@ -354,7 +354,243 @@ export class NotificationService {
    * Fired when the dispatch retries are exhausted and the order
    * flips to UNACCEPTED. Management rule: notify admin, NOT the customer.
    */
-  async sendUnacceptedAlert(orderId: string): Promise<void> {
+  
+async sendUnacceptedAlert(orderId: string): Promise<void> {
+  try {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: { include: { store: true } },
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            phoneNumber: true,
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      this.logger.warn(`sendUnacceptedAlert: order ${orderId} not found`);
+      return;
+    }
+
+    const recipients = await this.resolveAdminEmails();
+
+    if (!recipients.length) {
+      this.logger.error(
+        `No admin emails configured for UNACCEPTED alert on ${orderId}. ` +
+        `Set ADMIN_ALERT_EMAILS or create an ADMIN user.`,
+      );
+      return;
+    }
+
+    const store = order.items[0]?.store;
+
+    const customerName = [
+      order.user?.firstName,
+      order.user?.lastName,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .trim() || 'Customer';
+
+    const itemCount = order.items.reduce(
+      (sum, item) => sum + (item.quantity ?? 1),
+      0,
+    );
+
+    // Extract pickup coordinates using the same fallback
+    // logic used by your driver assignment process.
+    const pickupLocation = order.pickupLocation as any;
+    const dropoffLocation = order.dropoffLocation as any;
+
+    const vendorLocation = {
+      lat:
+        pickupLocation?.latitude ??
+        pickupLocation?.lat ??
+        store?.latitude,
+
+      lng:
+        pickupLocation?.longitude ??
+        pickupLocation?.lng ??
+        store?.longitude,
+    };
+
+    const pickup =
+      vendorLocation.lat != null && vendorLocation.lng != null
+        ? `${vendorLocation.lat}, ${vendorLocation.lng}`
+        : store?.storeAddress ?? 'Location unavailable';
+
+    // Extract dropoff coordinates/address.
+    const dropoffLat =
+      dropoffLocation?.latitude ??
+      dropoffLocation?.lat ??
+      dropoffLocation?.coordinates?.lat;
+
+    const dropoffLng =
+      dropoffLocation?.longitude ??
+      dropoffLocation?.lng ??
+      dropoffLocation?.coordinates?.lng;
+
+    const dropoffAddress =
+      dropoffLocation?.formattedAddress ??
+      dropoffLocation?.address ??
+      dropoffLocation?.fullAddress;
+
+    const dropoff =
+      dropoffAddress
+        ? `${dropoffAddress}${
+            dropoffLat != null && dropoffLng != null
+              ? ` (${dropoffLat}, ${dropoffLng})`
+              : ''
+          }`
+        : dropoffLat != null && dropoffLng != null
+          ? `${dropoffLat}, ${dropoffLng}`
+          : 'Location unavailable';
+
+    // Debug actual values if a location is still missing.
+    this.logger.log(
+      `UNACCEPTED order ${order.orderNumber} locations: ${JSON.stringify({
+        pickupLocation: order.pickupLocation,
+        dropoffLocation: order.dropoffLocation,
+        storeLocation: {
+          latitude: store?.latitude,
+          longitude: store?.longitude,
+          address: store?.storeAddress,
+        },
+        resolvedPickup: pickup,
+        resolvedDropoff: dropoff,
+      })}`,
+    );
+
+    const adminPortalUrl =
+      this.config.get<string>(
+        'ADMIN_PORTAL_URL',
+        'https://admin.example.com',
+      ) + '/dashboard';
+
+    const subject =
+      `[Action Required] No driver found for order #${order.orderNumber}`;
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto">
+        <h2 style="color:#b91c1c">Order needs manual dispatch</h2>
+
+        <p>
+          Order <strong>#${order.orderNumber}</strong> could not be assigned
+          to a driver after all automatic retries were exhausted.
+          Please manually assign a <strong>PARTNER</strong> driver from the
+          admin portal.
+        </p>
+
+        <h3>Order summary</h3>
+
+        <table style="width:100%;border-collapse:collapse">
+          <tr>
+            <td><b>Order #</b></td>
+            <td>${order.orderNumber}</td>
+          </tr>
+
+          <tr>
+            <td><b>Total</b></td>
+            <td>₦${Number(order.totalAmount).toLocaleString()}</td>
+          </tr>
+
+          <tr>
+            <td><b>Delivery fee</b></td>
+            <td>₦${Number(order.deliveryFee).toLocaleString()}</td>
+          </tr>
+
+          <tr>
+            <td><b>Items</b></td>
+            <td>${itemCount}</td>
+          </tr>
+
+          <tr>
+            <td><b>Store</b></td>
+            <td>${store?.storeName ?? 'N/A'}</td>
+          </tr>
+
+          <tr>
+            <td><b>Customer</b></td>
+            <td>${customerName} (${order.user?.phoneNumber ?? 'n/a'})</td>
+          </tr>
+
+          <tr>
+            <td><b>Pickup</b></td>
+            <td>${pickup}</td>
+          </tr>
+
+          <tr>
+            <td><b>Dropoff</b></td>
+            <td>${dropoff}</td>
+          </tr>
+
+          <tr>
+            <td><b>Created at</b></td>
+            <td>${order.createdAt.toISOString()}</td>
+          </tr>
+
+          <tr>
+            <td><b>Unaccepted at</b></td>
+            <td>${order.unacceptedAt?.toISOString() ?? 'just now'}</td>
+          </tr>
+        </table>
+
+        <p style="margin-top:24px">
+          <a
+            href="${adminPortalUrl}"
+            style="
+              background:#1d4ed8;
+              color:#fff;
+              padding:10px 18px;
+              border-radius:6px;
+              text-decoration:none;
+              display:inline-block
+            "
+          >
+            Open in admin portal →
+          </a>
+        </p>
+
+        <p style="color:#6b7280;font-size:12px">
+          This is an automated alert from the dispatch system.
+          Customers are intentionally not notified at this stage.
+        </p>
+      </div>
+    `;
+
+    for (const email of recipients) {
+      try {
+        await this.zohoEmailProvider.sendEmail(
+          email,
+          subject,
+          `Order ${order.orderNumber} needs manual driver assignment.`,
+          html,
+        );
+
+        this.logger.log(
+          `UNACCEPTED alert for ${order.orderNumber} sent to ${email}`,
+        );
+      } catch (err) {
+        this.logger.error(
+          `Failed to email ${email} about ${order.orderNumber}: ` +
+          `${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+  } catch (err) {
+    this.logger.error(
+      `sendUnacceptedAlert(${orderId}) failed: ` +
+      `${err instanceof Error ? err.stack : err}`,
+    );
+    // Never throw — this is a side-effect, order state is already persisted.
+  }
+}
+
+  async sendUnacceptedAlertOld(orderId: string): Promise<void> {
     try {
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
