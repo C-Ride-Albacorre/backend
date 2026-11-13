@@ -65,8 +65,13 @@ export class GoogleTokenVerifier {
         picture: payload.picture,
       };
     } catch (error: any) {
-      this.logger.warn(`Google ID token verification failed: ${error.message}`);
-      throw new UnauthorizedException('Invalid Google ID token');
+      // this.logger.warn(`Google ID token verification failed: ${error.message}`);
+      // throw new UnauthorizedException('Invalid Google ID token');
+      this.logger.warn(
+        `Google ID token verification failed: ${error.message} | code=${error.code} | response=${error.response?.data || ''}`,
+      );
+      throw new UnauthorizedException(`Invalid Google ID token: ${error.message}`);
     }
+
   }
 }
