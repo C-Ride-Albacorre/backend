@@ -21,6 +21,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { PrismaService } from '../../shared/services/prisma.service';
 
 @ApiTags('Payment')
 @Controller('payment')
@@ -30,6 +31,7 @@ export class PaymentController {
   constructor(
     private readonly monnifyService: MonnifyService,
     private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get('/callback')
@@ -66,13 +68,13 @@ export class PaymentController {
     status: 500,
     description: 'Internal server error during verification',
   })
-  
 async paymentCallback(
   @Query('transactionReference') transactionReference: string,
   @Query('paymentReference') paymentReference: string,
   @Res() res: Response,
 ) {
   const frontendUrl = this.configService.get('FRONTEND_URL');
+  const ref = transactionReference || paymentReference;
 
   let orderId = '';
 
@@ -82,6 +84,30 @@ async paymentCallback(
   });
 
   try {
+    if (!ref) {
+      return res.redirect(
+        `${frontendUrl}/payment/error?reason=missing_reference`,
+      );
+    }
+
+    // ── Pre-resolve the order so orderId is never empty on error ──
+    const order = await this.prisma.order.findFirst({
+      where: {
+        OR: [
+          { monnifyReference: ref },
+          { paymentReference: ref },
+        ],
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+        monnifyReference: true,
+      },
+    });
+    orderId = order?.id || '';
+
+    console.log('Pre-resolved orderId:', orderId);
+
     let result;
 
     if (transactionReference) {
@@ -98,8 +124,9 @@ async paymentCallback(
       );
     }
 
-    // Assign immediately after verification
-    orderId = result?.orderId || '';
+    // Keep the original assignment as a fallback in case the service
+    // returns a different id than we pre-resolved.
+    orderId = result?.orderId || orderId;
 
     console.log('Verification result:', result);
     console.log('Resolved orderId:', orderId);
@@ -117,8 +144,7 @@ async paymentCallback(
   } catch (error) {
     console.error('Payment callback error:', error);
 
-    const ref = transactionReference || paymentReference;
-
+    // orderId was resolved before verification, so it survives the throw.
     const params = new URLSearchParams({
       reason: 'verification_failed',
       ref: ref || '',
