@@ -4,7 +4,7 @@ import { AppService } from './app.service';
 import { SharedModule } from './shared/shared.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { HealthModule } from './modules/health/health.module';
 import { JwtStrategy } from './common/strategies/jwt.strategy';
 import { StoreModule } from './modules/store/store.module';
@@ -45,13 +45,35 @@ import { VendorModule } from './modules/vendor/vendor.module';
         }
       })(),
     }),
-    BullModule.forRoot({
-      connection: {
-        url: process.env.REDIS_URL,
-        maxRetriesPerRequest: null,
-      },
-    }),
-
+    // BullModule.forRoot({
+    //   connection: {
+    //     url: process.env.REDIS_URL,
+    //     maxRetriesPerRequest: null,
+    //   },
+    // }),
+BullModule.forRootAsync({
+  imports: [ConfigModule],
+  inject: [ConfigService],
+  useFactory: (config: ConfigService) => ({
+    connection: {
+      host: new URL(config.getOrThrow('REDIS_URL')).hostname,
+      port: Number(
+        new URL(config.getOrThrow('REDIS_URL')).port || 6379,
+      ),
+      username: new URL(config.getOrThrow('REDIS_URL')).username || undefined,
+      password: decodeURIComponent(
+        new URL(config.getOrThrow('REDIS_URL')).password,
+      ),
+      tls: new URL(config.getOrThrow('REDIS_URL')).protocol === 'rediss:'
+        ? {}
+        : undefined,
+      maxRetriesPerRequest: null,
+      enableReadyCheck: true,
+      retryStrategy: (times: number) =>
+        Math.min(times * 500, 5000),
+    },
+  }),
+}),
     SharedModule,
     AuthModule,
     UserModule,
