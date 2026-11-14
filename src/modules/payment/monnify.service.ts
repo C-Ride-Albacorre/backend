@@ -1013,7 +1013,7 @@ async resolveOrderId(ref: string): Promise<string> {
 
   // ==================== VERIFICATION & CALLBACK ====================
   
-async verifyPaymentAndUpdate(transactionReference: string) {
+async verifyPaymentAndUpdateNew(transactionReference: string) {
   this.logger.log(
     `Verifying and updating for transaction: ${transactionReference}`,
   );
@@ -1115,7 +1115,7 @@ async verifyPaymentAndUpdate(transactionReference: string) {
 
 
 
-  async verifyPaymentAndUpdateold(transactionReference: string) {
+  async verifyPaymentAndUpdate(transactionReference: string) {
     this.logger.log(
       `Verifying and updating for transaction: ${transactionReference}`,
     );
@@ -1195,7 +1195,7 @@ async verifyPaymentAndUpdate(transactionReference: string) {
   }
 
   
-async verifyPayment(transactionReference: string) {
+async verifyPaymentNew(transactionReference: string) {
   this.logger.log(
     `Verifying Monnify transaction: ${transactionReference}`,
   );
@@ -1250,7 +1250,7 @@ async verifyPayment(transactionReference: string) {
 }
 
 
-  async verifyPaymentOld(transactionReference: string) {
+  async verifyPayment(transactionReference: string) {
     this.logger.log(`Verifying payment for transactionReference: ${transactionReference}`);
     const accessToken = await this.getAccessToken();
     try {
@@ -1343,7 +1343,7 @@ async verifyPayment(transactionReference: string) {
    * Verify payment using paymentReference (instead of transactionReference)
    * Useful for callback flows where only paymentReference is available
    */
-  async verifyByPaymentReference(paymentReference: string) {
+  async verifyByPaymentReferenceNew(paymentReference: string) {
   this.logger.log(`Verifying payment by reference: ${paymentReference}`);
 
   if (!paymentReference) {
@@ -1370,7 +1370,7 @@ async verifyPayment(transactionReference: string) {
 
   return this.verifyPaymentAndUpdate(order.monnifyReference);
 }
-  async verifyByPaymentReferenceOld(paymentReference: string) {
+  async verifyByPaymentReference(paymentReference: string) {
     this.logger.log(`Verifying payment by reference: ${paymentReference}`);
 
     if (!paymentReference) {
