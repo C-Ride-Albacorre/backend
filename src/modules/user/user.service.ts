@@ -55,126 +55,126 @@ export class UserService {
    */
 
 
-async createCustomer(
-  dto: Partial<User>,
-  sessionId?: string,
-): Promise<PendingVerificationDto> {
-  if (dto.referralCode) {
-    const existing = await this.prisma.user.findUnique({
-      where: { referralCode: dto.referralCode },
-    });
-    if (existing) {
-      throw new BadRequestException('Referral code already exists');
-    }
-  }
-
-  // Normalize phone
-  if (dto.phoneNumber) {
-    const phone = parsePhoneNumberFromString(
-      dto.phoneNumber,
-      (dto.countryCode || 'NG') as CountryCode,
-    );
-    if (!phone || !phone.isValid()) {
-      throw new BadRequestException('Invalid phone number');
-    }
-    dto.phoneNumber = phone.format('E.164');
-  }
-
-  const registrationInput = dto.email || dto.phoneNumber;
-  const registrationMethod = Helper.getRegistrationMethod(registrationInput);
-
-  const existingUser = await this.userRepository.findExistingUser(
-    dto.email,
-    dto.phoneNumber,
-  );
-
-  // 🔁 Existing unverified → resend OTP, refresh pending session
-  if (existingUser && !existingUser.isVerified) {
-    await this.ensureWalletExists(existingUser.id);
-
-    // Refresh the pending session so it's used on verification
-    if (sessionId) {
-      await this.prisma.user.update({
-        where: { id: existingUser.id },
-        data: { pendingSessionId: sessionId.trim() || null },
+  async createCustomer(
+    dto: Partial<User>,
+    sessionId?: string,
+  ): Promise<PendingVerificationDto> {
+    if (dto.referralCode) {
+      const existing = await this.prisma.user.findUnique({
+        where: { referralCode: dto.referralCode },
       });
+      if (existing) {
+        throw new BadRequestException('Referral code already exists');
+      }
     }
 
-    await this.sendVerificationOtp(existingUser);
+    // Normalize phone
+    if (dto.phoneNumber) {
+      const phone = parsePhoneNumberFromString(
+        dto.phoneNumber,
+        (dto.countryCode || 'NG') as CountryCode,
+      );
+      if (!phone || !phone.isValid()) {
+        throw new BadRequestException('Invalid phone number');
+      }
+      dto.phoneNumber = phone.format('E.164');
+    }
+
+    const registrationInput = dto.email || dto.phoneNumber;
+    const registrationMethod = Helper.getRegistrationMethod(registrationInput);
+
+    const existingUser = await this.userRepository.findExistingUser(
+      dto.email,
+      dto.phoneNumber,
+    );
+
+    // 🔁 Existing unverified → resend OTP, refresh pending session
+    if (existingUser && !existingUser.isVerified) {
+      await this.ensureWalletExists(existingUser.id);
+
+      // Refresh the pending session so it's used on verification
+      if (sessionId) {
+        await this.prisma.user.update({
+          where: { id: existingUser.id },
+          data: { pendingSessionId: sessionId.trim() || null },
+        });
+      }
+
+      await this.sendVerificationOtp(existingUser);
+
+      return {
+        status: RegistrationStatus.PENDING_VERIFICATION,
+        requiresVerification: true,
+        registrationMethod,
+        verificationIdentifier: registrationInput,
+        user: existingUser,
+        isNewUser: true,
+        hasEmail: !!existingUser.email,
+      };
+    }
+
+    // ❌ Already verified user
+    if (existingUser?.isVerified) {
+      throw new ConflictException('User already exists. Please log in.');
+    }
+
+    // 🆕 New user – hash password
+    const hashedPassword = await Helper.hashText(dto.password);
+
+    // Create user + wallet + store pendingSessionId atomically
+    const { user } = await this.prisma.$transaction(async (tx) => {
+      const createdUser = await this.userRepository.create(
+        {
+          ...dto,
+          phoneNumber: dto.phoneNumber,
+          countryCode: dto.countryCode,
+          password: hashedPassword,
+          role: UserRole.CUSTOMER,
+          isActive: true,
+          isVerified: false,
+          lastLoginAt: null,
+        },
+      );
+
+      await tx.user.update({
+        where: { id: createdUser.id },
+        data: { pendingSessionId: sessionId?.trim() || null },
+      });
+
+      await tx.wallet.create({
+        data: { userId: createdUser.id, balance: 0, currency: 'NGN' },
+      });
+
+      return { user: createdUser };
+    });
+
+    await this.sendVerificationOtp(user);
 
     return {
-      status: RegistrationStatus.PENDING_VERIFICATION,
+      status: RegistrationStatus.NEW,
       requiresVerification: true,
       registrationMethod,
       verificationIdentifier: registrationInput,
-      user: existingUser,
+      user,
       isNewUser: true,
-      hasEmail: !!existingUser.email,
+      hasEmail: !!user.email,
     };
   }
-
-  // ❌ Already verified user
-  if (existingUser?.isVerified) {
-    throw new ConflictException('User already exists. Please log in.');
+  /**
+   * Ensure a wallet exists for the given user. Idempotent.
+   * Used for the "resend OTP" path and any legacy users.
+   */
+  private async ensureWalletExists(userId: string): Promise<void> {
+    const existing = await this.prisma.wallet.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!existing) {
+      await this.prisma.wallet.create({
+        data: { userId, balance: 0, currency: 'NGN' },
+      });
+    }
   }
-
-  // 🆕 New user – hash password
-  const hashedPassword = await Helper.hashText(dto.password);
-
-  // Create user + wallet + store pendingSessionId atomically
-  const { user } = await this.prisma.$transaction(async (tx) => {
-    const createdUser = await this.userRepository.create(
-      {
-        ...dto,
-        phoneNumber: dto.phoneNumber,
-        countryCode: dto.countryCode,
-        password: hashedPassword,
-        role: UserRole.CUSTOMER,
-        isActive: true,
-        isVerified: false,
-        lastLoginAt: null,
-      },
-    );
-
-    await tx.user.update({
-      where: { id: createdUser.id },
-      data: { pendingSessionId: sessionId?.trim() || null },
-    });
-
-    await tx.wallet.create({
-      data: { userId: createdUser.id, balance: 0, currency: 'NGN' },
-    });
-
-    return { user: createdUser };
-  });
-
-  await this.sendVerificationOtp(user);
-
-  return {
-    status: RegistrationStatus.NEW,
-    requiresVerification: true,
-    registrationMethod,
-    verificationIdentifier: registrationInput,
-    user,
-    isNewUser: true,
-    hasEmail: !!user.email,
-  };
-}
-/**
- * Ensure a wallet exists for the given user. Idempotent.
- * Used for the "resend OTP" path and any legacy users.
- */
-private async ensureWalletExists(userId: string): Promise<void> {
-  const existing = await this.prisma.wallet.findUnique({
-    where: { userId },
-    select: { id: true },
-  });
-  if (!existing) {
-    await this.prisma.wallet.create({
-      data: { userId, balance: 0, currency: 'NGN' },
-    });
-  }
-}
 
   /**
    * Send verification OTP after registration
@@ -362,18 +362,18 @@ private async ensureWalletExists(userId: string): Promise<void> {
     // const { email, phoneNumber, password } = loginDto;
 
     // const user = await this.userRepository.findExistingUser(email, phoneNumber);
-  const { password } = loginDto;
+    const { password } = loginDto;
 
-const email =
-  verificationMethod === 'email' ? identifier : undefined;
+    const email =
+      verificationMethod === 'email' ? identifier : undefined;
 
-const phoneNumber =
-  verificationMethod === 'phone' ? identifier : undefined;
+    const phoneNumber =
+      verificationMethod === 'phone' ? identifier : undefined;
 
-const user = await this.userRepository.findExistingUser(
-  email,
-  phoneNumber,
-);
+    const user = await this.userRepository.findExistingUser(
+      email,
+      phoneNumber,
+    );
 
     if (!user) {
       throw new NotFoundException(
@@ -946,6 +946,11 @@ const user = await this.userRepository.findExistingUser(
             providerId: true,
           },
         },
+        driverProfile: {
+          select: {
+            driverType: true,
+          },
+        },
         businessInfo: true,
         onboardingStatus: true,
         onboardingStep: true,
@@ -957,7 +962,10 @@ const user = await this.userRepository.findExistingUser(
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    return {
+      ...user,
+      driverType: user.driverProfile?.driverType ?? null,
+    };
   }
 
 

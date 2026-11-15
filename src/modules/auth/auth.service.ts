@@ -2835,6 +2835,8 @@ async loginDriverUser(loginDto: LoginDriverDto, role: UserRole) {
     status: user.status,
     isEmailVerified: user.isEmailVerified,
     isPhoneVerified: user.isPhoneVerified,
+    driverType: user.driverProfile?.driverType ?? null,
+
   };
 }
 

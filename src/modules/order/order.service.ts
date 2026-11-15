@@ -2537,8 +2537,17 @@ export class OrderService {
       createdAt: order.createdAt,
       pickupLocation: order.pickupLocation,
       dropoffLocation: order.dropoffLocation,
-    };
 
+      // Recipient details
+      recipient: {
+        name: order.recipientName,
+        phone: order.recipientPhone,
+      },
+
+      // Delivery instructions
+      specialInstructions: order.deliveryInstructions ?? null,
+    };
+  
     // Store
     const storeData = {
       id: store?.id ?? '',
