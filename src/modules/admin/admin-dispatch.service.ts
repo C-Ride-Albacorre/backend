@@ -242,14 +242,14 @@ async getDriverFleet() {
       const updated = await tx.order.updateMany({
         where: { id: orderId, orderStatus: OrderStatus.UNACCEPTED },
         data: {
-          orderStatus: OrderStatus.ORDER_ACCEPTED,
+          orderStatus: OrderStatus.ORDER_ASSIGNED,
           driverId: dto.driverId,
           driverAssignedAt: now,
           assignedByAdminId: adminUserId,
           manuallyAssignedAt: now,
           statusHistory: {
             push: {
-              status: OrderStatus.ORDER_ACCEPTED,
+              status: OrderStatus.ORDER_ASSIGNED,
               timestamp: now.toISOString(),
               note: 'MANUAL_ADMIN_ASSIGNMENT',
               actorId: adminUserId,
@@ -274,7 +274,7 @@ async getDriverFleet() {
           actorRole: Role.ADMIN,
           action: 'MANUAL_ADMIN_ASSIGNMENT',
           fromStatus: OrderStatus.UNACCEPTED,
-          toStatus: OrderStatus.ORDER_ACCEPTED,
+          toStatus: OrderStatus.ORDER_ASSIGNED,
           reason: dto.reason ?? null,
           metadata: { driverId: dto.driverId },
         },
@@ -290,13 +290,13 @@ async getDriverFleet() {
     // Update Map & Driver App
     try {
       const fresh = await this.prisma.order.findUnique({ where: { id: orderId }, select: { statusHistory: true } });
-      this.mapGateway.emitOrderStatus(orderId, OrderStatus.ORDER_ACCEPTED, fresh?.statusHistory ?? []);
+      this.mapGateway.emitOrderStatus(orderId, OrderStatus.ORDER_ASSIGNED, fresh?.statusHistory ?? []);
       
       const store = order.items[0]?.store;
       await this.driverGateway.emitManualAssignment(dto.driverId, {
         orderId,
         orderNumber: order.orderNumber,
-        orderStatus: OrderStatus.ORDER_ACCEPTED,
+        orderStatus: OrderStatus.ORDER_ASSIGNED,
         totalAmount: order.totalAmount,
         deliveryFee: order.deliveryFee,
         pickupLocation: order.pickupLocation,
