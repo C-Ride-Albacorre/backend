@@ -260,13 +260,19 @@ export class AdminController {
   }
 
   // =============DISPACTHER============= //
-  @Get('dispatchers')
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Get all dispatchers with filters' })
-  async getAllDispatchers(@Query() filterDto: DispatcherFilterDto) {
-    return this.adminService.getAllDispatchers(filterDto);
-  }
+@Get('dispatchers')
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@HttpCode(HttpStatus.OK)
+@ApiOperation({ summary: 'Get all dispatchers with filters' })
+@ApiResponse({
+  status: 200,
+  description: 'Dispatchers retrieved successfully',
+})
+async getAllDispatchers(
+  @Query() filterDto: DispatcherFilterDto,
+) {
+  return this.adminService.getAllDispatchers(filterDto);
+}
 
   @Get('dispatchers/:dispatcherId')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
