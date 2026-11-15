@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../shared/services/prisma.service';
-import { AbstractUserRepository } from './abstract-user.repository';
+import { AbstractUserRepository, UserWithDriverProfile } from './abstract-user.repository';
 import { DocumentStatus, Prisma, VendorDocument } from '@prisma/client';
 import { BusinessInfo, User } from '../entities/user.entity';
 import { DocumentType } from '../../../shared/enums';
@@ -20,30 +20,64 @@ export class PrismaUserRepository implements AbstractUserRepository {
     }
   }
 
-  async findByEmail(email: string): Promise<User | null> {
-    try {
-      return await this.prisma.user.findUnique({ where: { email } });
-    } catch (error) {
-      this.logger.error(
-        `Failed to find user by email ${email}: ${error}`,
-      );
-      throw error;
-    }
+  // async findByEmail(email: string): Promise<User | null> {
+  //   try {
+  //     return await this.prisma.user.findUnique({ where: { email } });
+  //   } catch (error) {
+  //     this.logger.error(
+  //       `Failed to find user by email ${email}: ${error}`,
+  //     );
+  //     throw error;
+  //   }
+  // }
+
+  // async findByPhone(phoneNumber: string): Promise<User | null> {
+  //   try {
+  //     return await this.prisma.user.findUnique({ where: { phoneNumber } });
+  //   } catch (error) {
+  //     this.logger.error(
+  //       `Failed to find user by phone number ${phoneNumber}: ${error}`,
+  //     );
+  //     throw error;
+  //   }
+  // }
+
+
+async findByEmail(
+  email: string,
+): Promise<UserWithDriverProfile | null> {
+  try {
+    return await this.prisma.user.findUnique({
+      where: { email },
+      include: {
+        driverProfile: true,
+      },
+    });
+  } catch (error) {
+    this.logger.error(
+      `Failed to find user by email ${email}: ${error}`,
+    );
+    throw error;
   }
+}
 
-  async findByPhone(phoneNumber: string): Promise<User | null> {
-    try {
-      return await this.prisma.user.findUnique({ where: { phoneNumber } });
-    } catch (error) {
-      this.logger.error(
-        `Failed to find user by phone number ${phoneNumber}: ${error}`,
-      );
-      throw error;
-    }
+async findByPhone(
+  phoneNumber: string,
+): Promise<UserWithDriverProfile | null> {
+  try {
+    return await this.prisma.user.findUnique({
+      where: { phoneNumber },
+      include: {
+        driverProfile: true,
+      },
+    });
+  } catch (error) {
+    this.logger.error(
+      `Failed to find user by phone number ${phoneNumber}: ${error}`,
+    );
+    throw error;
   }
-
-
-
+}
   async findExistingUser(
   email?: string,
   phoneNumber?: string,

@@ -4,11 +4,23 @@
 import { DocumentStatus, Prisma, VendorDocument } from '@prisma/client';
 import { BusinessInfo, User } from '../entities/user.entity';
 import { DocumentType } from '../../../shared/enums';
+export type UserWithDriverProfile = Prisma.UserGetPayload<{
+  include: {
+    driverProfile: true;
+  };
+}>;
 
 export abstract class AbstractUserRepository {
   abstract findById(id: string): Promise<User | null>;
-  abstract findByEmail(email: string): Promise<User | null>;
-  abstract findByPhone(phoneNumber: string): Promise<User | null>;
+  // abstract findByEmail(email: string): Promise<User | null>;
+  // abstract findByPhone(phoneNumber: string): Promise<User | null>;
+  abstract findByEmail(
+    email: string,
+  ): Promise<UserWithDriverProfile | null>;
+
+  abstract findByPhone(
+    phoneNumber: string,
+  ): Promise<UserWithDriverProfile | null>;
   abstract findExistingUser(
     email?: string,
     phoneNumber?: string,
