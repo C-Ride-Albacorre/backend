@@ -1161,6 +1161,78 @@ async approveVendor(
   }
 
   async getAllDispatchers(filterDto: DispatcherFilterDto) {
+  const {
+    search,
+    status,
+    driverType,
+    page = 1,
+    limit = 10,
+  } = filterDto;
+
+  const skip = (page - 1) * limit;
+
+  const where: Prisma.UserWhereInput = {
+    role: Role.DISPATCHER,
+  };
+
+  if (status) {
+    where.status = status;
+  }
+
+  if (driverType) {
+    where.driverProfile = {
+      is: {
+        driverType,
+      },
+    };
+  }
+
+  if (search) {
+    where.OR = [
+      { firstName: { contains: search, mode: 'insensitive' } },
+      { lastName: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } },
+      { phoneNumber: { contains: search, mode: 'insensitive' } },
+    ];
+  }
+
+  const [dispatchers, total] = await Promise.all([
+    this.prisma.user.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        driverProfile: true,
+      },
+    }),
+    this.prisma.user.count({ where }),
+  ]);
+
+  const formatted = dispatchers.map((d) => ({
+    id: d.id,
+    name: `${d.firstName} ${d.lastName}`,
+    email: d.email,
+    phoneNumber: d.phoneNumber,
+    role: d.role,
+    driverType: d.driverProfile?.driverType ?? null,
+    status: d.status,
+    createdAt: d.createdAt,
+  }));
+
+  return {
+    success: true,
+    data: formatted,
+    meta: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
+
+  async getAllDispatchersbk(filterDto: DispatcherFilterDto) {
     const { search, status, page = 1, limit = 10 } = filterDto;
     const skip = (page - 1) * limit;
 
