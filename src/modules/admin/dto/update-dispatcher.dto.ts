@@ -1,4 +1,3 @@
-import { PartialType } from '@nestjs/mapped-types';
 import { ApiProperty } from '@nestjs/swagger';
 import { DriverType } from '@prisma/client';
 import { IsEmail, IsOptional, IsString } from 'class-validator';

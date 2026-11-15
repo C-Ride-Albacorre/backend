@@ -1287,7 +1287,85 @@ async approveVendor(
     };
   }
 
-  async updateDispatcher(
+  
+async updateDispatcher(
+  dispatcherId: string,
+  dto: UpdateDispatcherDto,
+) {
+  const dispatcher = await this.prisma.user.findFirst({
+    where: {
+      id: dispatcherId,
+      role: Role.DISPATCHER,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!dispatcher) {
+    throw new NotFoundException('Dispatcher not found');
+  }
+
+  const {
+    driverProfile,
+    ...userData
+  } = dto;
+
+  const updatedDispatcher = await this.prisma.$transaction(
+    async (tx) => {
+      await tx.user.update({
+        where: {
+          id: dispatcherId,
+        },
+        data: userData,
+      });
+
+      if (driverProfile) {
+        const { role, ...profileData } = driverProfile;
+
+        await tx.driverProfile.update({
+          where: {
+            userId: dispatcherId,
+          },
+          data: {
+            ...profileData,
+            ...(role !== undefined && {
+              driverType: role,
+            }),
+          },
+        });
+      }
+
+      return tx.user.findUnique({
+        where: {
+          id: dispatcherId,
+        },
+        include: {
+          driverProfile: {
+            include: {
+              documents: true,
+            },
+          },
+          orders: {
+            take: 10,
+            orderBy: {
+              createdAt: 'desc',
+            },
+          },
+        },
+      });
+    },
+  );
+
+  return {
+    success: true,
+    message: 'Dispatcher updated successfully',
+    data: updatedDispatcher,
+  };
+}
+
+
+  async updateDispatcherbk(
   dispatcherId: string,
   dto: UpdateDispatcherDto,
 ) {
