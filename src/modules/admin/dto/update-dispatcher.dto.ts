@@ -63,7 +63,7 @@ export class UpdateDispatcherDto {
     @ApiProperty()
     @IsOptional()
     @IsString()
-    phone?: string;
+    phoneNumber?: string;
 
     @ApiProperty()
     @IsOptional()
