@@ -387,6 +387,294 @@ export class DriverAssignmentService {
   }
 
   async driverAccepts(orderId: string, driverId: string): Promise<boolean> {
+  // --- 1. Fast pre-check (no Redis, no writes) ---
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      orderStatus: true,
+      driverId: true, // reservation for manual assign; undefined/null when dispatched normally
+      deliveryEtaSeconds: true,
+      items: { select: { store: { select: { id: true } } } },
+    },
+  });
+
+  if (!order) {
+    this.logger.warn(`Order ${orderId} not found`);
+    throw new NotFoundException('Order not found');
+  }
+
+  if (order.orderStatus === OrderStatus.ORDER_ASSIGNED) {
+    this.logger.warn(`Order ${orderId} is already assigned`);
+    throw new ConflictException({
+      statusCode: 409,
+      code: 'ORDER_ALREADY_ASSIGNED',
+      message: 'This order has already been assigned.',
+    });
+  }
+
+  if (order.orderStatus !== OrderStatus.ORDER_ACCEPTED) {
+    this.logger.warn(`Order ${orderId} not available (status: ${order.orderStatus})`);
+    throw new ConflictException({
+      statusCode: 409,
+      code: 'ORDER_NOT_AVAILABLE',
+      message: `Order is not available (status: ${order.orderStatus}).`,
+    });
+  }
+
+  // Manually-assigned orders are reserved for the target driver.
+  if (order.driverId && order.driverId !== driverId) {
+    this.logger.warn(
+      `Order ${orderId} was manually assigned to another driver; rejecting ${driverId}`,
+    );
+    throw new ConflictException({
+      statusCode: 409,
+      code: 'ORDER_ASSIGNED_TO_ANOTHER_DRIVER',
+      message: 'This order has been assigned to another driver.',
+    });
+  }
+
+  // --- 2. Redis atomic claim ---
+  const pendingKey = `order:${orderId}:pending:${driverId}`;
+  const driverPendingSet = `driver:${driverId}:pending_claims`;
+  const pendingDriversKey = `order:${orderId}:pending_drivers`;
+
+  const wasNotified = await this.redis.sismember(pendingDriversKey, driverId);
+  if (!wasNotified) {
+    // Safe fallback: the pre-check above already rejected non-target drivers for
+    // manually-assigned orders, so this only fires for legitimately-dispatched orders
+    // where the notification was lost. Seed the claim and let the normal flow proceed.
+    this.logger.warn(
+      `Driver ${driverId} was not notified, but allowing acceptance (late acceptance)`,
+    );
+    const TTL_SECONDS = this.DRIVER_RESPONSE_TIMEOUT_SECONDS ?? 300;
+    await this.redis.setex(pendingKey, TTL_SECONDS, 'pending');
+    await this.redis.sadd(driverPendingSet, orderId);
+    await this.redis.sadd(pendingDriversKey, driverId);
+    await this.assignmentQueue
+      .add(
+        'driver-response-timeout',
+        { orderId, driverId },
+        {
+          delay: TTL_SECONDS * 1000,
+          jobId: `timeout-${orderId}-${driverId}`,
+          removeOnComplete: true,
+        },
+      )
+      .catch(() => null);
+  }
+
+  const claimed = await this.redis.del(pendingKey);
+  if (!claimed) {
+    this.logger.warn(`Driver ${driverId} failed to claim order ${orderId}`);
+    throw new ConflictException({
+      statusCode: 409,
+      code: 'ORDER_CLAIM_LOST',
+      message: 'This order is no longer available.',
+    });
+  }
+  await this.redis.srem(driverPendingSet, orderId);
+
+  // --- 3. Transaction: ORDER_ACCEPTED → ORDER_ASSIGNED ---
+  try {
+    await this.prisma.$transaction(
+      async (tx) => {
+        // A. Claim order (also clears the manual-assign reservation marker implicitly
+        //    because we set driverId to the winner).
+        const orderClaim = await tx.order.updateMany({
+          where: {
+            id: orderId,
+            orderStatus: OrderStatus.ORDER_ACCEPTED,
+            // Preserve the reservation guarantee at DB level too:
+            OR: [{ driverId: null }, { driverId }],
+          },
+          data: {
+            orderStatus: OrderStatus.ORDER_ASSIGNED,
+            driverAssignedAt: new Date(),
+            driverId,
+            statusHistory: {
+              push: {
+                status: OrderStatus.ORDER_ASSIGNED,
+                timestamp: new Date().toISOString(),
+                note: 'ASSIGN_DRIVER',
+                actorId: driverId,
+              },
+            },
+          },
+        });
+        if (orderClaim.count !== 1) {
+          throw new ConflictException({
+            statusCode: 409,
+            code: 'ORDER_NOT_AVAILABLE',
+            message: `Order ${orderId} is no longer available for acceptance.`,
+          });
+        }
+
+        // B. Ensure a PENDING assignment exists (find → create, no upsert).
+        const existing = await tx.driverAssignment.findUnique({
+          where: { orderId },
+          select: { id: true, assignmentStatus: true },
+        });
+        if (!existing) {
+          await tx.driverAssignment.create({
+            data: { orderId, assignmentStatus: AssignmentStatus.PENDING },
+          });
+        } else if (
+          existing.assignmentStatus !== AssignmentStatus.PENDING &&
+          existing.assignmentStatus !== AssignmentStatus.ACCEPTED
+        ) {
+          throw new ConflictException({
+            statusCode: 409,
+            code: 'ASSIGNMENT_NOT_PENDING',
+            message: `Assignment for order ${orderId} is no longer PENDING.`,
+          });
+        }
+
+        // C. Claim assignment.
+        const assignmentClaim = await tx.driverAssignment.updateMany({
+          where: { orderId, assignmentStatus: AssignmentStatus.PENDING },
+          data: {
+            driverId,
+            assignmentStatus: AssignmentStatus.ASSIGNED,
+            assignedAt: new Date(),
+            etaSeconds: order.deliveryEtaSeconds ?? null,
+          },
+        });
+        if (assignmentClaim.count !== 1) {
+          throw new ConflictException({
+            statusCode: 409,
+            code: 'ASSIGNMENT_ALREADY_CLAIMED',
+            message: `Assignment for order ${orderId} is no longer PENDING.`,
+          });
+        }
+
+        // D. Claim driver.
+        const driverClaim = await tx.driverProfile.updateMany({
+          where: { userId: driverId, status: DriverStatus.ONLINE },
+          data: { status: DriverStatus.BUSY },
+        });
+        if (driverClaim.count !== 1) {
+          throw new ConflictException({
+            statusCode: 409,
+            code: 'DRIVER_NOT_ONLINE',
+            message: `Driver ${driverId} is no longer ONLINE.`,
+          });
+        }
+
+        // E. Activity log.
+        await tx.orderActivityLog.create({
+          data: {
+            orderId,
+            actorId: driverId,
+            actorRole: Role.DISPATCHER,
+            action: 'DRIVER_ACCEPTED',
+            fromStatus: OrderStatus.ORDER_ACCEPTED,
+            toStatus: OrderStatus.ORDER_ASSIGNED,
+          },
+        });
+      },
+      { timeout: 5000, isolationLevel: 'ReadCommitted', maxWait: 2000 },
+    );
+  } catch (error) {
+    // Conditional Redis rollback: only restore the claim if the DB still says
+    // this order/assignment is available to someone.
+    const state = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        orderStatus: true,
+        driverId: true,
+        driverAssignment: { select: { assignmentStatus: true } },
+      },
+    });
+
+    const isStillAvailable =
+      state?.orderStatus === OrderStatus.ORDER_ACCEPTED &&
+      (!state.driverId || state.driverId === driverId) &&
+      (!state.driverAssignment ||
+        state.driverAssignment.assignmentStatus === AssignmentStatus.PENDING);
+
+    if (isStillAvailable) {
+      this.logger.log(`Restoring Redis claim for order ${orderId} (DB still available)`);
+      await this.redis.setex(pendingKey, 300, 'pending');
+      await this.redis.sadd(driverPendingSet, orderId);
+      await this.redis.sadd(pendingDriversKey, driverId);
+    } else {
+      this.logger.warn(
+        `Not restoring Redis claim for order ${orderId}; DB state is no longer available ` +
+          `(status: ${state?.orderStatus}, driverId: ${state?.driverId}, ` +
+          `assignment: ${state?.driverAssignment?.assignmentStatus})`,
+      );
+    }
+
+    this.logger.error(
+      `Transaction failed for driver ${driverId} on order ${orderId}`,
+      error instanceof Error ? error.stack : String(error),
+    );
+    throw error; // propagate ConflictException / NotFoundException as-is
+  }
+
+  // --- 4. Post-commit work ---
+
+  // Cancel the global assignment timeout for this order.
+  await this.assignmentQueue
+    .remove(`assignment-timeout-${orderId}`)
+    .catch(() => null);
+
+  // Drain all other candidates (emits order-removed to every driver in pending_drivers,
+  // removes their pending keys, cancels their per-driver timeout jobs).
+  await this.drainPendingCandidates(orderId).catch((err) =>
+    this.logger.warn(`drainPendingCandidates failed for ${orderId}: ${err}`),
+  );
+
+  // Customer notification.
+  await this.customerNotificationQueue
+    .add(
+      'driver-assigned',
+      { orderId, driverId },
+      {
+        jobId: `customer-driver-assigned-${orderId}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 3000 },
+        removeOnComplete: true,
+      },
+    )
+    .catch((err) => this.logger.warn(`customer notification enqueue failed: ${err}`));
+
+  // Vendor notifications (one per store).
+  const storeIds = [
+    ...new Set(
+      order.items.map((item) => item.store?.id).filter((id): id is string => !!id),
+    ),
+  ];
+  for (const storeId of storeIds) {
+    await this.vendorNotificationQueue
+      .add(
+        'driver-assigned',
+        { orderId, driverId, storeId },
+        {
+          jobId: `vendor-driver-assigned-${orderId}-${storeId}`,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 3000 },
+          removeOnComplete: true,
+        },
+      )
+      .catch((err) => this.logger.warn(`vendor notification enqueue failed: ${err}`));
+  }
+
+  // Tell the winning driver's app to fetch/show the assigned order.
+  await this.driverGateway
+    .emitAssignedOrder(driverId)
+    .catch((err) => this.logger.error(`emitAssignedOrder failed for ${driverId}`, err));
+
+  // Fire-and-forget ETA/navigation.
+  this.startEtaAndNavigation(orderId, driverId).catch((err) =>
+    this.logger.error(`startEtaAndNavigation failed for ${orderId}`, err),
+  );
+
+  this.logger.log(`Driver ${driverId} successfully assigned to order ${orderId}`);
+  return true;
+}
+
+  async driverAcceptsbk(orderId: string, driverId: string): Promise<boolean> {
     // --- 1. Fast pre-check ---
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
