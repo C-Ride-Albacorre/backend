@@ -40,3 +40,36 @@ export const URLS = {
     MERCHANT_LOGIN_URL: `${process.env.FRONTEND_BASEURL}/merchant-login`,
 };
 
+
+
+// export const DISPATCH_CONSTANTS = {
+//   RETRY_RADII_METERS: [10_000, 20_000],
+
+//   DEFAULT_RADIUS_METERS: 10_000,
+
+//   DRIVER_RESPONSE_TIMEOUT_SECONDS: 60,
+
+//   PENDING_CLAIM_TTL_SECONDS: 90,
+
+//   DISPATCH_RETRY_DELAY_MS: 30_000,
+
+//   ASSIGNMENT_TIMEOUT_SECONDS: 180,
+export const DISPATCH_CONFIG = {
+  retry: {
+    radiiMeters: [10_000, 20_000],
+    defaultRadiusMeters: 10_000,
+    delayMs: 30_000,
+  },
+
+  driver: {
+    responseTimeoutSeconds: 60,
+  },
+
+  claim: {
+    pendingTtlSeconds: 90,
+  },
+
+  assignment: {
+    timeoutSeconds: 180,
+  },
+} as const;// } as const;

@@ -23,7 +23,8 @@ import { QUEUES } from '../../shared/constants';
     forwardRef(() => DriverModule),
     forwardRef(() => NotificationModule),
     BullModule.registerQueue({
-      name: QUEUES.NOTIFICATION,
+      name: QUEUES.NOTIFICATION},
+      {name: QUEUES.DRIVER_ASSIGNMENT
     }),
   ],
   providers: [
