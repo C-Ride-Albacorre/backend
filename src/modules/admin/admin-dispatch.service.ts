@@ -234,6 +234,213 @@ async manualAssign(
     include: { items: { include: { store: true } } },
   });
   if (!order) throw new NotFoundException('Order not found');
+
+  // Idempotency: retried request after a successful manual assign → success, no side effects.
+  if (
+    order.orderStatus === OrderStatus.ORDER_ACCEPTED &&
+    order.manuallyAssignedAt &&
+    order.assignedByAdminId === adminUserId &&
+    order.driverId === dto.driverId
+  ) {
+    this.logger.log(`Order ${orderId} already manually assigned to ${dto.driverId}; no-op`);
+    return { success: true };
+  }
+
+  if (order.orderStatus !== OrderStatus.UNACCEPTED) {
+    throw new ConflictException(
+      `Order status is ${order.orderStatus}, expected UNACCEPTED`,
+    );
+  }
+
+  const driverProfile = await this.prisma.driverProfile.findUnique({
+    where: { userId: dto.driverId },
+  });
+  if (!driverProfile) throw new NotFoundException('Driver profile not found');
+  if (driverProfile.driverType !== DriverType.PARTNER) {
+    throw new BadRequestException('Only PARTNER drivers can be manually assigned.');
+  }
+  if (driverProfile.status === DriverStatus.OFFLINE) {
+    throw new BadRequestException('Driver is offline.');
+  }
+
+  const now = new Date();
+
+  // ── 1. Atomic transition: UNACCEPTED → ORDER_ACCEPTED with a PENDING assignment.
+  // The order is *reserved* for dto.driverId (order.driverId) but not yet ASSIGNED;
+  // the driver still calls /accept, which runs the same transaction as normal dispatch.
+  const result = await this.prisma.$transaction(
+    async (tx) => {
+      const updated = await tx.order.updateMany({
+        where: { id: orderId, orderStatus: OrderStatus.UNACCEPTED },
+        data: {
+          orderStatus: OrderStatus.ORDER_ACCEPTED,
+          driverId: dto.driverId, // reserve for target driver; used by driverAccepts guard
+          driverAssignedAt: null, // set on real accept
+          assignedByAdminId: adminUserId,
+          manuallyAssignedAt: now,
+          dispatchRadiusMeters: this.defaultRadiusMeters,
+          statusHistory: {
+            push: {
+              status: OrderStatus.ORDER_ACCEPTED,
+              timestamp: now.toISOString(),
+              note: 'MANUAL_ADMIN_ASSIGNMENT',
+              actorId: adminUserId,
+              actorRole: Role.ADMIN,
+              reason: dto.reason,
+            },
+          },
+        },
+      });
+      if (updated.count !== 1) return { ok: false as const };
+
+      // Reset to a fresh PENDING assignment (find → create/update, no upsert / no ON CONFLICT dependency).
+      const existing = await tx.driverAssignment.findUnique({
+        where: { orderId },
+        select: { id: true },
+      });
+      if (existing) {
+        await tx.driverAssignment.update({
+          where: { orderId },
+          data: {
+            assignmentStatus: AssignmentStatus.PENDING,
+            driverId: null,
+            assignedAt: null,
+            etaSeconds: null,
+          },
+        });
+      } else {
+        await tx.driverAssignment.create({
+          data: { orderId, assignmentStatus: AssignmentStatus.PENDING },
+        });
+      }
+
+      await tx.orderActivityLog.create({
+        data: {
+          orderId,
+          actorId: adminUserId,
+          actorRole: Role.ADMIN,
+          action: 'MANUAL_ADMIN_ASSIGNMENT',
+          fromStatus: OrderStatus.UNACCEPTED,
+          toStatus: OrderStatus.ORDER_ACCEPTED,
+          reason: dto.reason ?? null,
+          metadata: { targetDriverId: dto.driverId },
+        },
+      });
+
+      return { ok: true as const };
+    },
+    { timeout: 5000, isolationLevel: 'ReadCommitted', maxWait: 2000 },
+  );
+
+  if (!result.ok) {
+    // Concurrent modification: re-read to give a useful message / honor idempotency.
+    const current = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { orderStatus: true, driverId: true, manuallyAssignedAt: true, assignedByAdminId: true },
+    });
+    if (
+      current?.orderStatus === OrderStatus.ORDER_ACCEPTED &&
+      current.manuallyAssignedAt &&
+      current.assignedByAdminId === adminUserId &&
+      current.driverId === dto.driverId
+    ) {
+      return { success: true };
+    }
+    throw new ConflictException('Order was modified concurrently');
+  }
+
+  // ── 2. Seed Redis so the target driver is a *notified* candidate for this order.
+  // This is what makes the late-acceptance branch unnecessary and lets /accept
+  // follow the normal claim path.
+  const TTL_SECONDS = this.driverResponseTimeoutSeconds ?? 300;
+  const pendingKey = `order:${orderId}:pending:${dto.driverId}`;
+
+  await this.redis.setex(pendingKey, TTL_SECONDS, 'pending');
+  await this.redis.sadd(`driver:${dto.driverId}:pending_claims`, orderId);
+  await this.redis.sadd(`order:${orderId}:pending_drivers`, dto.driverId);
+
+  // Per-driver response timeout (rolls back an unaccepted manual assignment).
+  await this.assignmentQueue
+    .add(
+      'driver-response-timeout',
+      { orderId, driverId: dto.driverId },
+      {
+        delay: TTL_SECONDS * 1000,
+        jobId: `timeout-${orderId}-${dto.driverId}`,
+        removeOnComplete: true,
+      },
+    )
+    .catch(() => null);
+
+  // Global assignment timeout (mirrors initiateDriverSearch).
+  await this.assignmentQueue
+    .add(
+      'assignment-timeout',
+      { orderId },
+      {
+        delay: this.assignmentTimeoutSeconds * 1000,
+        jobId: `assignment-timeout-${orderId}`,
+        removeOnComplete: true,
+      },
+    )
+    .catch(() => null);
+
+  // Notify any *other* drivers that were pending on this order to drop it.
+  // (No-op if this order was never dispatched to anyone else.)
+  await this.driverAssignment.drainPendingCandidates(orderId).catch((err) => {
+    this.logger.warn(`drainPendingCandidates failed for ${orderId}: ${err}`);
+  });
+
+  // ── 3. Notify map + target driver.
+  try {
+    const fresh = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { statusHistory: true },
+    });
+    this.mapGateway.emitOrderStatus(
+      orderId,
+      OrderStatus.ORDER_ACCEPTED,
+      fresh?.statusHistory ?? [],
+    );
+
+    const store = order.items[0]?.store;
+    await this.driverGateway.emitManualAssignment(dto.driverId, {
+      orderId,
+      orderNumber: order.orderNumber,
+      orderStatus: OrderStatus.ORDER_ACCEPTED, // driver still must accept
+      totalAmount: order.totalAmount,
+      deliveryFee: order.deliveryFee,
+      pickupLocation: order.pickupLocation,
+      dropoffLocation: order.dropoffLocation,
+      createdAt: order.createdAt,
+      storeId: store?.id?.toString() ?? '',
+      storeName: store?.storeName ?? 'Store',
+      storeLogo: (store as any)?.storeLogo ?? '',
+      storeLat: store?.latitude ?? null,
+      storeLng: store?.longitude ?? null,
+      manuallyAssigned: true,
+      assignedByName: adminUserId,
+      //requiresAcceptance: true, // app must show Accept button
+    });
+  } catch (err) {
+    this.logger.warn(`Broadcast failed for ${orderId}: ${err}`);
+  }
+
+  return { success: true };
+}
+
+  async manualAssignbk(
+  orderId: string,
+  adminUserId: string,
+  dto: { driverId: string; reason?: string },
+): Promise<{ success: true }> {
+  await this.assertAdmin(adminUserId);
+
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+    include: { items: { include: { store: true } } },
+  });
+  if (!order) throw new NotFoundException('Order not found');
   if (order.orderStatus !== OrderStatus.UNACCEPTED) {
     throw new ConflictException(
       `Order status is ${order.orderStatus}, expected UNACCEPTED`,

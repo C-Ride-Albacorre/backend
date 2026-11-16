@@ -345,16 +345,18 @@ STEP 3 – Final Step: Review (Optional save before uploads)
     @Param('orderId') orderId: string,
     @GetUser() driver: User,
   ) {
-    const success = await this.driverOrderService.acceptOrder(
+    //const success = await 
+    
+    return this.driverOrderService.acceptOrder(
       orderId,
       driver.id,
     );
 
-    if (!success) {
-      throw new ConflictException('Order already assigned');
-    }
+    // if (!success) {
+    //   throw new ConflictException('Order already assigned');
+    // }
 
-    return { message: 'Order assigned to you' };
+    // return { message: 'Order assigned to you' };
   }
 
   @Post(':orderId/decline')
