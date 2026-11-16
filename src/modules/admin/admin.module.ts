@@ -22,10 +22,11 @@ import { QUEUES } from '../../shared/constants';
   imports: [VerificationModule, AuthModule, OrderModule, WalletModule, PaymentModule,
     forwardRef(() => DriverModule),
     forwardRef(() => NotificationModule),
-    BullModule.registerQueue({
-      name: QUEUES.NOTIFICATION},
-      {name: QUEUES.DRIVER_ASSIGNMENT
-    }),
+    BullModule.registerQueue(
+      { name: QUEUES.NOTIFICATION },
+      { name: QUEUES.DRIVER_ASSIGNMENT},
+      {name: QUEUES.DRIVER_NOTIFICATION}
+    ),
   ],
   providers: [
     AdminService,
