@@ -6,6 +6,7 @@ import {
   forwardRef,
   ConflictException,
   NotFoundException,
+  HttpException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -36,11 +37,10 @@ export class DriverAssignmentService {
   public readonly logger = new Logger(DriverAssignmentService.name);
   private readonly googleMapsApiKey: string;
   private readonly driverSockets = new Map<string, string>();
-  // private readonly DEFAULT_RADIUS_METERS = 10000;
-  // private readonly TTL_SECONDS = 300;
+
   private readonly retryRadiiMeters = [10_000, 20_000];
   private readonly DEFAULT_RADIUS_METERS = 10_000;
-  private readonly DRIVER_RESPONSE_TIMEOUT_SECONDS = 60;
+  public readonly DRIVER_RESPONSE_TIMEOUT_SECONDS = 60;
   private readonly PENDING_CLAIM_TTL_SECONDS = 90;
   private readonly DISPATCH_RETRY_DELAY_MS = 30_000;
   private readonly ASSIGNMENT_TIMEOUT_SECONDS = 180;
@@ -391,6 +391,8 @@ export class DriverAssignmentService {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       select: {
+        driverId: true,
+        manuallyAssignedAt: true,
         orderStatus: true,
         deliveryEtaSeconds: true,
         items: {
@@ -406,6 +408,14 @@ export class DriverAssignmentService {
     });
     if (!order) {
       this.logger.warn(`Order ${orderId} not found`);
+      return false;
+    }
+    if (order.driverId) {
+      this.logger.warn(`Order ${orderId} already has driver ${order.driverId}; rejecting ${driverId}`);
+      return false;
+    }
+    if (order.manuallyAssignedAt) {
+      this.logger.warn(`Order ${orderId} was manually assigned; rejecting ${driverId}`);
       return false;
     }
     if (order.orderStatus === OrderStatus.ORDER_ASSIGNED) {
@@ -473,9 +483,14 @@ export class DriverAssignmentService {
               },
             },
           });
+          // if (orderClaim.count !== 1) {
+          //   throw new Error(`Order ${orderId} is no longer ACCEPTED`);
+          // }
           if (orderClaim.count !== 1) {
-            throw new Error(`Order ${orderId} is no longer ACCEPTED`);
+            throw new ConflictException(`Order ${orderId} is no longer ACCEPTED`);
           }
+
+
 
           // B. Ensure assignment exists
           await tx.driverAssignment.upsert({
@@ -498,7 +513,7 @@ export class DriverAssignmentService {
             },
           });
           if (assignmentClaim.count !== 1) {
-            throw new Error(`Assignment for order ${orderId} is no longer PENDING`);
+            throw new ConflictException(`Assignment for order ${orderId} is no longer PENDING`);
           }
 
           // D. Claim driver
@@ -507,7 +522,7 @@ export class DriverAssignmentService {
             data: { status: DriverStatus.BUSY },
           });
           if (driverClaim.count !== 1) {
-            throw new Error(`Driver ${driverId} is no longer ONLINE`);
+            throw new ConflictException(`Driver ${driverId} is no longer ONLINE`);
           }
 
           // E. Activity log
@@ -555,7 +570,9 @@ export class DriverAssignmentService {
         `Transaction failed for driver ${driverId} on order ${orderId}`,
         error,
       );
-      throw error;
+      if (error instanceof HttpException) throw error;
+      throw new ConflictException(`Could not accept order ${orderId}: ${(error as Error).message}`);
+
     }
 
     // --- 4. Post-commit work ---
@@ -1166,116 +1183,116 @@ export class DriverAssignmentService {
 
 
   // inside DriverAssignmentService
-  
-public async getRouteDetails(
-  origin: { lat: number; lng: number },
-  destination: { lat: number; lng: number },
-): Promise<{ durationSec: number; polyline: string }> {
-  this.logger.log(
-    `Getting route details from (${origin.lat}, ${origin.lng}) to (${destination.lat}, ${destination.lng})`,
-  );
 
-  if (!this.googleMapsApiKey) {
-    this.logger.warn(
-      'Google Maps API key not configured, using fallback for route details',
-    );
-
-    return {
-      durationSec: this.estimateEtaFallback(origin, destination),
-      polyline: '',
-    };
-  }
-
-  try {
-    this.logger.log('Calling Google Routes API for route details');
-
-    const url =
-      'https://routes.googleapis.com/directions/v2:computeRoutes';
-
-    const requestBody = {
-      origin: {
-        location: {
-          latLng: {
-            latitude: origin.lat,
-            longitude: origin.lng,
-          },
-        },
-      },
-      destination: {
-        location: {
-          latLng: {
-            latitude: destination.lat,
-            longitude: destination.lng,
-          },
-        },
-      },
-      travelMode: 'DRIVE',
-      routingPreference: 'TRAFFIC_AWARE',
-      polylineQuality: 'HIGH_QUALITY',
-      polylineEncoding: 'ENCODED_POLYLINE',
-    };
-
-    const response = await axios.post(url, requestBody, {
-      timeout: 8000,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': this.googleMapsApiKey,
-        'X-Goog-FieldMask':
-          'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline',
-      },
-    });
-
+  public async getRouteDetails(
+    origin: { lat: number; lng: number },
+    destination: { lat: number; lng: number },
+  ): Promise<{ durationSec: number; polyline: string }> {
     this.logger.log(
-      `Received response from Routes API: status ${response.status}`,
+      `Getting route details from (${origin.lat}, ${origin.lng}) to (${destination.lat}, ${destination.lng})`,
     );
 
-    const route = response.data.routes?.[0];
-
-    if (!route) {
-      throw new Error(
-        `No route found. Response: ${JSON.stringify(response.data)}`,
-      );
-    }
-
-    // Routes API returns duration as a string, e.g. "325s"
-    const durationSec = Number.parseFloat(
-      route.duration?.replace('s', ''),
-    );
-
-    if (!Number.isFinite(durationSec) || durationSec <= 0) {
+    if (!this.googleMapsApiKey) {
       this.logger.warn(
-        `Invalid duration in Routes API response: ${route.duration}`,
+        'Google Maps API key not configured, using fallback for route details',
       );
-      throw new Error('No valid duration in Routes API response');
+
+      return {
+        durationSec: this.estimateEtaFallback(origin, destination),
+        polyline: '',
+      };
     }
 
-    const polyline =
-      route.polyline?.encodedPolyline ?? '';
+    try {
+      this.logger.log('Calling Google Routes API for route details');
 
-    if (!polyline) {
-      this.logger.warn('Routes API returned an empty polyline');
+      const url =
+        'https://routes.googleapis.com/directions/v2:computeRoutes';
+
+      const requestBody = {
+        origin: {
+          location: {
+            latLng: {
+              latitude: origin.lat,
+              longitude: origin.lng,
+            },
+          },
+        },
+        destination: {
+          location: {
+            latLng: {
+              latitude: destination.lat,
+              longitude: destination.lng,
+            },
+          },
+        },
+        travelMode: 'DRIVE',
+        routingPreference: 'TRAFFIC_AWARE',
+        polylineQuality: 'HIGH_QUALITY',
+        polylineEncoding: 'ENCODED_POLYLINE',
+      };
+
+      const response = await axios.post(url, requestBody, {
+        timeout: 8000,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': this.googleMapsApiKey,
+          'X-Goog-FieldMask':
+            'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline',
+        },
+      });
+
+      this.logger.log(
+        `Received response from Routes API: status ${response.status}`,
+      );
+
+      const route = response.data.routes?.[0];
+
+      if (!route) {
+        throw new Error(
+          `No route found. Response: ${JSON.stringify(response.data)}`,
+        );
+      }
+
+      // Routes API returns duration as a string, e.g. "325s"
+      const durationSec = Number.parseFloat(
+        route.duration?.replace('s', ''),
+      );
+
+      if (!Number.isFinite(durationSec) || durationSec <= 0) {
+        this.logger.warn(
+          `Invalid duration in Routes API response: ${route.duration}`,
+        );
+        throw new Error('No valid duration in Routes API response');
+      }
+
+      const polyline =
+        route.polyline?.encodedPolyline ?? '';
+
+      if (!polyline) {
+        this.logger.warn('Routes API returned an empty polyline');
+      }
+
+      this.logger.log(
+        `Route successfully retrieved. Duration: ${durationSec}s, Distance: ${route.distanceMeters}m, Polyline length: ${polyline.length}`,
+      );
+
+      return {
+        durationSec,
+        polyline,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Routes API failed, using fallback`,
+        error instanceof Error ? error.stack : String(error),
+      );
+
+      return {
+        durationSec: this.estimateEtaFallback(origin, destination),
+        polyline: '',
+      };
     }
-
-    this.logger.log(
-      `Route successfully retrieved. Duration: ${durationSec}s, Distance: ${route.distanceMeters}m, Polyline length: ${polyline.length}`,
-    );
-
-    return {
-      durationSec,
-      polyline,
-    };
-  } catch (error) {
-    this.logger.warn(
-      `Routes API failed, using fallback`,
-      error instanceof Error ? error.stack : String(error),
-    );
-
-    return {
-      durationSec: this.estimateEtaFallback(origin, destination),
-      polyline: '',
-    };
   }
-}
 
   public async getRouteDetailsOld(
     origin: { lat: number; lng: number },

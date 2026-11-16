@@ -468,8 +468,8 @@ async sendUnacceptedAlert(orderId: string): Promise<void> {
     const adminPortalUrl =
       this.config.get<string>(
         'ADMIN_PORTAL_URL',
-        'https://admin.example.com',
-      ) + '/dashboard';
+        'https://c-ride.co/admin/dispatch',
+      ) ;
 
     const subject =
       `[Action Required] No driver found for order #${order.orderNumber}`;

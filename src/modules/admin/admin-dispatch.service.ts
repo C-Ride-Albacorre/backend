@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -23,23 +24,36 @@ import { QUEUES } from '../../shared/constants';
 import { DriverAssignmentService } from '../driver/driver-assignment.service';
 import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import { MapGateway } from '../../common/map-gateway/map.gateway';
+import { DISPATCH_CONFIG } from '../../shared/utils/constant';
+import { Redis } from 'ioredis';
+import { REDIS_CLIENT } from '../../modules/redis/redis.provider';
 
 @Injectable()
 export class AdminDispatchService {
   private readonly logger = new Logger(AdminDispatchService.name);
 
+  private readonly driverResponseTimeoutSeconds =
+    DISPATCH_CONFIG.driver.responseTimeoutSeconds;
+
+  private readonly defaultRadiusMeters =
+    DISPATCH_CONFIG.retry.defaultRadiusMeters;
+
+  private readonly assignmentTimeoutSeconds =
+    DISPATCH_CONFIG.assignment.timeoutSeconds;
+
   constructor(
+    @Inject(REDIS_CLIENT)
+    public redis: Redis,
     private readonly prisma: PrismaService,
     private readonly driverAssignment: DriverAssignmentService,
     private readonly driverGateway: DriverGateway,
     private readonly mapGateway: MapGateway,
     private readonly notification: NotificationService,
-    @InjectQueue(QUEUES.NOTIFICATION)
-    private readonly notificationQueue: Queue,
+
+    @InjectQueue(QUEUES.DRIVER_ASSIGNMENT)
+    public assignmentQueue: Queue,
   ) {}
 
-
-  /////
 
   async getDashboardStats() {
     const [
@@ -86,52 +100,52 @@ export class AdminDispatchService {
   }
 
 
-async getDriverFleet() {
-  const drivers = await this.prisma.driverProfile.findMany({
-    where: {
-      driverType: DriverType.PARTNER,
-    },
-    include: {
-      user: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          phoneNumber: true,
-          ordersAsDriver: {
-            where: {
-              orderStatus: {
-                in: [
-                  OrderStatus.ORDER_ASSIGNED,
-                  OrderStatus.PICKED_UP,
-                  OrderStatus.IN_TRANSIT,
-                ],
+  async getDriverFleet() {
+    const drivers = await this.prisma.driverProfile.findMany({
+      where: {
+        driverType: DriverType.PARTNER,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phoneNumber: true,
+            ordersAsDriver: {
+              where: {
+                orderStatus: {
+                  in: [
+                    OrderStatus.ORDER_ASSIGNED,
+                    OrderStatus.PICKED_UP,
+                    OrderStatus.IN_TRANSIT,
+                  ],
+                },
               },
+              select: {
+                id: true,
+                orderNumber: true,
+              },
+              take: 1,
             },
-            select: {
-              id: true,
-              orderNumber: true,
-            },
-            take: 1,
           },
         },
       },
-    },
-    orderBy: [{ status: 'asc' }, { rating: 'desc' }],
-  });
+      orderBy: [{ status: 'asc' }, { rating: 'desc' }],
+    });
 
-  return {
-    available: drivers.filter(
-      (d) => d.status === DriverStatus.ONLINE,
-    ),
-    onDelivery: drivers.filter(
-      (d) => d.status === DriverStatus.BUSY,
-    ),
-    offline: drivers.filter(
-      (d) => d.status === DriverStatus.OFFLINE,
-    ),
-  };
-}
+    return {
+      available: drivers.filter(
+        (d) => d.status === DriverStatus.ONLINE,
+      ),
+      onDelivery: drivers.filter(
+        (d) => d.status === DriverStatus.BUSY,
+      ),
+      offline: drivers.filter(
+        (d) => d.status === DriverStatus.OFFLINE,
+      ),
+    };
+  }
 
   // -------------------------------------------------------------------------
   // Order Queue (Pending & Active Tabs)
@@ -196,9 +210,9 @@ async getDriverFleet() {
         },
         driver: o.driver
           ? {
-              name: `${o.driver.firstName} ${o.driver.lastName}`,
-              phone: o.driver.phoneNumber,
-            }
+            name: `${o.driver.firstName} ${o.driver.lastName}`,
+            phone: o.driver.phoneNumber,
+          }
           : null,
         status: o.orderStatus,
       };
@@ -208,8 +222,169 @@ async getDriverFleet() {
   // -------------------------------------------------------------------------
   // Assign (from the "Click to assign a driver" button)
   // -------------------------------------------------------------------------
+async manualAssign(
+  orderId: string,
+  adminUserId: string,
+  dto: { driverId: string; reason?: string },
+): Promise<{ success: true }> {
+  await this.assertAdmin(adminUserId);
 
-  async manualAssign(
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+    include: { items: { include: { store: true } } },
+  });
+  if (!order) throw new NotFoundException('Order not found');
+  if (order.orderStatus !== OrderStatus.UNACCEPTED) {
+    throw new ConflictException(
+      `Order status is ${order.orderStatus}, expected UNACCEPTED`,
+    );
+  }
+
+  const driverProfile = await this.prisma.driverProfile.findUnique({
+    where: { userId: dto.driverId },
+  });
+  if (!driverProfile) throw new NotFoundException('Driver profile not found');
+  if (driverProfile.driverType !== DriverType.PARTNER) {
+    throw new BadRequestException('Only PARTNER drivers can be manually assigned.');
+  }
+  if (driverProfile.status === DriverStatus.OFFLINE) {
+    throw new BadRequestException('Driver is offline.');
+  }
+
+  const now = new Date();
+
+  // ── 1. Atomic transition: UNACCEPTED → ORDER_ACCEPTED, create PENDING assignment
+  const result = await this.prisma.$transaction(async (tx) => {
+    const updated = await tx.order.updateMany({
+      where: { id: orderId, orderStatus: OrderStatus.UNACCEPTED },
+      data: {
+        orderStatus: OrderStatus.ORDER_ACCEPTED,
+        driverAssignedAt: null,          // will be set on driver accept
+        driverId: null,                  // will be set on driver accept
+        assignedByAdminId: adminUserId,
+        manuallyAssignedAt: now,
+        dispatchRadiusMeters: this.defaultRadiusMeters,
+        statusHistory: {
+          push: {
+            status: OrderStatus.ORDER_ACCEPTED,
+            timestamp: now.toISOString(),
+            note: 'MANUAL_ADMIN_ASSIGNMENT',
+            actorId: adminUserId,
+            actorRole: Role.ADMIN,
+            reason: dto.reason,
+          },
+        },
+      },
+    });
+    if (updated.count !== 1) return { ok: false as const };
+
+    // Reset/create a PENDING assignment — same shape the normal flow produces
+    await tx.driverAssignment.upsert({
+      where: { orderId },
+      update: {
+        assignmentStatus: AssignmentStatus.PENDING,
+        driverId: null,
+        assignedAt: null,
+        etaSeconds: null,
+      },
+      create: {
+        orderId,
+        assignmentStatus: AssignmentStatus.PENDING,
+      },
+    });
+
+    await tx.orderActivityLog.create({
+      data: {
+        orderId,
+        actorId: adminUserId,
+        actorRole: Role.ADMIN,
+        action: 'MANUAL_ADMIN_ASSIGNMENT',
+        fromStatus: OrderStatus.UNACCEPTED,
+        toStatus: OrderStatus.ORDER_ACCEPTED,
+        reason: dto.reason ?? null,
+        metadata: { targetDriverId: dto.driverId },
+      },
+    });
+
+    return { ok: true as const };
+  });
+
+  if (!result.ok) throw new ConflictException('Order was modified concurrently');
+
+  // ── 2. Seed Redis so this driver is a *notified* candidate (fixes late-accept branch)
+  const pendingKey = `order:${orderId}:pending:${dto.driverId}`;
+  const TTL = this.driverResponseTimeoutSeconds ?? 300;
+
+  await this.redis.setex(pendingKey, TTL, 'pending');
+  await this.redis.sadd(`driver:${dto.driverId}:pending_claims`, orderId);
+  await this.redis.sadd(`order:${orderId}:pending_drivers`, dto.driverId);
+
+  // Schedule the per-driver response timeout (so unaccepted manual assignments roll back)
+  await this.assignmentQueue
+    .add(
+      'driver-response-timeout',
+      { orderId, driverId: dto.driverId },
+      {
+        delay: TTL * 1000,
+        jobId: `timeout-${orderId}-${dto.driverId}`,
+        removeOnComplete: true,
+      },
+    )
+    .catch(() => null);
+
+  // Schedule the global assignment timeout too (matches initiateDriverSearch behavior)
+  await this.assignmentQueue
+    .add(
+      'assignment-timeout',
+      { orderId },
+      {
+        delay: this.assignmentTimeoutSeconds * 1000,
+        jobId: `assignment-timeout-${orderId}`,
+        removeOnComplete: true,
+      },
+    )
+    .catch(() => null);
+
+  // ── 3. Notify map + driver
+  try {
+    const fresh = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { statusHistory: true },
+    });
+    this.mapGateway.emitOrderStatus(
+      orderId,
+      OrderStatus.ORDER_ACCEPTED,
+      fresh?.statusHistory ?? [],
+    );
+
+    const store = order.items[0]?.store;
+    await this.driverGateway.emitManualAssignment(dto.driverId, {
+      orderId,
+      orderNumber: order.orderNumber,
+      orderStatus: OrderStatus.ORDER_ACCEPTED, // driver still must accept
+      totalAmount: order.totalAmount,
+      deliveryFee: order.deliveryFee,
+      pickupLocation: order.pickupLocation,
+      dropoffLocation: order.dropoffLocation,
+      createdAt: order.createdAt,
+      storeId: store?.id?.toString() ?? '',
+      storeName: store?.storeName ?? 'Store',
+      storeLogo: (store as any)?.storeLogo ?? '',
+      storeLat: store?.latitude ?? null,
+      storeLng: store?.longitude ?? null,
+      manuallyAssigned: true,
+      assignedByName: adminUserId,
+      // hint the client this needs an explicit accept
+      //requiresAcceptance: true,
+    });
+  } catch (err) {
+    this.logger.warn(`Broadcast failed for ${orderId}: ${err}`);
+  }
+
+  return { success: true };
+}
+
+  async manualAssignold(
     orderId: string,
     adminUserId: string,
     dto: { driverId: string; reason?: string },
@@ -242,14 +417,14 @@ async getDriverFleet() {
       const updated = await tx.order.updateMany({
         where: { id: orderId, orderStatus: OrderStatus.UNACCEPTED },
         data: {
-          orderStatus: OrderStatus.ORDER_ACCEPTED,
+          orderStatus: OrderStatus.ORDER_ASSIGNED,
           driverId: dto.driverId,
           driverAssignedAt: now,
           assignedByAdminId: adminUserId,
           manuallyAssignedAt: now,
           statusHistory: {
             push: {
-              status: OrderStatus.ORDER_ACCEPTED,
+              status: OrderStatus.ORDER_ASSIGNED,
               timestamp: now.toISOString(),
               note: 'MANUAL_ADMIN_ASSIGNMENT',
               actorId: adminUserId,
@@ -262,10 +437,16 @@ async getDriverFleet() {
 
       if (updated.count !== 1) return { ok: false as const };
 
-      await tx.driverAssignment.updateMany({
+      const assigned = await tx.driverAssignment.updateMany({
         where: { orderId, assignmentStatus: AssignmentStatus.PENDING },
         data: { assignmentStatus: AssignmentStatus.ACCEPTED, driverId: dto.driverId },
       });
+
+      if (assigned.count === 0) {
+        // No pending assignment to claim — the order was already in-flight.
+        // (Shouldn't happen if orderStatus guard passed, but be safe.)
+        throw new ConflictException('No pending assignment to claim');
+      }
 
       await tx.orderActivityLog.create({
         data: {
@@ -274,7 +455,7 @@ async getDriverFleet() {
           actorRole: Role.ADMIN,
           action: 'MANUAL_ADMIN_ASSIGNMENT',
           fromStatus: OrderStatus.UNACCEPTED,
-          toStatus: OrderStatus.ORDER_ACCEPTED,
+          toStatus: OrderStatus.ORDER_ASSIGNED,
           reason: dto.reason ?? null,
           metadata: { driverId: dto.driverId },
         },
@@ -290,13 +471,13 @@ async getDriverFleet() {
     // Update Map & Driver App
     try {
       const fresh = await this.prisma.order.findUnique({ where: { id: orderId }, select: { statusHistory: true } });
-      this.mapGateway.emitOrderStatus(orderId, OrderStatus.ORDER_ACCEPTED, fresh?.statusHistory ?? []);
-      
+      this.mapGateway.emitOrderStatus(orderId, OrderStatus.ORDER_ASSIGNED, fresh?.statusHistory ?? []);
+
       const store = order.items[0]?.store;
       await this.driverGateway.emitManualAssignment(dto.driverId, {
         orderId,
         orderNumber: order.orderNumber,
-        orderStatus: OrderStatus.ORDER_ACCEPTED,
+        orderStatus: OrderStatus.ORDER_ASSIGNED,
         totalAmount: order.totalAmount,
         deliveryFee: order.deliveryFee,
         pickupLocation: order.pickupLocation,
@@ -389,10 +570,10 @@ async getDriverFleet() {
     if (params.search) {
       where.OR = [
         { user: { firstName: { contains: params.search, mode: 'insensitive' } } },
-        { user: { lastName:  { contains: params.search, mode: 'insensitive' } } },
-        { user: { email:     { contains: params.search, mode: 'insensitive' } } },
-        { user: { phoneNumber:     { contains: params.search, mode: 'insensitive' } } },
-        { licensePlate:      { contains: params.search, mode: 'insensitive' } },
+        { user: { lastName: { contains: params.search, mode: 'insensitive' } } },
+        { user: { email: { contains: params.search, mode: 'insensitive' } } },
+        { user: { phoneNumber: { contains: params.search, mode: 'insensitive' } } },
+        { licensePlate: { contains: params.search, mode: 'insensitive' } },
       ];
     }
 
