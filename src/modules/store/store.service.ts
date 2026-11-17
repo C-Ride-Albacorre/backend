@@ -26,7 +26,7 @@ export class StoreService {
     private readonly cloudinaryService: CloudinaryService,
     @Inject(GEOCODE_QUEUE)
     private readonly geocodeQueue: Queue,
-  ) {}
+  ) { }
 
   /**
    * Create a new store for a vendor
@@ -100,9 +100,18 @@ export class StoreService {
 
     // 🚀 Queue background job
     //await geocodeQueue.add('geocode-store-job', {
+    // await this.geocodeQueue.add(QUEUES.GEOCODE_STORE, {
+    //   storeId: store.id,
+    //   address: store.storeAddress,
+    // });
     await this.geocodeQueue.add(QUEUES.GEOCODE_STORE, {
       storeId: store.id,
       address: store.storeAddress,
+    }, {
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 2000 },
+      removeOnComplete: 100,
+      removeOnFail: 500,
     });
 
     return {
