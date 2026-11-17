@@ -12,10 +12,9 @@ import {
 } from './dto/store.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { CloudinaryService } from '../../shared/services/cloudinary.service';
-import { Queue } from 'bullmq';
-import { GEOCODE_QUEUE } from '../../queue/geocode.queue';
-import Helper from '../../shared/utils/helpers';
 import { QUEUES } from '../../shared/constants';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class StoreService {
@@ -24,7 +23,7 @@ export class StoreService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
-    @Inject(GEOCODE_QUEUE)
+    @InjectQueue(QUEUES.GEOCODE_STORE)
     private readonly geocodeQueue: Queue,
   ) { }
 
@@ -104,7 +103,7 @@ export class StoreService {
     //   storeId: store.id,
     //   address: store.storeAddress,
     // });
-    await this.geocodeQueue.add(QUEUES.GEOCODE_STORE, {
+    await this.geocodeQueue.add(QUEUES.GEOCODE_STORE_JOB, {
       storeId: store.id,
       address: store.storeAddress,
     }, {
@@ -200,7 +199,7 @@ export class StoreService {
       //   storeId,
       //   address: dto.storeAddress,
       // });
-      await this.geocodeQueue.add(QUEUES.GEOCODE_STORE, {
+      await this.geocodeQueue.add(QUEUES.GEOCODE_STORE_JOB, {
         storeId,
         address: dto.storeAddress,
       });

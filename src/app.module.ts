@@ -13,8 +13,6 @@ import { AdminModule } from './modules/admin/admin.module';
 import { CustomerModule } from './modules/customer/customer.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { OrderModule } from './modules/order/order.module';
-import { GeocodeModule } from './geocode/geocode.module';
-import { QueueModule } from './queue/queue.module';
 import { DriverModule } from './modules/driver/driver.module';
 import { CartModule } from './modules/cart/cart.module';
 import { NotificationModule } from './modules/notification/notification.module';
@@ -45,35 +43,59 @@ import { VendorModule } from './modules/vendor/vendor.module';
         }
       })(),
     }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          // Let ioredis parse rediss:// (TLS) vs redis://, host, port, auth
+          url: config.getOrThrow('REDIS_URL'),
+
+          // Required by BullMQ workers (blocking commands must not time out)
+          maxRetriesPerRequest: null,
+
+          // Do NOT gate commands on a successful INFO probe — this is the
+          // #1 cause of ECONNRESET loops against managed Redis (Render/Upstash).
+          enableReadyCheck: false,
+
+          // Keep the TCP socket warm so intermediaries don't reap it.
+          keepAlive: 10_000,
+
+          // Simple bounded backoff on reconnect.
+          retryStrategy: (times: number) => Math.min(times * 500, 5_000),
+        },
+      }),
+    }),
     // BullModule.forRoot({
     //   connection: {
     //     url: process.env.REDIS_URL,
     //     maxRetriesPerRequest: null,
     //   },
     // }),
-BullModule.forRootAsync({
-  imports: [ConfigModule],
-  inject: [ConfigService],
-  useFactory: (config: ConfigService) => ({
-    connection: {
-      host: new URL(config.getOrThrow('REDIS_URL')).hostname,
-      port: Number(
-        new URL(config.getOrThrow('REDIS_URL')).port || 6379,
-      ),
-      username: new URL(config.getOrThrow('REDIS_URL')).username || undefined,
-      password: decodeURIComponent(
-        new URL(config.getOrThrow('REDIS_URL')).password,
-      ),
-      tls: new URL(config.getOrThrow('REDIS_URL')).protocol === 'rediss:'
-        ? {}
-        : undefined,
-      maxRetriesPerRequest: null,
-      enableReadyCheck: true,
-      retryStrategy: (times: number) =>
-        Math.min(times * 500, 5000),
-    },
-  }),
-}),
+    // BullModule.forRootAsync({
+    //   imports: [ConfigModule],
+    //   inject: [ConfigService],
+    //   useFactory: (config: ConfigService) => ({
+    //     connection: {
+    //       host: new URL(config.getOrThrow('REDIS_URL')).hostname,
+    //       port: Number(
+    //         new URL(config.getOrThrow('REDIS_URL')).port || 6379,
+    //       ),
+    //       username: new URL(config.getOrThrow('REDIS_URL')).username || undefined,
+    //       password: decodeURIComponent(
+    //         new URL(config.getOrThrow('REDIS_URL')).password,
+    //       ),
+    //       tls: new URL(config.getOrThrow('REDIS_URL')).protocol === 'rediss:'
+    //         ? {}
+    //         : undefined,
+    //       maxRetriesPerRequest: null,
+    //       enableReadyCheck: true,
+    //       retryStrategy: (times: number) =>
+    //         Math.min(times * 500, 5000),
+    //     },
+    //   }),
+    // }),
+
     SharedModule,
     AuthModule,
     UserModule,
@@ -84,8 +106,6 @@ BullModule.forRootAsync({
     CustomerModule,
     PaymentModule,
     OrderModule,
-    GeocodeModule,
-    QueueModule,
     DriverModule,
     CartModule,
     NotificationModule,
@@ -103,4 +123,4 @@ BullModule.forRootAsync({
   controllers: [AppController],
   providers: [AppService, JwtStrategy],
 })
-export class AppModule {}
+export class AppModule { }
