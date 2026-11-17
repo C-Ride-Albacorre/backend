@@ -37,6 +37,7 @@ import { GetNearbyStoresQueryDto } from './dto/near-by-store.dto';
 import { RolesGuard } from '../../common/guards/role.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { OrderStatus, PaymentStatus } from '@prisma/client';
+import { GetUserOrdersDto } from './dto/get-user-orders.dto';
 
 @ApiTags('Customer')
 @Controller('customer')
@@ -218,23 +219,39 @@ export class CustomerController {
   //   return this.orderService.getUserOrders(req.user.id);
   // }
 
-  @Get('orders')
-@ApiOperation({ summary: 'Get user orders with filters and pagination' })
+//   @Get('orders')
+// @ApiOperation({ summary: 'Get user orders with filters and pagination' })
+// @ApiBearerAuth()
+// @UseGuards(JwtAuthGuard)
+// async getUserOrders(
+//   @Request() req,
+//   @Query('status') status?: OrderStatus,
+//   @Query('paymentStatus') paymentStatus?: PaymentStatus,
+//   @Query('page') page?: number,
+//   @Query('limit') limit?: number,
+// ) {
+//   return this.orderService.getUserOrders(req.user.id, {
+//     status,
+//     paymentStatus,
+//     page,
+//     limit,
+//   });
+// }
+
+@Get('orders')
+@ApiOperation({
+  summary: 'Get user orders with optional filters and pagination',
+})
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 async getUserOrders(
   @Request() req,
-  @Query('status') status?: OrderStatus,
-  @Query('paymentStatus') paymentStatus?: PaymentStatus,
-  @Query('page') page?: number,
-  @Query('limit') limit?: number,
+  @Query() filters: GetUserOrdersDto,
 ) {
-  return this.orderService.getUserOrders(req.user.id, {
-    status,
-    paymentStatus,
-    page,
-    limit,
-  });
+  return this.orderService.getUserOrders(
+    req.user.id,
+    filters,
+  );
 }
 
   @Get('orders/:orderId')
