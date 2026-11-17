@@ -23,6 +23,9 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { CreateBusinessProfileDto } from './dto/create-business-profile.dto';
 import { ApiResponseDto } from '../../common/dto/api-response.dto';
 import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
+import { UpdateEmailDto } from './dto/update-email.dto.';
+import { UserResponseDto } from '../auth/dto/user-response.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @ApiTags('User')
 @Controller('user')
@@ -51,6 +54,43 @@ export class UserController {
     description: 'Unauthorized',
     type: ApiErrorResponseDto,
   })
+
+  @Patch('profile')
+  @ApiOperation({ summary: 'Edit logged-in user profile' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiResponse({
+    status: 200,
+    description: 'Profile updated successfully',
+    type: ApiResponseDto<UserResponseDto>,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized',
+    type: ApiErrorResponseDto,
+  })
+  async updateProfile(
+    @GetUser() user: any,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.userService.updateProfile(user.id, dto);
+  }
+
+
+  @Patch('update-email')
+  @ApiOperation({ summary: 'Update logged-in dispatcher email' })
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiResponse({
+    status: 200,
+    description: 'Email updated successfully',
+  })
+  async updateEmail(
+    @GetUser() user: any,
+    @Body() dto: UpdateEmailDto,
+  ) {
+    return this.userService.updateEmail(user.id, dto.email);
+  }
 
   @Patch('change-password')
   @UseGuards(JwtAuthGuard)
@@ -89,8 +129,8 @@ export class UserController {
   async deleteUser(@GetUser() user: any, @Body('reason') reason: string) {
     return this.userService.deleteUser(user.id, reason);
   }
- 
- 
+
+
 
 
 }
