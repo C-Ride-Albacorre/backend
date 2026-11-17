@@ -31,19 +31,56 @@ export class GeocodeProcessor implements OnModuleInit, OnModuleDestroy {
         connection: this.redis.duplicate({
           maxRetriesPerRequest: null,
         }) as any,
+         concurrency: 5,
       },
     );
 
     this.worker.on('completed', (job) => {
-      this.logger.log(`✅ Job completed: ${job.id}`);
-    });
+    this.logger.log(`Job completed: ${job.id}`);
+  });
 
-    this.worker.on('failed', (job, err) => {
-      this.logger.error(`❌ Job failed: ${job?.id}`, err.stack);
-    });
+  this.worker.on('failed', (job, err) => {
+    this.logger.error(
+      `Job failed: ${job?.id}: ${err.message}`,
+      err.stack,
+    );
+  });
+
+  this.worker.on('error', (err) => {
+    this.logger.error(`Worker error: ${err.message}`, err.stack);
+  });
+
+  this.logger.log('Geocoding worker initialized');
   }
 
   async handleJob(job: Job) {
+  const { storeId, address } = job.data;
+
+  this.logger.log(`Geocoding store: ${storeId}`);
+  this.logger.log(`Address: ${address}`);
+
+  const location = await Helper.geocodeAddress(address);
+
+  if (!location || location.lat == null || location.lng == null) {
+    throw new Error(
+      `Geocoding failed for store ${storeId}: ${address}`,
+    );
+  }
+
+  await this.prisma.store.update({
+    where: { id: storeId },
+    data: {
+      latitude: location.lat,
+      longitude: location.lng,
+    },
+  });
+
+  this.logger.log(
+    `Store ${storeId} updated: ${location.lat}, ${location.lng}`,
+  );
+}
+
+  async handleJob2(job: Job) {
     const { storeId, address } = job.data;
 
     this.logger.log(`Geocoding store: ${storeId}`);

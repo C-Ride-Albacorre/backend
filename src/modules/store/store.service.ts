@@ -191,7 +191,7 @@ export class StoreService {
       //   storeId,
       //   address: dto.storeAddress,
       // });
-      await this.geocodeQueue.add(QUEUES.GEOCODE_STORE_JOB, {
+      await this.geocodeQueue.add(QUEUES.GEOCODE_STORE, {
         storeId,
         address: dto.storeAddress,
       });
