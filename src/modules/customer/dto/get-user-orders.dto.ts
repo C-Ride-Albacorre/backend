@@ -12,7 +12,7 @@ import { OrderStatus, PaymentStatus } from '@prisma/client';
 export class GetUserOrdersDto {
   @ApiPropertyOptional({
     enum: OrderStatus,
-    description: 'Filter orders by order status',
+    required: false,
   })
   @IsOptional()
   @IsEnum(OrderStatus)
@@ -20,7 +20,7 @@ export class GetUserOrdersDto {
 
   @ApiPropertyOptional({
     enum: PaymentStatus,
-    description: 'Filter orders by payment status',
+    required: false,
   })
   @IsOptional()
   @IsEnum(PaymentStatus)
@@ -28,24 +28,24 @@ export class GetUserOrdersDto {
 
   @ApiPropertyOptional({
     example: 1,
+    required: false,
     default: 1,
-    description: 'Page number',
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  page?: number = 1;
+  page?: number;
 
   @ApiPropertyOptional({
     example: 20,
+    required: false,
     default: 20,
-    description: 'Number of orders per page (maximum 100)',
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
-  limit?: number = 20;
+  limit?: number;
 }
