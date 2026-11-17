@@ -42,6 +42,7 @@ import { TransitionContext } from '../../shared/types';
 import { ListVendorStoresQueryDto } from './dto/list-vendor-stores-query.dto';
 import { ListStoreOrdersQueryDto } from './dto/list-store-orders-query.dto';
 import { SearchOrdersByVendorCodeDto } from './dto/search-orders-by-vendor-code.dto';
+import { GetUserOrdersDto } from '../customer/dto/get-user-orders.dto';
 
 
 
@@ -908,21 +909,19 @@ export class OrderService {
   /**
    * Get user orders
    */
-  async getUserOrders(
+async getUserOrders(
   userId: string,
-  filters: {
-    status?: OrderStatus;
-    paymentStatus?: PaymentStatus;
-    page?: number;
-    limit?: number;
-  },
+  filters: GetUserOrdersDto,
 ) {
-  // 1. Pagination
+  // 1. Pagination defaults
   const page = Math.max(Number(filters.page) || 1, 1);
-  const limit = Math.min(Math.max(Number(filters.limit) || 20, 1), 100);
+  const limit = Math.min(
+    Math.max(Number(filters.limit) || 20, 1),
+    100,
+  );
 
-  // 2. Build filters
-  const where = {
+  // 2. Build query filters
+  const where: Prisma.OrderWhereInput = {
     userId,
     ...(filters.status && {
       orderStatus: filters.status,
