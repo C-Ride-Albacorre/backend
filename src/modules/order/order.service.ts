@@ -908,7 +908,68 @@ export class OrderService {
   /**
    * Get user orders
    */
-  async getUserOrders(userId: string) {
+  async getUserOrders(
+  userId: string,
+  filters: {
+    status?: OrderStatus;
+    paymentStatus?: PaymentStatus;
+    page?: number;
+    limit?: number;
+  },
+) {
+  // 1. Pagination
+  const page = Math.max(Number(filters.page) || 1, 1);
+  const limit = Math.min(Math.max(Number(filters.limit) || 20, 1), 100);
+
+  // 2. Build filters
+  const where = {
+    userId,
+    ...(filters.status && {
+      orderStatus: filters.status,
+    }),
+    ...(filters.paymentStatus && {
+      paymentStatus: filters.paymentStatus,
+    }),
+  };
+
+  // 3. Fetch orders and total count
+  const [orders, total] = await Promise.all([
+    this.prisma.order.findMany({
+      where,
+      include: {
+        items: {
+          take: 1,
+          include: {
+            product: {
+              select: {
+                productName: true,
+              },
+            },
+          },
+        },
+        deliveryOption: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+
+    this.prisma.order.count({ where }),
+  ]);
+
+  // 4. Return paginated response
+  return {
+    data: orders,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
+  async getUserOrdersWithoutFilters(userId: string) {
     return this.prisma.order.findMany({
       where: { userId },
       include: {

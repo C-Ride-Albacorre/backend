@@ -32,6 +32,7 @@ import {
 import Helper from '../../shared/utils/helpers';
 import { CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js';
 import { AuthService } from '../auth/auth.service';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class UserService {
@@ -968,6 +969,103 @@ export class UserService {
     };
   }
 
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+  if (!userId) {
+    throw new UnauthorizedException('User not authenticated');
+  }
+
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+  });
+
+  if (!user) {
+    throw new NotFoundException('User not found');
+  }
+
+  const updatedUser = await this.prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(dto.firstName !== undefined && {
+        firstName: dto.firstName.trim(),
+      }),
+      ...(dto.lastName !== undefined && {
+        lastName: dto.lastName.trim(),
+      }),
+      ...(dto.profileImage !== undefined && {
+        profileImage: dto.profileImage,
+      }),
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      role: true,
+      createdAt: true,
+      updatedAt: true,
+      oauthProviders: {
+        select: {
+          provider: true,
+          providerId: true,
+        },
+      },
+      driverProfile: {
+        select: {
+          driverType: true,
+        },
+      },
+      businessInfo: true,
+      onboardingStatus: true,
+      onboardingStep: true,
+      status: true,
+    },
+  });
+
+  return {
+    message: 'Profile updated successfully',
+    data: {
+      ...updatedUser,
+      driverType: updatedUser.driverProfile?.driverType ?? null,
+    },
+  };
+}
+
+  async updateEmail(userId: string, email: string) {
+  if (!userId) {
+    throw new UnauthorizedException('User not authenticated');
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+
+  const existingUser = await this.prisma.user.findUnique({
+    where: { email: normalizedEmail },
+  });
+
+  if (existingUser && existingUser.id !== userId) {
+    throw new ConflictException('Email already exists');
+  }
+
+  const updatedUser = await this.prisma.user.update({
+    where: { id: userId },
+    data: {
+      email: normalizedEmail,
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      role: true,
+      updatedAt: true,
+    },
+  });
+
+  return {
+    message: 'Email updated successfully',
+    data: updatedUser,
+  };
+}
 
   async changePassword(
     userId: string,

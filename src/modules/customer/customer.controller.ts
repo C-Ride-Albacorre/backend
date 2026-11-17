@@ -36,6 +36,7 @@ import { StoreResponseDto } from './dto/store-response.dto';
 import { GetNearbyStoresQueryDto } from './dto/near-by-store.dto';
 import { RolesGuard } from '../../common/guards/role.guard';
 import { Public } from '../../common/decorators/public.decorator';
+import { OrderStatus, PaymentStatus } from '@prisma/client';
 
 @ApiTags('Customer')
 @Controller('customer')
@@ -211,11 +212,30 @@ export class CustomerController {
     return this.orderService.createOrder(req.user.id, dto);
   }
 
+  // @Get('orders')
+  // @ApiOperation({ summary: 'Get user orders' })
+  // async getUserOrders(@Request() req) {
+  //   return this.orderService.getUserOrders(req.user.id);
+  // }
+
   @Get('orders')
-  @ApiOperation({ summary: 'Get user orders' })
-  async getUserOrders(@Request() req) {
-    return this.orderService.getUserOrders(req.user.id);
-  }
+@ApiOperation({ summary: 'Get user orders with filters and pagination' })
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+async getUserOrders(
+  @Request() req,
+  @Query('status') status?: OrderStatus,
+  @Query('paymentStatus') paymentStatus?: PaymentStatus,
+  @Query('page') page?: number,
+  @Query('limit') limit?: number,
+) {
+  return this.orderService.getUserOrders(req.user.id, {
+    status,
+    paymentStatus,
+    page,
+    limit,
+  });
+}
 
   @Get('orders/:orderId')
   @ApiOperation({ summary: 'Get order details' })
