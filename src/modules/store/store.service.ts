@@ -287,4 +287,15 @@ export class StoreService {
       deletedCount: result.count,
     };
   }
+
+  // Execute temporarily in StoreService, or write a one-off script
+async cleanFailedGeocodeJobs() {
+  const removed = await this.geocodeQueue.clean(
+    0,        // grace: 0 means clean immediately
+    1000,     // limit: maximum number to clean per call
+    'failed', // type: only clean failed jobs
+  );
+  this.logger.log(`Cleaned ${removed.length} failed geocode jobs`);
+  return removed;
+}
 }
