@@ -26,13 +26,14 @@ import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
 import { UpdateEmailDto } from './dto/update-email.dto.';
 import { UserResponseDto } from '../auth/dto/user-response.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdateBusinessProfileDto } from './dto/update-busines-profile';
 
 @ApiTags('User')
 @Controller('user')
 export class UserController {
   constructor(private readonly userService: UserService) { }
 
-  // @Patch('business-profile')
+  @Patch('business-profile')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
@@ -54,6 +55,19 @@ export class UserController {
     description: 'Unauthorized',
     type: ApiErrorResponseDto,
   })
+async updateBusinessProfile(
+  @GetUser() user: any,
+  @Body() dto: UpdateBusinessProfileDto,
+  @UploadedFile() file?: Express.Multer.File,
+) {
+  return this.userService.updateBusinessProfile(
+    user.id,
+    dto,
+    file,
+  );
+}
+
+
 
   @Patch('profile')
   @ApiOperation({ summary: 'Edit logged-in user profile' })

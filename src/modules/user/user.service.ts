@@ -33,6 +33,7 @@ import Helper from '../../shared/utils/helpers';
 import { CountryCode, parsePhoneNumberFromString } from 'libphonenumber-js';
 import { AuthService } from '../auth/auth.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdateBusinessProfileDto } from './dto/update-busines-profile';
 
 @Injectable()
 export class UserService {
@@ -44,7 +45,7 @@ export class UserService {
   ];
   constructor(
     private readonly prisma: PrismaService,
-    private readonly cloudinary: CloudinaryService,
+    private readonly cloudinaryService: CloudinaryService,
     private readonly userRepository: AbstractUserRepository,
     private readonly verificationService: VerificationService,
     @Inject(forwardRef(() => AuthService))
@@ -968,6 +969,96 @@ export class UserService {
       driverType: user.driverProfile?.driverType ?? null,
     };
   }
+
+async updateBusinessProfile(
+  userId: string,
+  dto: UpdateBusinessProfileDto,
+  file?: Express.Multer.File,
+) {
+  try {
+    let logoUrl: string | null = null;
+
+    // Upload new business logo if provided
+    if (file) {
+      const uploadResult = await this.cloudinaryService.uploadLogo(file);
+      logoUrl = uploadResult.secure_url;
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const businessInfo = await this.prisma.businessInfo.upsert({
+      where: { userId },
+
+      update: {
+        ...(dto.businessName !== undefined && {
+          businessName: dto.businessName,
+        }),
+
+        ...(dto.businessType !== undefined && {
+          businessType: dto.businessType,
+        }),
+
+        ...(dto.phoneNumber !== undefined && {
+          businessPhone: dto.phoneNumber,
+        }),
+
+        ...(dto.businessEmail !== undefined && {
+          businessEmail: dto.businessEmail,
+        }),
+
+        ...(dto.address !== undefined && {
+          address: dto.address,
+        }),
+
+        ...(dto.city !== undefined && {
+          city: dto.city,
+        }),
+
+        ...(dto.state !== undefined && {
+          state: dto.state,
+        }),
+
+        ...(dto.shortDescription !== undefined && {
+          description: dto.shortDescription,
+        }),
+
+        ...(dto.openingHours !== undefined && {
+          openingHours: dto.openingHours,
+        }),
+
+        ...(logoUrl && {
+          logoUrl,
+        }),
+      },
+
+      create: {
+        userId,
+        businessName: dto.businessName,
+        businessType: dto.businessType,
+        businessPhone: dto.phoneNumber,
+        businessEmail: dto.businessEmail,
+        address: dto.address,
+        city: dto.city,
+        state: dto.state,
+        description: dto.shortDescription,
+        ...(logoUrl && { logoUrl }),
+      },
+    });
+
+    return {
+      message: 'Business profile updated successfully',
+      data: businessInfo,
+    };
+  } catch (error) {
+    throw error;
+  }
+}
 
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {

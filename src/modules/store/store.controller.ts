@@ -110,7 +110,7 @@ export class StoreController {
     return this.storeService.deleteMultipleStoresSimple(req.user.id, storeIds);
   }
 
-@Post('clean-geocode-failed')
+//@Post('clean-geocode-failed')
 async cleanFailed() {
   let total = 0;
   while (true) {
