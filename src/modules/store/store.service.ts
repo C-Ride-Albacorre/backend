@@ -100,7 +100,7 @@ export class StoreService {
 
     // 🚀 Queue background job
     //await geocodeQueue.add('geocode-store-job', {
-    await this.geocodeQueue.add(QUEUES.GEOCODE_STORE_JOB, {
+    await this.geocodeQueue.add(QUEUES.GEOCODE_STORE, {
       storeId: store.id,
       address: store.storeAddress,
     });
