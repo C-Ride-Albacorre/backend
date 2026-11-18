@@ -1261,3 +1261,47 @@ model BankAccount {
   isVerified    Boolean  @default(false)
   createdAt     DateTime @default(now())
 }
+
+// prisma/schema.prisma
+
+enum WorkplaceType {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
+enum PostStatus {
+  PUBLISHED
+  DRAFT
+  CLOSED
+}
+
+enum SalaryPeriod {
+  MONTHLY
+  YEARLY
+}
+
+model Vacancy {
+  id               String         @id @default(uuid())
+  positionTitle    String
+  location         String
+  workplaceType    WorkplaceType
+  status           PostStatus     @default(DRAFT)
+  roleSummary      String
+  jobDescription   String
+  jobRequirement   String
+
+  // Extras from the UI table
+  salaryMin        Float?
+  salaryMax        Float?
+  salaryPeriod     SalaryPeriod
+  deadline         DateTime?
+  
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([positionTitle])
+  @@index([location])
+  @@index([status])
+  @@map("vacancies")
+}

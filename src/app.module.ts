@@ -27,6 +27,7 @@ import { LocationModule } from './modules/location/location.module';
 import { CommissionModule } from './modules/comission/comission.module';
 import { GlobalSettingsModule } from './modules/global-settings/global-settings.module';
 import { VendorModule } from './modules/vendor/vendor.module';
+import { VacancyModule } from './modules/vacancy/vacancy.module';
 
 @Module({
   imports: [
@@ -119,6 +120,7 @@ import { VendorModule } from './modules/vendor/vendor.module';
     CommissionModule,
     GlobalSettingsModule,
     VendorModule,
+    VacancyModule,
   ],
   controllers: [AppController],
   providers: [AppService, JwtStrategy],
