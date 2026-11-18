@@ -86,3 +86,17 @@ export enum MonnifyPaymentMethod {
   USSD = 'USSD',
   QR_CODE = 'QR_CODE',
 }
+
+
+// src/vacancy/dto/vacancy.enum.ts
+export enum WorkplaceType {
+  ONSITE = 'ONSITE',
+  HYBRID = 'HYBRID',
+  REMOTE = 'REMOTE',
+}
+
+export enum PostStatus {
+  PUBLISHED = 'PUBLISHED',
+  DRAFT = 'DRAFT',
+  CLOSED = 'CLOSED',
+}
