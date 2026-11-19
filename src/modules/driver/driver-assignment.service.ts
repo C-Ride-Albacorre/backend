@@ -21,15 +21,14 @@ import { VendorNotificationGateway } from '../../common/map-gateway/vendor-notif
 import { MapGateway } from '../../common/map-gateway/map.gateway';
 import { PushNotificationService } from '../notification/push-notification.service';
 import { MessageBody } from '@nestjs/websockets';
-import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import { ConfigService } from '@nestjs/config';
-import { OrderService } from '../order/order.service';
 import Helper from '../../shared/utils/helpers';
 import { DriverOnlineHoursService } from './driver-online-hours-service';
 import { QUEUES } from '../../shared/constants';
 import { NearbyDriver } from '../../shared/types';
 import { DriverService } from './driver.service';
 import { NotificationService } from '../notification/notification.service';
+import { DriverGateway } from './web-socket/driver.gateway';
 
 
 @Injectable()

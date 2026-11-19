@@ -7,17 +7,18 @@ import { OrderModule } from '../order/order.module';
 import { NotificationModule } from '../notification/notification.module';
 import { DriverAssignmentService } from './driver-assignment.service';
 import { DriverOrderService } from './driver-order.service';
-import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import { AuthModule } from '../auth/auth.module';
-import { DriverAssignmentProcessor } from './processor/driver-assignment.processor';
+import { DriverAssignmentProcessor } from './queue/driver-assignment.processor';
 import { RatingModule } from '../rating/rating.module';
-import { DriverNotificationProcessor } from './processor/driver-notification.processor';
+import { DriverNotificationProcessor } from './queue/driver-notification.processor';
 import { DriverOnlineHoursService } from './driver-online-hours-service';
 import { WalletService } from '../wallet/wallet.service';
 import { DriverEarningsService } from './driver-earnings-service';
 import { PaymentModule } from '../payment/payment.module';
 import { QUEUES } from '../../shared/constants';
 import { VehicleTypeService } from './vehicle-type.service';
+import { DriverGateway } from './web-socket/driver.gateway';
+import { DispatchGateway } from './web-socket/dispatch.gateway';
 
 @Module({
   imports: [
@@ -37,9 +38,9 @@ forwardRef(() => OrderModule),
   ],
 controllers: [DriverController, DriverEarningsController,
   DriverWalletController, VehicleTypeController],
-  providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService, DriverAssignmentProcessor, DriverNotificationProcessor, DriverEarningsService,
+  providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DispatchGateway, DriverOnlineHoursService, DriverAssignmentProcessor, DriverNotificationProcessor, DriverEarningsService,
     WalletService, VehicleTypeService],
-    exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DriverOnlineHoursService, DriverEarningsService,
+    exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DispatchGateway, DriverOnlineHoursService, DriverEarningsService,
       WalletService, VehicleTypeService],
 })
 export class DriverModule { }

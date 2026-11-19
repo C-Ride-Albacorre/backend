@@ -27,8 +27,8 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import Helper from '../../shared/utils/helpers';
 import { QUEUES } from '../../shared/constants';
-import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import { DriverAssignmentService } from './driver-assignment.service';
+import { DriverGateway } from './web-socket/driver.gateway';
 
 
 @Injectable()

@@ -10,14 +10,14 @@ import {
   WsException,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { forwardRef, Inject, UseGuards } from '@nestjs/common';
-import { WsJwtGuard } from '../../common/guards/ws-jwt.guard';
+import { forwardRef, Inject } from '@nestjs/common';
 import { DriverStatus } from '@prisma/client';
-import { DriverAssignmentService } from '../../modules/driver/driver-assignment.service';
+import { DriverAssignmentService } from '../driver-assignment.service';
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { DriverService } from '../../modules/driver/driver.service';
-import { BatchOrder } from '../../shared/types';
+import { DriverService } from '../driver.service';
+import { BatchOrder } from '../../../shared/types';
+import { DispatchGateway } from './dispatch.gateway';
 
 
 
@@ -41,6 +41,8 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly driverAssignmentService: DriverAssignmentService,
     @Inject(forwardRef(() => DriverService))
     private readonly driverService: DriverService,
+    @Inject(forwardRef(() => DispatchGateway))   // ← add this
+    private readonly dispatchGateway: DispatchGateway,
     private jwtService: JwtService,
   ) { }
 
@@ -603,7 +605,15 @@ const payload = {
       data.heading,
     );
 
-
+      // 2. NEW: relay to DispatchGateway for live admin map
+  this.dispatchGateway.emitDriverLocation({
+    driverId,
+    lat: data.lat,
+    lng: data.lng,
+    heading: data.heading ?? null,
+    status: 'ONLINE', // refined below if you have the profile cached
+    updatedAt: new Date().toISOString(),
+  });
   }
 
   /**
