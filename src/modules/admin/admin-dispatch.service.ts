@@ -22,11 +22,11 @@ import { PrismaService } from '../../shared/services/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { QUEUES } from '../../shared/constants';
 import { DriverAssignmentService } from '../driver/driver-assignment.service';
-import { DriverGateway } from '../../common/map-gateway/driver.gateway';
 import { MapGateway } from '../../common/map-gateway/map.gateway';
 import { DISPATCH_CONFIG } from '../../shared/utils/constant';
 import { Redis } from 'ioredis';
 import { REDIS_CLIENT } from '../../modules/redis/redis.provider';
+import { DriverGateway } from '../driver/web-socket/driver.gateway';
 
 @Injectable()
 export class AdminDispatchService {

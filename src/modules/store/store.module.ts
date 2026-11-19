@@ -4,7 +4,7 @@ import { StoreController } from './store.controller';
 import { StoreDiscoveryService } from '../customer/store-discovery.service';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUES } from '../../shared/constants';
-import { StoreGeocodeProcessor } from './processor/store-geocode.processor';
+import { StoreGeocodeProcessor } from './queue/store-geocode.processor';
 
 @Module({
   imports: [

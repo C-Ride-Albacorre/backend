@@ -43,6 +43,7 @@ import { ListVendorStoresQueryDto } from './dto/list-vendor-stores-query.dto';
 import { ListStoreOrdersQueryDto } from './dto/list-store-orders-query.dto';
 import { SearchOrdersByVendorCodeDto } from './dto/search-orders-by-vendor-code.dto';
 import { GetUserOrdersDto } from '../customer/dto/get-user-orders.dto';
+import { DispatchGateway } from '../driver/web-socket/dispatch.gateway';
 
 
 
@@ -65,6 +66,7 @@ export class OrderService {
     private customerNotificationQueue: Queue,
     @InjectQueue(QUEUES.VENDOR_NOTIFICATION)
     private vendorNotificationQueue: Queue,
+    private dispatchGateway: DispatchGateway
   ) { }
 
   transitions: Record<
@@ -121,7 +123,7 @@ export class OrderService {
         from: [
           OrderStatus.ORDER_PLACED,
           OrderStatus.CONFIRMED,
-          OrderStatus.ORDER_PROCESSING,   // ← new
+          OrderStatus.ORDER_PROCESSING,   
           OrderStatus.ORDER_ACCEPTED,
         ],
         to: OrderStatus.CANCELLED,
@@ -129,18 +131,21 @@ export class OrderService {
       },
     };
 
-  async transition(
-    orderId: string,
-    targetStatus: OrderStatus,
-    context: TransitionContext,
-  ) {
-    // 1. Perform the database transaction
-    const updatedOrder = await this.prisma.$transaction(async (tx) => {
-      // a) Fetch current order with necessary relations
+    async transition(
+  orderId: string,
+  targetStatus: OrderStatus,
+  context: TransitionContext,
+) {
+  // 1. PERFORM DATABASE TRANSACTION
+  const { updatedOrder, previousStatus } =
+    await this.prisma.$transaction(async (tx) => {
+
+      // a) Fetch current order
       const order = await tx.order.findUnique({
         where: { id: orderId },
         include: { driverAssignment: true },
       });
+
       if (!order) {
         throw new Error(`Order ${orderId} not found`);
       }
@@ -153,11 +158,13 @@ export class OrderService {
           this.transitions[key].to === targetStatus &&
           this.transitions[key].from.includes(currentStatus),
       );
+
       if (!transitionKey) {
         throw new BadRequestException(
           `Invalid transition from ${currentStatus} to ${targetStatus}`,
         );
       }
+
       const rule = this.transitions[transitionKey];
 
       // c) Build update data
@@ -175,13 +182,10 @@ export class OrderService {
         },
       };
 
-      // d) Set specialised timestamps based on target status
+      // d) Set specialised timestamps
       if (targetStatus === OrderStatus.ORDER_PROCESSING) {
         updateData.preparationStartedAt = new Date();
-        // preparationDueAt / preparationTimeoutAt are set by the caller
-        // (see handleVendorAction below) so the caller owns the SLA math.
-      }
-      else if (targetStatus === OrderStatus.ORDER_ACCEPTED) {
+      } else if (targetStatus === OrderStatus.ORDER_ACCEPTED) {
         updateData.vendorAcceptedAt = new Date();
       } else if (targetStatus === OrderStatus.ORDER_ASSIGNED) {
         updateData.driverAssignedAt = new Date();
@@ -211,54 +215,245 @@ export class OrderService {
         },
       });
 
-      // g) Enqueue background job (side effects)
+      // g) Enqueue background job
       await this.orderQueue.add(
         rule.action,
         { orderId, context },
         { attempts: 3 },
       );
 
-
-      // Inside transition, after the transaction and before returning:
-      if (targetStatus === OrderStatus.DELIVERED || targetStatus === OrderStatus.CANCELLED || targetStatus === OrderStatus.PENDING || targetStatus === OrderStatus.CONFIRMED || targetStatus === OrderStatus.ORDER_PROCESSING) {
-        await this.driverAssignment.removeEtaScheduler(orderId).catch(err => {
-          this.logger.warn(`Failed to remove ETA scheduler for ${orderId}: ${err.message}`);
-        });
-      }
-
-
-      // Return the updated order from the transaction
-      return updated;
+      // Return updated order and previous status
+      return {
+        updatedOrder: updated,
+        previousStatus: currentStatus,
+      };
     });
 
-    // 2. 🔔 EMIT WEBSOCKET EVENT AFTER TRANSACTION COMMITS
+  // 2. DATABASE TRANSACTION HAS COMMITTED
+
+  // 3. REMOVE ETA SCHEDULER WHEN NECESSARY
+  if (
+    targetStatus === OrderStatus.DELIVERED ||
+    targetStatus === OrderStatus.CANCELLED ||
+    targetStatus === OrderStatus.PENDING ||
+    targetStatus === OrderStatus.CONFIRMED ||
+    targetStatus === OrderStatus.ORDER_PROCESSING
+  ) {
     try {
-      const history = updatedOrder.statusHistory || [];
-
-      // Forward prep metadata if the caller supplied it.
-      const extra: Record<string, unknown> = {};
-      if (context.preparation) {
-        extra.preparation = {
-          preparation_minutes: context.preparation.preparationMinutes,
-          preparation_started_at: context.preparation.preparationStartedAt,
-          preparation_due_at: context.preparation.preparationDueAt,
-          preparation_ready: context.preparation.preparationReady ?? false,
-          store_name: context.preparation.storeName ?? null,
-        };
-      }
-
-      this.mapGateway.emitOrderStatus(orderId, targetStatus, history, extra);
-      this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
-    } catch (error) {
-      this.logger.error(
-        `Failed to emit order-status for ${orderId}: ${error}`,
-        error,
+      await this.driverAssignment.removeEtaScheduler(orderId);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to remove ETA scheduler for ${orderId}: ${
+          err instanceof Error ? err.message : err
+        }`,
       );
     }
-
-    // 3. Return the updated order
-    return updatedOrder;
   }
+
+  // 4. INVALIDATE SELECTED ORDER FOR ADMINS
+  // If the order just left UNACCEPTED or ORDER_ACCEPTED,
+  // notify admins watching it that their selected-order view is stale.
+  if (
+    (
+      previousStatus === OrderStatus.UNACCEPTED ||
+      previousStatus === OrderStatus.ORDER_ACCEPTED
+    ) &&
+    targetStatus !== previousStatus
+  ) {
+    try {
+      this.dispatchGateway.emitSelectedOrderInvalidated(orderId);
+
+      this.logger.log(
+        `📡 Invalidated selected order for admins: ${orderId}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to invalidate selected order ${orderId}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+  }
+
+  // 5. EMIT ORDER STATUS WEBSOCKET EVENT
+  try {
+    const history = updatedOrder.statusHistory || [];
+
+    // Forward preparation metadata if supplied by caller
+    const extra: Record<string, unknown> = {};
+
+    if (context.preparation) {
+      extra.preparation = {
+        preparation_minutes:
+          context.preparation.preparationMinutes,
+
+        preparation_started_at:
+          context.preparation.preparationStartedAt,
+
+        preparation_due_at:
+          context.preparation.preparationDueAt,
+
+        preparation_ready:
+          context.preparation.preparationReady ?? false,
+
+        store_name:
+          context.preparation.storeName ?? null,
+      };
+    }
+
+    this.mapGateway.emitOrderStatus(
+      orderId,
+      targetStatus,
+      history,
+      extra,
+    );
+
+    this.logger.log(
+      `📡 Emitted order-status for ${orderId}: ${targetStatus}`,
+    );
+  } catch (error) {
+    this.logger.error(
+      `Failed to emit order-status for ${orderId}: ${
+        error instanceof Error ? error.message : error
+      }`,
+      error instanceof Error ? error.stack : undefined,
+    );
+  }
+
+  // 6. RETURN UPDATED ORDER
+  return updatedOrder;
+}
+
+  // async transitionOld(
+  //   orderId: string,
+  //   targetStatus: OrderStatus,
+  //   context: TransitionContext,
+  // ) {
+  //   // 1. Perform the database transaction
+  //   const updatedOrder = await this.prisma.$transaction(async (tx) => {
+  //     // a) Fetch current order with necessary relations
+  //     const order = await tx.order.findUnique({
+  //       where: { id: orderId },
+  //       include: { driverAssignment: true },
+  //     });
+  //     if (!order) {
+  //       throw new Error(`Order ${orderId} not found`);
+  //     }
+
+  //     const currentStatus = order.orderStatus;
+
+  //     // b) Validate transition
+  //     const transitionKey = Object.keys(this.transitions).find(
+  //       (key) =>
+  //         this.transitions[key].to === targetStatus &&
+  //         this.transitions[key].from.includes(currentStatus),
+  //     );
+  //     if (!transitionKey) {
+  //       throw new BadRequestException(
+  //         `Invalid transition from ${currentStatus} to ${targetStatus}`,
+  //       );
+  //     }
+  //     const rule = this.transitions[transitionKey];
+
+  //     // c) Build update data
+  //     const updateData: any = {
+  //       orderStatus: targetStatus,
+  //       statusHistory: {
+  //         push: {
+  //           status: targetStatus,
+  //           timestamp: new Date().toISOString(),
+  //           note: rule.action,
+  //           actorId: context.actorId,
+  //           reason: context.reason,
+  //           respondedAt: context.respondedAt,
+  //         },
+  //       },
+  //     };
+
+  //     // d) Set specialised timestamps based on target status
+  //     if (targetStatus === OrderStatus.ORDER_PROCESSING) {
+  //       updateData.preparationStartedAt = new Date();
+  //       // preparationDueAt / preparationTimeoutAt are set by the caller
+  //       // (see handleVendorAction below) so the caller owns the SLA math.
+  //     }
+  //     else if (targetStatus === OrderStatus.ORDER_ACCEPTED) {
+  //       updateData.vendorAcceptedAt = new Date();
+  //     } else if (targetStatus === OrderStatus.ORDER_ASSIGNED) {
+  //       updateData.driverAssignedAt = new Date();
+  //     } else if (targetStatus === OrderStatus.PICKED_UP) {
+  //       updateData.pickedUpAt = new Date();
+  //     } else if (targetStatus === OrderStatus.DELIVERED) {
+  //       updateData.deliveredAt = new Date();
+  //     }
+
+  //     // e) Update order
+  //     const updated = await tx.order.update({
+  //       where: { id: orderId },
+  //       data: updateData,
+  //     });
+
+  //     // f) Log activity
+  //     await tx.orderActivityLog.create({
+  //       data: {
+  //         orderId,
+  //         actorId: context.actorId,
+  //         actorRole: context.actorRole,
+  //         action: rule.action,
+  //         fromStatus: currentStatus,
+  //         toStatus: targetStatus,
+  //         reason: context.reason,
+  //         metadata: context.metadata,
+  //       },
+  //     });
+
+  //     // g) Enqueue background job (side effects)
+  //     await this.orderQueue.add(
+  //       rule.action,
+  //       { orderId, context },
+  //       { attempts: 3 },
+  //     );
+
+
+  //     // Inside transition, after the transaction and before returning:
+  //     if (targetStatus === OrderStatus.DELIVERED || targetStatus === OrderStatus.CANCELLED || targetStatus === OrderStatus.PENDING || targetStatus === OrderStatus.CONFIRMED || targetStatus === OrderStatus.ORDER_PROCESSING) {
+  //       await this.driverAssignment.removeEtaScheduler(orderId).catch(err => {
+  //         this.logger.warn(`Failed to remove ETA scheduler for ${orderId}: ${err.message}`);
+  //       });
+  //     }
+
+
+  //     // Return the updated order from the transaction
+  //     return updated;
+  //   });
+
+  //   // 2. 🔔 EMIT WEBSOCKET EVENT AFTER TRANSACTION COMMITS
+  //   try {
+  //     const history = updatedOrder.statusHistory || [];
+
+  //     // Forward prep metadata if the caller supplied it.
+  //     const extra: Record<string, unknown> = {};
+  //     if (context.preparation) {
+  //       extra.preparation = {
+  //         preparation_minutes: context.preparation.preparationMinutes,
+  //         preparation_started_at: context.preparation.preparationStartedAt,
+  //         preparation_due_at: context.preparation.preparationDueAt,
+  //         preparation_ready: context.preparation.preparationReady ?? false,
+  //         store_name: context.preparation.storeName ?? null,
+  //       };
+  //     }
+
+  //     this.mapGateway.emitOrderStatus(orderId, targetStatus, history, extra);
+  //     this.logger.log(`📡 Emitted order-status for ${orderId}: ${targetStatus}`);
+  //   } catch (error) {
+  //     this.logger.error(
+  //       `Failed to emit order-status for ${orderId}: ${error}`,
+  //       error,
+  //     );
+  //   }
+
+  //   // 3. Return the updated order
+  //   return updatedOrder;
+  // }
 
 
   buildFullAddress(loc: any): string {

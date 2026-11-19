@@ -5,9 +5,6 @@ import { CreateDistanceBandDto } from './create-distance-band.dto';
 import { DeliveryType, VehicleType } from '@prisma/client';
 
 export class CreateVehicleTypeConfigDto {
-    //   @ApiProperty({ example: 'eBike', description: 'Name of the vehicle type' })
-    //   @IsString()
-    //   name: string;
 
     @ApiProperty({ enum: VehicleType, example: VehicleType.CAR, description: 'Name of the vehicle type' })
     @IsEnum(VehicleType)
