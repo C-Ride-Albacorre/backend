@@ -532,6 +532,14 @@ model StoreDailyCounter {
   @@map("store_daily_counters")
 }
 
+enum DriverActivityStatus {
+  AVAILABLE         // online, no order
+  NOT_AVAILABLE     // offline / on break
+  WAY_TO_PICKUP     // assigned, en route to store
+  ARRIVED           // at store
+  WAY_TO_DELIVER    // picked up, en route to customer
+}
+
 model DriverProfile {
   id                  String             @id @default(uuid())
   userId              String             @unique
@@ -563,7 +571,9 @@ model DriverProfile {
   accountNumber       String?
   accountName         String?
   driverType          DriverType         @default(CRIDE)
-
+  activityStatus DriverActivityStatus    @default(NOT_AVAILABLE)
+  
+  @@index([activityStatus])
   @@index([userId])
   @@index([status])
   @@index([vehicleType])

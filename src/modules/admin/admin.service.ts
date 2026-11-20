@@ -14,7 +14,7 @@ import { StoreFilterDto } from './dto/store-filter.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { StoreStatus, UserRole } from '../../shared/enums';
 import Helper from '../../shared/utils/helpers';
-import { CommissionStatus, OnBoardingStatus, PaymentStatus, Prisma, Role, SettlementStatus, UserStatus } from '@prisma/client';
+import { CommissionStatus, DriverActivityStatus, OnBoardingStatus, OrderStatus, PaymentStatus, Prisma, Role, SettlementStatus, UserStatus } from '@prisma/client';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { User } from '../user/entities/user.entity';
 import {
@@ -31,6 +31,7 @@ import { UpdateSettlementStatusDto } from './dto/settlement/update-settlement-st
 import { VendorSettlementFilterDto } from './dto/settlement/vendor-settlement-filter.dto';
 import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
 import { UpdateDispatcherDto } from './dto/update-dispatcher.dto';
+import { GodViewFleetQueryDto } from './dto/god-view-fleet-query.dto';
 
 @Injectable()
 export class AdminService {
@@ -2660,5 +2661,200 @@ async updateDispatcher(
       where: { id },
       data: { displayOrder },
     });
+  }
+
+  // 1. GOD VIEW STATS
+  async getGodViewStats() {
+    const rows = await this.prisma.driverProfile.groupBy({
+      by: ['activityStatus'],
+      _count: { id: true },
+    });
+
+    const result = {
+      available: 0,
+      notAvailable: 0,
+      wayToPickup: 0,
+      arrived: 0,
+      wayToDeliver: 0,
+      total: 0,
+    };
+
+    for (const row of rows) {
+      const count = row._count.id;
+
+      switch (row.activityStatus) {
+        case DriverActivityStatus.AVAILABLE:
+          result.available = count;
+          break;
+
+        case DriverActivityStatus.NOT_AVAILABLE:
+          result.notAvailable = count;
+          break;
+
+        case DriverActivityStatus.WAY_TO_PICKUP:
+          result.wayToPickup = count;
+          break;
+
+        case DriverActivityStatus.ARRIVED:
+          result.arrived = count;
+          break;
+
+        case DriverActivityStatus.WAY_TO_DELIVER:
+          result.wayToDeliver = count;
+          break;
+      }
+
+      result.total += count;
+    }
+
+    return result;
+  }
+
+  // 2. GOD VIEW FLEET
+  async getGodViewFleet(query: GodViewFleetQueryDto) {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 20));
+
+    const where: Prisma.DriverProfileWhereInput = {};
+
+    if (query.status) {
+      where.activityStatus = query.status;
+    }
+
+    if (query.search?.trim()) {
+      const search = query.search.trim();
+
+      where.OR = [
+        {
+          user: {
+            firstName: {
+              contains: search,
+              mode: 'insensitive',
+            },
+          },
+        },
+        {
+          user: {
+            lastName: {
+              contains: search,
+              mode: 'insensitive',
+            },
+          },
+        },
+        {
+          licensePlate: {
+            contains: search,
+            mode: 'insensitive',
+          },
+        },
+      ];
+    }
+
+    const [drivers, total] = await this.prisma.$transaction([
+      this.prisma.driverProfile.findMany({
+        where,
+        include: {
+          user: {
+            select: {
+              firstName: true,
+              lastName: true,
+              phoneNumber: true,
+            },
+          },
+        },
+        orderBy: [
+          { activityStatus: 'asc' },
+          { updatedAt: 'desc' },
+        ],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+
+      this.prisma.driverProfile.count({ where }),
+    ]);
+
+    return {
+      data: drivers.map((driver) => ({
+        driverId: driver.userId,
+        name: `${driver.user.firstName ?? ''} ${driver.user.lastName ?? ''}`.trim(),
+        phoneNumber: driver.user.phoneNumber,
+        activityStatus: driver.activityStatus,
+        vehicleType: driver.vehicleType,
+        licensePlate: driver.licensePlate,
+        rating: driver.rating,
+      })),
+
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // 3. GOD VIEW DRIVER DETAIL
+  async getGodViewDriverDetail(driverId: string) {
+    const driver = await this.prisma.driverProfile.findUnique({
+      where: {
+        userId: driverId,
+      },
+      include: {
+        user: {
+          select: {
+            firstName: true,
+            lastName: true,
+            phoneNumber: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    if (!driver) {
+      throw new NotFoundException('Driver not found');
+    }
+
+    const activeOrder = await this.prisma.order.findFirst({
+      where: {
+        driverId,
+        orderStatus: {
+          in: [
+            OrderStatus.ORDER_ASSIGNED,
+            OrderStatus.PICKED_UP,
+            OrderStatus.IN_TRANSIT,
+          ],
+        },
+      },
+      include: {
+        items: {
+          include: {
+            store: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return {
+      driver: {
+        driverId: driver.userId,
+        firstName: driver.user.firstName,
+        lastName: driver.user.lastName,
+        name: `${driver.user.firstName ?? ''} ${driver.user.lastName ?? ''}`.trim(),
+        phoneNumber: driver.user.phoneNumber,
+        email: driver.user.email,
+        activityStatus: driver.activityStatus,
+        vehicleType: driver.vehicleType,
+        licensePlate: driver.licensePlate,
+        rating: driver.rating,
+        createdAt: driver.createdAt,
+        updatedAt: driver.updatedAt,
+      },
+
+      activeOrder: activeOrder ?? null,
+    };
   }
 }

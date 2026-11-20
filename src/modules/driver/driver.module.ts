@@ -18,7 +18,8 @@ import { PaymentModule } from '../payment/payment.module';
 import { QUEUES } from '../../shared/constants';
 import { VehicleTypeService } from './vehicle-type.service';
 import { DriverGateway } from './web-socket/driver.gateway';
-import { DispatchGateway } from './web-socket/dispatch.gateway';
+import { DispatchGateway } from '../admin/web-socket/dispatch.gateway';
+import { GodViewGateway } from '../admin/web-socket/god-view.gateway';
 
 @Module({
   imports: [
@@ -28,19 +29,19 @@ import { DispatchGateway } from './web-socket/dispatch.gateway';
       { name: QUEUES.DRIVER_ASSIGNMENT },
       { name: QUEUES.CUSTOMER_NOTIFICATION },
       { name: QUEUES.VENDOR_NOTIFICATION },
-),
-forwardRef(() => OrderModule),
-  forwardRef(() => UserModule),
-  forwardRef(() => NotificationModule),
-  forwardRef(() => AuthModule),
-  forwardRef(() => RatingModule),
-  PaymentModule,
+    ),
+    forwardRef(() => OrderModule),
+    forwardRef(() => UserModule),
+    forwardRef(() => NotificationModule),
+    forwardRef(() => AuthModule),
+    forwardRef(() => RatingModule),
+    PaymentModule,
   ],
-controllers: [DriverController, DriverEarningsController,
-  DriverWalletController, VehicleTypeController],
+  controllers: [DriverController, DriverEarningsController,
+    DriverWalletController, VehicleTypeController],
   providers: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DispatchGateway, DriverOnlineHoursService, DriverAssignmentProcessor, DriverNotificationProcessor, DriverEarningsService,
-    WalletService, VehicleTypeService],
-    exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DispatchGateway, DriverOnlineHoursService, DriverEarningsService,
-      WalletService, VehicleTypeService],
+    WalletService, VehicleTypeService, GodViewGateway],
+  exports: [DriverService, DriverAssignmentService, DriverOrderService, DriverGateway, DispatchGateway, DriverOnlineHoursService, DriverEarningsService,
+    WalletService, VehicleTypeService, GodViewGateway],
 })
 export class DriverModule { }

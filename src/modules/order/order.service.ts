@@ -19,6 +19,7 @@ import {
   AssignmentStatus,
   CartItemType,
   CartStatus,
+  DriverActivityStatus,
   OrderStatus,
   OrderType,
   PaymentStatus,
@@ -43,7 +44,8 @@ import { ListVendorStoresQueryDto } from './dto/list-vendor-stores-query.dto';
 import { ListStoreOrdersQueryDto } from './dto/list-store-orders-query.dto';
 import { SearchOrdersByVendorCodeDto } from './dto/search-orders-by-vendor-code.dto';
 import { GetUserOrdersDto } from '../customer/dto/get-user-orders.dto';
-import { DispatchGateway } from '../driver/web-socket/dispatch.gateway';
+import { DispatchGateway } from '../admin/web-socket/dispatch.gateway';
+import { GodViewGateway } from '../admin/web-socket/god-view.gateway';
 
 
 
@@ -66,7 +68,8 @@ export class OrderService {
     private customerNotificationQueue: Queue,
     @InjectQueue(QUEUES.VENDOR_NOTIFICATION)
     private vendorNotificationQueue: Queue,
-    private dispatchGateway: DispatchGateway
+    private dispatchGateway: DispatchGateway,
+    private godViewGateway: GodViewGateway
   ) { }
 
   transitions: Record<
@@ -123,7 +126,7 @@ export class OrderService {
         from: [
           OrderStatus.ORDER_PLACED,
           OrderStatus.CONFIRMED,
-          OrderStatus.ORDER_PROCESSING,   
+          OrderStatus.ORDER_PROCESSING,
           OrderStatus.ORDER_ACCEPTED,
         ],
         to: OrderStatus.CANCELLED,
@@ -131,14 +134,19 @@ export class OrderService {
       },
     };
 
-    async transition(
-  orderId: string,
-  targetStatus: OrderStatus,
-  context: TransitionContext,
-) {
-  // 1. PERFORM DATABASE TRANSACTION
-  const { updatedOrder, previousStatus } =
-    await this.prisma.$transaction(async (tx) => {
+
+  async transition(
+    orderId: string,
+    targetStatus: OrderStatus,
+    context: TransitionContext,
+  ) {
+    // 1. PERFORM DATABASE TRANSACTION
+    const {
+      updatedOrder,
+      previousStatus,
+      driverIdToSync,
+      nextActivityStatus,
+    } = await this.prisma.$transaction(async (tx) => {
 
       // a) Fetch current order
       const order = await tx.order.findUnique({
@@ -222,107 +230,372 @@ export class OrderService {
         { attempts: 3 },
       );
 
-      // Return updated order and previous status
+      // h) Determine driver activity status synchronization
+      let driverIdToSync: string | null = null;
+      let nextActivityStatus: DriverActivityStatus | null = null;
+
+      if (targetStatus === OrderStatus.ORDER_ASSIGNED) {
+        // Driver accepted the order or admin assigned it
+        driverIdToSync =
+          context.actorRole === 'DISPATCHER'
+            ? context.actorId
+            : (updated.driverId || order.driverAssignment?.driverId);
+
+        nextActivityStatus = 'WAY_TO_PICKUP';
+
+      } else if (targetStatus === OrderStatus.PICKED_UP) {
+        // Driver picked up the food
+        driverIdToSync = updated.driverId;
+        nextActivityStatus = 'WAY_TO_DELIVER';
+
+      } else if (targetStatus === OrderStatus.DELIVERED) {
+        // Driver delivered the food
+        driverIdToSync = updated.driverId;
+        nextActivityStatus = 'AVAILABLE';
+
+      } else if (
+        targetStatus === OrderStatus.ORDER_ACCEPTED &&
+        currentStatus === OrderStatus.ORDER_ASSIGNED
+      ) {
+        // Driver was unassigned or declined the order
+        driverIdToSync =
+          order.driverId || order.driverAssignment?.driverId;
+
+        nextActivityStatus = 'AVAILABLE';
+      }
+
+      // Return all transaction results
       return {
         updatedOrder: updated,
         previousStatus: currentStatus,
+        driverIdToSync,
+        nextActivityStatus,
       };
     });
 
-  // 2. DATABASE TRANSACTION HAS COMMITTED
+    // 2. DATABASE TRANSACTION HAS COMMITTED
 
-  // 3. REMOVE ETA SCHEDULER WHEN NECESSARY
-  if (
-    targetStatus === OrderStatus.DELIVERED ||
-    targetStatus === OrderStatus.CANCELLED ||
-    targetStatus === OrderStatus.PENDING ||
-    targetStatus === OrderStatus.CONFIRMED ||
-    targetStatus === OrderStatus.ORDER_PROCESSING
-  ) {
-    try {
-      await this.driverAssignment.removeEtaScheduler(orderId);
-    } catch (err) {
-      this.logger.warn(
-        `Failed to remove ETA scheduler for ${orderId}: ${
-          err instanceof Error ? err.message : err
-        }`,
-      );
+    // 3. SYNC DRIVER ACTIVITY STATUS (GOD'S VIEW)
+    if (driverIdToSync && nextActivityStatus) {
+      try {
+        await this.prisma.driverProfile.update({
+          where: { userId: driverIdToSync },
+          data: {
+            activityStatus: nextActivityStatus,
+          },
+        });
+
+        // Notify God View
+        this.godViewGateway.emitDriverStatusChange({
+          driverId: driverIdToSync,
+          activityStatus: nextActivityStatus,
+          updatedAt: new Date().toISOString(),
+        });
+
+        // Notify Dispatch Map
+        const dispatchStatus =
+          nextActivityStatus === 'AVAILABLE' ? 'ONLINE' : 'BUSY';
+
+        this.dispatchGateway.emitDriverStatusChange({
+          driverId: driverIdToSync,
+          status: dispatchStatus,
+          updatedAt: new Date().toISOString(),
+        });
+
+        this.logger.log(
+          `📡 Driver ${driverIdToSync} activity status updated to ${nextActivityStatus}`,
+        );
+
+      } catch (err) {
+        this.logger.warn(
+          `Failed to sync activityStatus for driver ${driverIdToSync}: ${err instanceof Error ? err.message : err
+          }`,
+        );
+      }
     }
-  }
 
-  // 4. INVALIDATE SELECTED ORDER FOR ADMINS
-  // If the order just left UNACCEPTED or ORDER_ACCEPTED,
-  // notify admins watching it that their selected-order view is stale.
-  if (
-    (
-      previousStatus === OrderStatus.UNACCEPTED ||
-      previousStatus === OrderStatus.ORDER_ACCEPTED
-    ) &&
-    targetStatus !== previousStatus
-  ) {
+    // 4. REMOVE ETA SCHEDULER WHEN NECESSARY
+    if (
+      targetStatus === OrderStatus.DELIVERED ||
+      targetStatus === OrderStatus.CANCELLED ||
+      targetStatus === OrderStatus.PENDING ||
+      targetStatus === OrderStatus.CONFIRMED ||
+      targetStatus === OrderStatus.ORDER_PROCESSING
+    ) {
+      try {
+        await this.driverAssignment.removeEtaScheduler(orderId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to remove ETA scheduler for ${orderId}: ${err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
+
+    // 5. INVALIDATE SELECTED ORDER FOR ADMINS
+    // If the order just left UNACCEPTED or ORDER_ACCEPTED,
+    // notify admins watching it that their selected-order view is stale.
+    if (
+      (
+        previousStatus === OrderStatus.UNACCEPTED ||
+        previousStatus === OrderStatus.ORDER_ACCEPTED
+      ) &&
+      targetStatus !== previousStatus
+    ) {
+      try {
+        this.dispatchGateway.emitSelectedOrderInvalidated(orderId);
+
+        this.logger.log(
+          `📡 Invalidated selected order for admins: ${orderId}`,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Failed to invalidate selected order ${orderId}: ${err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
+
+    // 6. EMIT ORDER STATUS WEBSOCKET EVENT
     try {
-      this.dispatchGateway.emitSelectedOrderInvalidated(orderId);
+      const history = updatedOrder.statusHistory || [];
+
+      // Forward preparation metadata if supplied by caller
+      const extra: Record<string, unknown> = {};
+
+      if (context.preparation) {
+        extra.preparation = {
+          preparation_minutes:
+            context.preparation.preparationMinutes,
+
+          preparation_started_at:
+            context.preparation.preparationStartedAt,
+
+          preparation_due_at:
+            context.preparation.preparationDueAt,
+
+          preparation_ready:
+            context.preparation.preparationReady ?? false,
+
+          store_name:
+            context.preparation.storeName ?? null,
+        };
+      }
+
+      this.mapGateway.emitOrderStatus(
+        orderId,
+        targetStatus,
+        history,
+        extra,
+      );
 
       this.logger.log(
-        `📡 Invalidated selected order for admins: ${orderId}`,
+        `📡 Emitted order-status for ${orderId}: ${targetStatus}`,
       );
-    } catch (err) {
-      this.logger.warn(
-        `Failed to invalidate selected order ${orderId}: ${
-          err instanceof Error ? err.message : err
+
+    } catch (error) {
+      this.logger.error(
+        `Failed to emit order-status for ${orderId}: ${error instanceof Error ? error.message : error
         }`,
+        error instanceof Error ? error.stack : undefined,
       );
     }
+
+    // 7. RETURN UPDATED ORDER
+    return updatedOrder;
   }
 
-  // 5. EMIT ORDER STATUS WEBSOCKET EVENT
-  try {
-    const history = updatedOrder.statusHistory || [];
 
-    // Forward preparation metadata if supplied by caller
-    const extra: Record<string, unknown> = {};
 
-    if (context.preparation) {
-      extra.preparation = {
-        preparation_minutes:
-          context.preparation.preparationMinutes,
+  async transitionWithoutDriverActivitySync(
+    orderId: string,
+    targetStatus: OrderStatus,
+    context: TransitionContext,
+  ) {
+    // 1. PERFORM DATABASE TRANSACTION
+    const { updatedOrder, previousStatus } =
+      await this.prisma.$transaction(async (tx) => {
 
-        preparation_started_at:
-          context.preparation.preparationStartedAt,
+        // a) Fetch current order
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          include: { driverAssignment: true },
+        });
 
-        preparation_due_at:
-          context.preparation.preparationDueAt,
+        if (!order) {
+          throw new Error(`Order ${orderId} not found`);
+        }
 
-        preparation_ready:
-          context.preparation.preparationReady ?? false,
+        const currentStatus = order.orderStatus;
 
-        store_name:
-          context.preparation.storeName ?? null,
-      };
+        // b) Validate transition
+        const transitionKey = Object.keys(this.transitions).find(
+          (key) =>
+            this.transitions[key].to === targetStatus &&
+            this.transitions[key].from.includes(currentStatus),
+        );
+
+        if (!transitionKey) {
+          throw new BadRequestException(
+            `Invalid transition from ${currentStatus} to ${targetStatus}`,
+          );
+        }
+
+        const rule = this.transitions[transitionKey];
+
+        // c) Build update data
+        const updateData: any = {
+          orderStatus: targetStatus,
+          statusHistory: {
+            push: {
+              status: targetStatus,
+              timestamp: new Date().toISOString(),
+              note: rule.action,
+              actorId: context.actorId,
+              reason: context.reason,
+              respondedAt: context.respondedAt,
+            },
+          },
+        };
+
+        // d) Set specialised timestamps
+        if (targetStatus === OrderStatus.ORDER_PROCESSING) {
+          updateData.preparationStartedAt = new Date();
+        } else if (targetStatus === OrderStatus.ORDER_ACCEPTED) {
+          updateData.vendorAcceptedAt = new Date();
+        } else if (targetStatus === OrderStatus.ORDER_ASSIGNED) {
+          updateData.driverAssignedAt = new Date();
+        } else if (targetStatus === OrderStatus.PICKED_UP) {
+          updateData.pickedUpAt = new Date();
+        } else if (targetStatus === OrderStatus.DELIVERED) {
+          updateData.deliveredAt = new Date();
+        }
+
+        // e) Update order
+        const updated = await tx.order.update({
+          where: { id: orderId },
+          data: updateData,
+        });
+
+        // f) Log activity
+        await tx.orderActivityLog.create({
+          data: {
+            orderId,
+            actorId: context.actorId,
+            actorRole: context.actorRole,
+            action: rule.action,
+            fromStatus: currentStatus,
+            toStatus: targetStatus,
+            reason: context.reason,
+            metadata: context.metadata,
+          },
+        });
+
+        // g) Enqueue background job
+        await this.orderQueue.add(
+          rule.action,
+          { orderId, context },
+          { attempts: 3 },
+        );
+
+        // Return updated order and previous status
+        return {
+          updatedOrder: updated,
+          previousStatus: currentStatus,
+        };
+      });
+
+    // 2. DATABASE TRANSACTION HAS COMMITTED
+
+    // 3. REMOVE ETA SCHEDULER WHEN NECESSARY
+    if (
+      targetStatus === OrderStatus.DELIVERED ||
+      targetStatus === OrderStatus.CANCELLED ||
+      targetStatus === OrderStatus.PENDING ||
+      targetStatus === OrderStatus.CONFIRMED ||
+      targetStatus === OrderStatus.ORDER_PROCESSING
+    ) {
+      try {
+        await this.driverAssignment.removeEtaScheduler(orderId);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to remove ETA scheduler for ${orderId}: ${err instanceof Error ? err.message : err
+          }`,
+        );
+      }
     }
 
-    this.mapGateway.emitOrderStatus(
-      orderId,
-      targetStatus,
-      history,
-      extra,
-    );
+    // 4. INVALIDATE SELECTED ORDER FOR ADMINS
+    // If the order just left UNACCEPTED or ORDER_ACCEPTED,
+    // notify admins watching it that their selected-order view is stale.
+    if (
+      (
+        previousStatus === OrderStatus.UNACCEPTED ||
+        previousStatus === OrderStatus.ORDER_ACCEPTED
+      ) &&
+      targetStatus !== previousStatus
+    ) {
+      try {
+        this.dispatchGateway.emitSelectedOrderInvalidated(orderId);
 
-    this.logger.log(
-      `📡 Emitted order-status for ${orderId}: ${targetStatus}`,
-    );
-  } catch (error) {
-    this.logger.error(
-      `Failed to emit order-status for ${orderId}: ${
-        error instanceof Error ? error.message : error
-      }`,
-      error instanceof Error ? error.stack : undefined,
-    );
+        this.logger.log(
+          `📡 Invalidated selected order for admins: ${orderId}`,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Failed to invalidate selected order ${orderId}: ${err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
+
+    // 5. EMIT ORDER STATUS WEBSOCKET EVENT
+    try {
+      const history = updatedOrder.statusHistory || [];
+
+      // Forward preparation metadata if supplied by caller
+      const extra: Record<string, unknown> = {};
+
+      if (context.preparation) {
+        extra.preparation = {
+          preparation_minutes:
+            context.preparation.preparationMinutes,
+
+          preparation_started_at:
+            context.preparation.preparationStartedAt,
+
+          preparation_due_at:
+            context.preparation.preparationDueAt,
+
+          preparation_ready:
+            context.preparation.preparationReady ?? false,
+
+          store_name:
+            context.preparation.storeName ?? null,
+        };
+      }
+
+      this.mapGateway.emitOrderStatus(
+        orderId,
+        targetStatus,
+        history,
+        extra,
+      );
+
+      this.logger.log(
+        `📡 Emitted order-status for ${orderId}: ${targetStatus}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to emit order-status for ${orderId}: ${error instanceof Error ? error.message : error
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+
+    // 6. RETURN UPDATED ORDER
+    return updatedOrder;
   }
-
-  // 6. RETURN UPDATED ORDER
-  return updatedOrder;
-}
 
   // async transitionOld(
   //   orderId: string,
@@ -1104,64 +1377,64 @@ export class OrderService {
   /**
    * Get user orders
    */
-async getUserOrders(
-  userId: string,
-  filters: GetUserOrdersDto,
-) {
-  // 1. Pagination defaults
-  const page = Math.max(Number(filters.page) || 1, 1);
-  const limit = Math.min(
-    Math.max(Number(filters.limit) || 20, 1),
-    100,
-  );
+  async getUserOrders(
+    userId: string,
+    filters: GetUserOrdersDto,
+  ) {
+    // 1. Pagination defaults
+    const page = Math.max(Number(filters.page) || 1, 1);
+    const limit = Math.min(
+      Math.max(Number(filters.limit) || 20, 1),
+      100,
+    );
 
-  // 2. Build query filters
-  const where: Prisma.OrderWhereInput = {
-    userId,
-    ...(filters.status && {
-      orderStatus: filters.status,
-    }),
-    ...(filters.paymentStatus && {
-      paymentStatus: filters.paymentStatus,
-    }),
-  };
+    // 2. Build query filters
+    const where: Prisma.OrderWhereInput = {
+      userId,
+      ...(filters.status && {
+        orderStatus: filters.status,
+      }),
+      ...(filters.paymentStatus && {
+        paymentStatus: filters.paymentStatus,
+      }),
+    };
 
-  // 3. Fetch orders and total count
-  const [orders, total] = await Promise.all([
-    this.prisma.order.findMany({
-      where,
-      include: {
-        items: {
-          take: 1,
-          include: {
-            product: {
-              select: {
-                productName: true,
+    // 3. Fetch orders and total count
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: {
+          items: {
+            take: 1,
+            include: {
+              product: {
+                select: {
+                  productName: true,
+                },
               },
             },
           },
+          deliveryOption: true,
         },
-        deliveryOption: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
 
-    this.prisma.order.count({ where }),
-  ]);
+      this.prisma.order.count({ where }),
+    ]);
 
-  // 4. Return paginated response
-  return {
-    data: orders,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  };
-}
+    // 4. Return paginated response
+    return {
+      data: orders,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
 
   async getUserOrdersWithoutFilters(userId: string) {
     return this.prisma.order.findMany({
@@ -2802,7 +3075,7 @@ async getUserOrders(
       // Delivery instructions
       specialInstructions: order.deliveryInstructions ?? null,
     };
-  
+
     // Store
     const storeData = {
       id: store?.id ?? '',

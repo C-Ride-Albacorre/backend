@@ -11,13 +11,14 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { forwardRef, Inject } from '@nestjs/common';
-import { DriverStatus } from '@prisma/client';
+import { DriverActivityStatus, DriverStatus } from '@prisma/client';
 import { DriverAssignmentService } from '../driver-assignment.service';
 import { Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { DriverService } from '../driver.service';
 import { BatchOrder } from '../../../shared/types';
-import { DispatchGateway } from './dispatch.gateway';
+import { DispatchGateway } from '../../admin/web-socket/dispatch.gateway';
+import { GodViewGateway } from '../../admin/web-socket/god-view.gateway';
 
 
 
@@ -41,36 +42,38 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly driverAssignmentService: DriverAssignmentService,
     @Inject(forwardRef(() => DriverService))
     private readonly driverService: DriverService,
-    @Inject(forwardRef(() => DispatchGateway))   // ← add this
+    @Inject(forwardRef(() => DispatchGateway))
     private readonly dispatchGateway: DispatchGateway,
+    @Inject(forwardRef(() => GodViewGateway))
+    private readonly godViewGateway: GodViewGateway,
     private jwtService: JwtService,
   ) { }
 
 
   private buildSyncPayload(orders: any[]) {
-  return {
-    type: 'order-batch',
-    orders: orders.map((o) => ({
-      order_id: o.order_id,
-      order_number: o.order_number,
-      order_status: o.order_status,
-      total_amount: o.total_amount,
-      delivery_fee: o.delivery_fee,
-      pickup_location: o.pickup_location,
-      dropoff_location: o.dropoff_location,
-      created_at: o.created_at,
-      store_id: o.store_id,
-      store_name: o.store_name,
-      store_logo: o.store_logo,
-      store_lat: o.store_lat,
-      store_lng: o.store_lng,
-      distance_meters: o.distance_meters,
-      order_type: o.order_type,
-      rn: '1',
-      items: o.items,
-    })),
-  };
-}
+    return {
+      type: 'order-batch',
+      orders: orders.map((o) => ({
+        order_id: o.order_id,
+        order_number: o.order_number,
+        order_status: o.order_status,
+        total_amount: o.total_amount,
+        delivery_fee: o.delivery_fee,
+        pickup_location: o.pickup_location,
+        dropoff_location: o.dropoff_location,
+        created_at: o.created_at,
+        store_id: o.store_id,
+        store_name: o.store_name,
+        store_logo: o.store_logo,
+        store_lat: o.store_lat,
+        store_lng: o.store_lng,
+        distance_meters: o.distance_meters,
+        order_type: o.order_type,
+        rn: '1',
+        items: o.items,
+      })),
+    };
+  }
 
   // driver.gateway.ts
 
@@ -139,7 +142,7 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
   //   }
   // }
 
-  
+
   async handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth.token;
@@ -173,7 +176,7 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // 🚨 NEW: SYNC CURRENT STATE ON CONNECT
       // ---------------------------------------------------------
       await this.syncDriverState(client, driverId);
-      
+
     } catch (error) {
       this.logger.error(`Connection error: ${error}`);
       client.disconnect();
@@ -185,39 +188,39 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
    * orders to the client immediately so their UI is populated.
    */
   private async syncDriverState(client: Socket, driverId: string) {
-  try {
-    const profile = await this.driverService.getDriverProfileForSync(driverId);
-    
-    // 🚨 ADD THESE LOGS
-    this.logger.log(
-      `[syncDriverState] driver=${driverId} profile=${JSON.stringify(profile)}`,
-    );
+    try {
+      const profile = await this.driverService.getDriverProfileForSync(driverId);
 
-    if (!profile || profile.status !== DriverStatus.ONLINE || !profile.latitude || !profile.longitude) {
-      this.logger.warn(
-        `[syncDriverState] Cannot sync: status=${profile?.status} lat=${profile?.latitude} lng=${profile?.longitude}`,
+      // 🚨 ADD THESE LOGS
+      this.logger.log(
+        `[syncDriverState] driver=${driverId} profile=${JSON.stringify(profile)}`,
       );
-      return;
+
+      if (!profile || profile.status !== DriverStatus.ONLINE || !profile.latitude || !profile.longitude) {
+        this.logger.warn(
+          `[syncDriverState] Cannot sync: status=${profile?.status} lat=${profile?.latitude} lng=${profile?.longitude}`,
+        );
+        return;
+      }
+
+      const orders = await this.driverService.findAvailableOrders(
+        driverId,
+        profile.latitude,
+        profile.longitude,
+        20,
+      );
+
+      // 🚨 ADD THIS
+      this.logger.log(
+        `[syncDriverState] Found ${orders.length} orders for ${driverId}`,
+      );
+
+      // ... rest of the method ...
+    } catch (error) {
+      this.logger.error(`[syncDriverState] failed for ${driverId}: ${error}`);
+      client.emit('sync-orders', { type: 'order-batch', orders: [] });
     }
-
-    const orders = await this.driverService.findAvailableOrders(
-      driverId,
-      profile.latitude,
-      profile.longitude,
-      20,
-    );
-
-    // 🚨 ADD THIS
-    this.logger.log(
-      `[syncDriverState] Found ${orders.length} orders for ${driverId}`,
-    );
-
-    // ... rest of the method ...
-  } catch (error) {
-    this.logger.error(`[syncDriverState] failed for ${driverId}: ${error}`);
-    client.emit('sync-orders', { type: 'order-batch', orders: [] });
   }
-}
 
 
 
@@ -378,7 +381,7 @@ export class DriverGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 
     // const payload = this.buildSyncPayload(orders);
-const payload = {
+    const payload = {
       type: 'order-batch',
       orders: actionable.map((o) => ({
         order_id: o.orderId,
@@ -399,7 +402,7 @@ const payload = {
         rn: '1',
         items: o.items,
       })),
-    };    
+    };
 
     this.server.to(socketId).emit('new-order-request', payload);
     this.logger.log(
@@ -605,15 +608,24 @@ const payload = {
       data.heading,
     );
 
-      // 2. NEW: relay to DispatchGateway for live admin map
-  this.dispatchGateway.emitDriverLocation({
-    driverId,
-    lat: data.lat,
-    lng: data.lng,
-    heading: data.heading ?? null,
-    status: 'ONLINE', // refined below if you have the profile cached
-    updatedAt: new Date().toISOString(),
-  });
+    // Relay to God's View (broadcast)
+    this.godViewGateway.emitDriverLocation({
+      driverId,
+      lat: data.lat,
+      lng: data.lng,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Relay to per-order Dispatch (targeted — from earlier work)
+    // 2. NEW: relay to DispatchGateway for live admin map
+    this.dispatchGateway.emitDriverLocation({
+      driverId,
+      lat: data.lat,
+      lng: data.lng,
+      heading: data.heading ?? null,
+      status: 'ONLINE', // refined below if you have the profile cached
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   /**
@@ -672,78 +684,149 @@ const payload = {
 
   // src/modules/driver/driver.gateway.ts
 
-@SubscribeMessage('request-sync')
-async handleRequestSync(
-  @ConnectedSocket() client: Socket,
-  @MessageBody() body: { lat?: number; lng?: number },
-) {
-  const driverId = client.data.driverId as string;
-  if (!driverId) {
-    this.logger.warn('request-sync: no driverId in socket data');
-    return;
-  }
-
-  try {
-    // Prefer coordinates sent by the client (they may have moved),
-    // otherwise fall back to the stored driver profile location.
-    let lat = body?.lat;
-    let lng = body?.lng;
-
-    if (lat == null || lng == null) {
-      const profile = await this.driverService.getDriverProfileForSync(driverId);
-      if (!profile?.latitude || !profile?.longitude) {
-        client.emit('sync-orders', { type: 'order-batch', orders: [] });
-        return;
-      }
-      lat = profile.latitude;
-      lng = profile.longitude;
+  @SubscribeMessage('request-sync')
+  async handleRequestSync(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { lat?: number; lng?: number },
+  ) {
+    const driverId = client.data.driverId as string;
+    if (!driverId) {
+      this.logger.warn('request-sync: no driverId in socket data');
+      return;
     }
 
-    // Same call your handleConnection uses.
-    const orders = await this.driverService.findAvailableOrders(
-      driverId,
-      lat,
-      lng,
-      20, // max radius; SQL clamps to per-order dispatchRadiusMeters
-    );
+    try {
+      // Prefer coordinates sent by the client (they may have moved),
+      // otherwise fall back to the stored driver profile location.
+      let lat = body?.lat;
+      let lng = body?.lng;
 
-    // const payload = this.buildSyncPayload(orders);
-    
-const payload = {
-      type: 'order-batch',
-      orders: orders.map((o) => ({
-        order_id: o.order_id,
-        order_number: o.order_number,
-        order_status: o.order_status,
-        total_amount: o.total_amount,
-        delivery_fee: o.delivery_fee,
-        pickup_location: o.pickup_location,
-        dropoff_location: o.dropoff_location,
-        created_at: o.created_at,
-        store_id: o.store_id,
-        store_name: o.store_name,
-        store_logo: o.store_logo,
-        store_lat: o.store_lat,
-        store_lng: o.store_lng,
-        distance_meters: o.distance_meters,
-        order_type: o.order_type,
-        rn: '1',
-        items: o.items,
-      })),
-    };
+      if (lat == null || lng == null) {
+        const profile = await this.driverService.getDriverProfileForSync(driverId);
+        if (!profile?.latitude || !profile?.longitude) {
+          client.emit('sync-orders', { type: 'order-batch', orders: [] });
+          return;
+        }
+        lat = profile.latitude;
+        lng = profile.longitude;
+      }
 
-    client.emit('sync-orders', payload);
-    this.logger.log(
-      `request-sync: emitted ${orders.length} orders to driver ${driverId}`,
-    );
-  } catch (err) {
-    this.logger.error(
-      `request-sync failed for driver ${driverId}: ${
-        err instanceof Error ? err.stack : err
-      }`,
-    );
-    // Fail-soft: send empty so the client stops showing the spinner
-    client.emit('sync-orders', { type: 'order-batch', orders: [] });
+      // Same call your handleConnection uses.
+      const orders = await this.driverService.findAvailableOrders(
+        driverId,
+        lat,
+        lng,
+        20, // max radius; SQL clamps to per-order dispatchRadiusMeters
+      );
+
+      // const payload = this.buildSyncPayload(orders);
+
+      const payload = {
+        type: 'order-batch',
+        orders: orders.map((o) => ({
+          order_id: o.order_id,
+          order_number: o.order_number,
+          order_status: o.order_status,
+          total_amount: o.total_amount,
+          delivery_fee: o.delivery_fee,
+          pickup_location: o.pickup_location,
+          dropoff_location: o.dropoff_location,
+          created_at: o.created_at,
+          store_id: o.store_id,
+          store_name: o.store_name,
+          store_logo: o.store_logo,
+          store_lat: o.store_lat,
+          store_lng: o.store_lng,
+          distance_meters: o.distance_meters,
+          order_type: o.order_type,
+          rn: '1',
+          items: o.items,
+        })),
+      };
+
+      client.emit('sync-orders', payload);
+      this.logger.log(
+        `request-sync: emitted ${orders.length} orders to driver ${driverId}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `request-sync failed for driver ${driverId}: ${err instanceof Error ? err.stack : err
+        }`,
+      );
+      // Fail-soft: send empty so the client stops showing the spinner
+      client.emit('sync-orders', { type: 'order-batch', orders: [] });
+    }
   }
-}
+
+
+  // src/modules/driver/driver.gateway.ts
+
+  /**
+   * Driver sends granular activity updates (Arrived at store, Heading to customer, etc.)
+   */
+  @SubscribeMessage('driver-activity-status')
+  async handleActivityStatus(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { activityStatus: DriverActivityStatus },
+  ) {
+    const driverId = client.data.driverId;
+    if (!driverId) throw new WsException('Unauthorized');
+
+    // 1. Validate the status
+    const validStatuses = [
+      'AVAILABLE',
+      'NOT_AVAILABLE',
+      'WAY_TO_PICKUP',
+      'ARRIVED',
+      'WAY_TO_DELIVER',
+    ];
+    if (!validStatuses.includes(data.activityStatus)) {
+      throw new WsException('Invalid activity status');
+    }
+
+    try {
+      // 2. Persist to DB
+      await this.driverAssignmentService.updateDriverActivityStatus(
+        driverId,
+        data.activityStatus,
+      );
+
+      // 3. Echo back to the driver app (so their UI can show a toast/confirmation)
+      client.emit('activity-status-updated', {
+        activityStatus: data.activityStatus,
+      });
+
+      // 4. Relay to God's View (Broadcast to all admins)
+      this.godViewGateway.emitDriverStatusChange({
+        driverId,
+        activityStatus: data.activityStatus,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // 5. Relay to Dispatch Panel (Only update admins watching this specific driver)
+      this.dispatchGateway.emitDriverStatusChange({
+        driverId,
+        status: this.mapActivityToDispatchStatus(data.activityStatus),
+        updatedAt: new Date().toISOString(),
+      });
+
+      this.logger.log(
+        `Driver ${driverId} updated activity status to ${data.activityStatus}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to update activity status for ${driverId}: ${error}`,
+      );
+      throw new WsException('Failed to update activity status');
+    }
+  }
+
+  // Helper to map the 5-state enum to the 3-state dispatch status
+  private mapActivityToDispatchStatus(
+    activity: DriverActivityStatus,
+  ): 'ONLINE' | 'BUSY' | 'OFFLINE' {
+    if (activity === 'AVAILABLE') return 'ONLINE';
+    if (activity === 'NOT_AVAILABLE') return 'OFFLINE';
+    return 'BUSY'; // WAY_TO_PICKUP / ARRIVED / WAY_TO_DELIVER all mean BUSY to the dispatcher
+  }
 }

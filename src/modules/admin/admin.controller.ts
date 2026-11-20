@@ -73,6 +73,7 @@ import { DriverPayoutService } from './driver-payout.service';
 import { GeneratePayoutsDto, ListPayoutsDto, UpdatePayoutStatusDto } from './dto/payout/driver-payout.dto';
 import { UpdateDispatcherDto } from './dto/update-dispatcher.dto';
 import { AdminDispatchService } from './admin-dispatch.service';
+import { GodViewFleetQueryDto } from './dto/god-view-fleet-query.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -83,8 +84,6 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly vendorSettlementService: VendorSettlementService,
   ) { }
-
-
 
   @Get('vendors')
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
@@ -836,6 +835,7 @@ async updateDispatcher(
   }
 
 }
+
 ////WALLET////////////
 
 @ApiTags('Admin Wallet Management')
@@ -878,6 +878,7 @@ export class AdminWalletController {
   }
 }
 
+//////////////////////
 
 /////////DRIVER PAYOUT///////////
 @ApiTags('Admin Driver Payouts')
@@ -928,45 +929,9 @@ export class DriverPayoutController {
     return res.send(csv);
   }
 
-}
-  // @Post('run-payouts')
-  // @HttpCode(HttpStatus.OK)
-  // @ApiOperation({
-  //   summary: 'Manually trigger driver payout generation (TEST ONLY)',
-  //   description:
-  //     'Runs the weekly payout generation immediately instead of waiting for the Monday cron. ' +
-  //     'Use `days` to widen the window when testing with older orders. ' +
-  //     '**Remove or guard this endpoint before production.**',
-  // })
-  // @ApiQuery({
-  //   name: 'days',
-  //   required: false,
-  //   type: Number,
-  //   example: 7,
-  //   description: 'Days back from now for the period start. Default 7.',
-  // })
-  // @ApiOkResponse({
-  //   description: 'Payout generation completed.',
-  //   schema: {
-  //     example: {
-  //       success: true,
-  //       data: [
-  //         {
-  //           driverId: 'c1a2...',
-  //           amount: 12500,
-  //           reference: 'PAY-2026-10-02-0001',
-  //           status: 'PENDING',
-  //         },
-  //       ],
-  //     },
-  //   },
-  // })
-  // @ApiUnauthorizedResponse({ description: 'Not authenticated.' })
-  // @ApiForbiddenResponse({ description: 'Admin role required.' })
-  // async runPayouts(@Query() query: RunPayoutDto) {
-  //   return this.payoutScheduler.runNow(query.days ?? 7);
-  // }
 
+}
+  
 @ApiTags('Admin Manual Order Dispatch')
 @Controller('admin/dispatch')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -1154,7 +1119,37 @@ export class AdminDispatchController {
   ) {
     return this.adminDispatch.manualCancel(orderId, admin.id, body);
   }
-
+ 
 } 
 
+
+@ApiTags('Gods View')
+@Controller('admin/god-view/')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@ApiBearerAuth()
+export class GodsView {
+  constructor(private readonly adminService: AdminService) { }
+// GOD VIEW STATS
+  @Get('stats')
+  async getGodViewStats() {
+    return this.adminService.getGodViewStats();
+  }
+
+  // GOD VIEW FLEET
+  @Get('fleet')
+  async getGodViewFleet(
+    @Query() query: GodViewFleetQueryDto,
+  ) {
+    return this.adminService.getGodViewFleet(query);
+  }
+
+  // GOD VIEW DRIVER DETAIL
+  @Get('drivers/:driverId')
+  async getGodViewDriverDetail(
+    @Param('driverId') driverId: string,
+  ) {
+    return this.adminService.getGodViewDriverDetail(driverId);
+  }
+}
 
