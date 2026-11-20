@@ -13,7 +13,7 @@ import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { REDIS_CLIENT } from '../../modules/redis/redis.provider';
-import { OrderStatus, AssignmentStatus, DriverStatus } from '@prisma/client';
+import { OrderStatus, AssignmentStatus, DriverStatus, DriverActivityStatus } from '@prisma/client';
 import { NotificationType, Role } from '@prisma/client';
 import axios from 'axios';
 import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
@@ -29,6 +29,7 @@ import { NearbyDriver } from '../../shared/types';
 import { DriverService } from './driver.service';
 import { NotificationService } from '../notification/notification.service';
 import { DriverGateway } from './web-socket/driver.gateway';
+import { GodViewGateway } from '../admin/web-socket/god-view.gateway';
 
 
 @Injectable()
@@ -63,6 +64,7 @@ export class DriverAssignmentService {
     private customerNotificationQueue: Queue,
     @InjectQueue(QUEUES.VENDOR_NOTIFICATION)
     private vendorNotificationQueue: Queue,
+
   ) {
     this.googleMapsApiKey = this.configService.get('GOOGLE_MAPS_API_KEY');
     if (!this.googleMapsApiKey) {
@@ -2549,7 +2551,17 @@ export class DriverAssignmentService {
     await this.redis.del(`order:${orderId}:eta_scheduler`).catch(() => { });
   }
 
+ // src/modules/driver/driver-assignment.service.ts
 
+async updateDriverActivityStatus(
+  driverId: string,
+  activityStatus: DriverActivityStatus,
+): Promise<void> {
+  await this.prisma.driverProfile.update({
+    where: { userId: driverId },
+    data: { activityStatus },
+  });
+}
 }
 
 
