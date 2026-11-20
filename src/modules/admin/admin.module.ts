@@ -1,6 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { AdminService } from './admin.service';
-import { AdminController, AdminDispatchController, AdminWalletController, DriverPayoutController } from './admin.controller';
+import { AdminController, AdminDispatchController, AdminWalletController, DriverPayoutController, GodsViewController } from './admin.controller';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { PrismaUserRepository } from '../user/repositories/prisma-user.repository';
 import { UserService } from '../user/user.service';
@@ -18,7 +18,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { QUEUES } from '../../shared/constants';
 
 @Module({
-  controllers: [AdminController, AdminWalletController, DriverPayoutController, AdminDispatchController],
+  controllers: [AdminController, AdminWalletController, DriverPayoutController, AdminDispatchController, GodsViewController],
   imports: [VerificationModule, AuthModule, OrderModule, WalletModule, PaymentModule,
     forwardRef(() => DriverModule),
     forwardRef(() => NotificationModule),

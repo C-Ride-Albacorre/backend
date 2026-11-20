@@ -1124,11 +1124,12 @@ export class AdminDispatchController {
 
 
 @ApiTags('Gods View')
-@Controller('admin/god-view/')
+@Controller('admin/god-view')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
 @ApiBearerAuth()
-export class GodsView {
+
+export class GodsViewController {
   constructor(private readonly adminService: AdminService) { }
 // GOD VIEW STATS
   @Get('stats')
