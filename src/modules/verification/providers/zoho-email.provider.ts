@@ -588,6 +588,7 @@ private generateVendorSuspensionEmail(
 }
 
 
+
   async sendStoreApprovalNotification(
   to: string,
   storeName?: string,
@@ -823,6 +824,252 @@ private generateStoreSuspensionEmail(
     </html>
   `;
 }
+
+////// DRIVER/DISPATCHER //////
+
+
+async sendDispatcherApprovalNotification(
+  to: string,
+  dispatcherName?: string,
+): Promise<any> {
+  const subject = 'Your Dispatcher Account Has Been Approved';
+
+  const html = this.generateDispatcherApprovalEmail(dispatcherName);
+
+  this.logger.log(`Sending dispatcher approval email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    'Your dispatcher account has been approved. You can now access your dispatcher dashboard.',
+    html,
+  );
+}
+
+private generateDispatcherApprovalEmail(
+  dispatcherName?: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Dispatcher Account Approved</title>
+      </head>
+
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Dispatcher Account Approved 🎉
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Hello ${dispatcherName || 'Dispatcher'},
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Great news! Your dispatcher account has been reviewed and approved by our administration team.
+          </p>
+
+          <div style="background: #f0fdf4; padding: 20px; border-radius: 6px; text-align: center; margin: 20px 0;">
+            <p style="margin: 0; color: #166534; font-size: 18px; font-weight: bold;">
+              Your account is now approved.
+            </p>
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            You can now log in to your dispatcher dashboard and start managing your delivery assignments and dispatch activities.
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Thank you for joining our delivery network. We look forward to working with you.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+
+async sendDispatcherRejectionNotification(
+  to: string,
+  dispatcherName?: string,
+  rejectionReason?: string,
+): Promise<any> {
+  const subject = 'Your Dispatcher Application Has Been Rejected';
+
+  const html = this.generateDispatcherRejectionEmail(
+    dispatcherName,
+    rejectionReason,
+  );
+
+  this.logger.log(`Sending dispatcher rejection email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    'Your dispatcher application has been rejected.',
+    html,
+  );
+}
+
+private generateDispatcherRejectionEmail(
+  dispatcherName?: string,
+  rejectionReason?: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Dispatcher Application Rejected</title>
+      </head>
+
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Dispatcher Application Update
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Hello ${dispatcherName || 'Dispatcher'},
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Unfortunately, your dispatcher application has been rejected after review by our administration team.
+          </p>
+
+          ${
+            rejectionReason
+              ? `
+                <div style="background: #fef2f2; padding: 20px; border-radius: 6px; margin: 20px 0;">
+                  <p style="margin: 0 0 8px; color: #991b1b; font-weight: bold;">
+                    Reason for rejection:
+                  </p>
+
+                  <p style="margin: 0; color: #555555;">
+                    ${rejectionReason}
+                  </p>
+                </div>
+              `
+              : ''
+          }
+
+          <p style="font-size: 16px; color: #555555;">
+            Please review the feedback and make the necessary changes before submitting your application again.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+
+
+async sendDispatcherSuspensionNotification(
+  to: string,
+  dispatcherName?: string,
+  reason?: string,
+): Promise<any> {
+  const subject = 'Your Dispatcher Account Has Been Suspended';
+
+  const html = this.generateDispatcherSuspensionEmail(
+    dispatcherName,
+    reason,
+  );
+
+  this.logger.log(`Sending dispatcher suspension email to ${to}`);
+
+  return this.sendEmail(
+    to,
+    subject,
+    'Your dispatcher account has been suspended.',
+    html,
+  );
+}
+
+private generateDispatcherSuspensionEmail(
+  dispatcherName?: string,
+  reason?: string,
+): string {
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8" />
+        <title>Dispatcher Account Suspended</title>
+      </head>
+
+      <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; padding: 30px;">
+
+          <h2 style="color: #333333; text-align: center;">
+            Dispatcher Account Suspended
+          </h2>
+
+          <p style="font-size: 16px; color: #555555;">
+            Hello ${dispatcherName || 'Dispatcher'},
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            Your dispatcher account has been suspended by our administration team.
+          </p>
+
+          <div style="background: #fff7ed; padding: 20px; border-radius: 6px; margin: 20px 0;">
+            <p style="margin: 0; color: #9a3412; font-weight: bold;">
+              Your account is currently suspended.
+            </p>
+
+            ${
+              reason
+                ? `
+                  <p style="margin: 12px 0 0; color: #555555;">
+                    <strong>Reason:</strong> ${reason}
+                  </p>
+                `
+                : ''
+            }
+          </div>
+
+          <p style="font-size: 16px; color: #555555;">
+            While your account is suspended, you may not be able to access your dispatcher dashboard, receive delivery assignments, or perform dispatch activities.
+          </p>
+
+          <p style="font-size: 16px; color: #555555;">
+            If you believe this suspension was made in error, please contact our support team for assistance.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 30px 0;" />
+
+          <p style="font-size: 14px; color: #999999; text-align: center;">
+            This is an automated notification from the marketplace platform.
+          </p>
+
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+
+
+//////////////
 
 
 async sendVendorOrderAcceptedNotification(

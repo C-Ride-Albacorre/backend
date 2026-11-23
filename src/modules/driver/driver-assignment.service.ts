@@ -7,6 +7,7 @@ import {
   ConflictException,
   NotFoundException,
   HttpException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -2432,7 +2433,98 @@ export class DriverAssignmentService {
     }
   }
 
-  async updateDriverStatus(driverId: string, status: DriverStatus): Promise<void> {
+
+async updateDriverStatus(
+  driverId: string,
+  status: DriverStatus,
+): Promise<void> {
+  const currentDriver = await this.prisma.driverProfile.findUnique({
+    where: { userId: driverId },
+    select: { status: true },
+  });
+
+  if (!currentDriver) {
+    throw new NotFoundException(`Driver ${driverId} not found`);
+  }
+
+  const oldStatus = currentDriver.status;
+
+  if (oldStatus === status) {
+    this.logger.debug(`Driver ${driverId} already ${status}, no-op`);
+    return;
+  }
+
+  // Suspended and rejected drivers cannot change their status
+  if (
+    oldStatus === DriverStatus.SUSPENDED ||
+    oldStatus === DriverStatus.REJECTED
+  ) {
+    throw new ForbiddenException(
+      `Your account is ${oldStatus.toLowerCase()}. Contact support for assistance.`,
+    );
+  }
+
+  // Only approved drivers can go online
+  if (
+    status === DriverStatus.ONLINE &&
+    oldStatus !== DriverStatus.OFFLINE &&
+    oldStatus !== DriverStatus.APPROVED
+  ) {
+    throw new ForbiddenException(
+      'Your account must be approved before going online.',
+    );
+  }
+
+  if (status === DriverStatus.ONLINE && oldStatus !== DriverStatus.APPROVED) {
+    throw new ForbiddenException(
+      'Only approved drivers can go online.',
+    );
+  }
+
+  // Cannot go offline while handling an order
+  if (
+    status === DriverStatus.OFFLINE &&
+    oldStatus === DriverStatus.BUSY
+  ) {
+    throw new BadRequestException(
+      'Cannot go offline while handling an order',
+    );
+  }
+
+  const { count } = await this.prisma.driverProfile.updateMany({
+    where: {
+      userId: driverId,
+      status: oldStatus,
+    },
+    data: { status },
+  });
+
+  if (count === 0) {
+    throw new ConflictException(
+      'Driver status changed concurrently, please retry',
+    );
+  }
+
+  await this.safeTrackStatusChange(driverId, oldStatus, status);
+
+  try {
+    if (status === DriverStatus.OFFLINE) {
+      await this.cleanupDriverPendingClaims(driverId);
+      await this.redis.srem('online_drivers', driverId);
+    } else if (status === DriverStatus.ONLINE) {
+      await this.redis.sadd('online_drivers', driverId);
+    }
+  } catch (err) {
+    this.logger.error(
+      `Redis side-effects failed for driver ${driverId} → ${status}: ${(err as Error).message}`,
+      (err as Error).stack,
+    );
+  }
+
+  this.logger.log(`Driver ${driverId} status: ${oldStatus} → ${status}`);
+}
+
+  async updateDriverStatusBK(driverId: string, status: DriverStatus): Promise<void> {
     // 1. Validate transition
     const currentDriver = await this.prisma.driverProfile.findUnique({
       where: { userId: driverId },
