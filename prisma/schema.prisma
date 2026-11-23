@@ -754,9 +754,9 @@ enum DriverStatus {
   OFFLINE
   ONLINE
   BUSY
-  // SUSPENDED
-  // REJECTED
-  // APPROVED
+  SUSPENDED
+  REJECTED
+  APPROVED
 }
 
 enum DriverDocumentType {

@@ -14,7 +14,7 @@ import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { REDIS_CLIENT } from '../../modules/redis/redis.provider';
-import { OrderStatus, AssignmentStatus, DriverStatus, DriverActivityStatus, UserStatus } from '@prisma/client';
+import { OrderStatus, AssignmentStatus, DriverStatus, DriverActivityStatus } from '@prisma/client';
 import { NotificationType, Role } from '@prisma/client';
 import axios from 'axios';
 import { ZohoEmailProvider } from '../verification/providers/zoho-email.provider';
@@ -2440,14 +2440,12 @@ async updateDriverStatus(
 ): Promise<void> {
   const currentDriver = await this.prisma.driverProfile.findUnique({
     where: { userId: driverId },
-    select: { status: true, user: true},
+    select: { status: true },
   });
 
   if (!currentDriver) {
     throw new NotFoundException(`Driver ${driverId} not found`);
   }
-
-  const userStatus = currentDriver.user.status
 
   const oldStatus = currentDriver.status;
 
@@ -2458,8 +2456,8 @@ async updateDriverStatus(
 
   // Suspended and rejected drivers cannot change their status
   if (
-    oldStatus === UserStatus.SUSPENDED ||
-    oldStatus === UserStatus.REJECTED
+    oldStatus === DriverStatus.SUSPENDED ||
+    oldStatus === DriverStatus.REJECTED
   ) {
     throw new ForbiddenException(
       `Your account is ${oldStatus.toLowerCase()}. Contact support for assistance.`,
@@ -2470,14 +2468,14 @@ async updateDriverStatus(
   if (
     status === DriverStatus.ONLINE &&
     oldStatus !== DriverStatus.OFFLINE &&
-    userStatus !== UserStatus.ACTIVE
+    oldStatus !== DriverStatus.APPROVED
   ) {
     throw new ForbiddenException(
       'Your account must be approved before going online.',
     );
   }
 
-  if (status === DriverStatus.ONLINE && userStatus !== UserStatus.ACTIVE) {
+  if (status === DriverStatus.ONLINE && oldStatus !== DriverStatus.APPROVED) {
     throw new ForbiddenException(
       'Only approved drivers can go online.',
     );
