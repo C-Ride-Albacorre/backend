@@ -8,9 +8,6 @@ export class ApproveDispatcherDto {
   @IsEnum(DriverStatus)
   action: DriverStatus;
 
-  @ApiProperty({ enum: UserStatus })
-  @IsEnum(UserStatus)
-  userAction: UserStatus;
 
   @ApiProperty({ required: false })
   @IsOptional()

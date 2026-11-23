@@ -1,10 +1,12 @@
 import {
   Injectable,
   Logger,
+  ForbiddenException,
   NotFoundException,
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { CreateAdminDto } from './dto/create-admin.dto';
 import { ApproveVendorDto } from './dto/approve-vendor.dto';
 import { ApproveStoreDto } from './dto/approve-store.dto';
 import { VendorFilterDto } from './dto/vendor-filter.dto';
@@ -13,6 +15,7 @@ import { PrismaService } from '../../shared/services/prisma.service';
 import { StoreStatus, UserRole } from '../../shared/enums';
 import { CommissionStatus, DriverActivityStatus, OnBoardingStatus, OrderStatus, PaymentStatus, Prisma, Role, SettlementStatus, UserStatus } from '@prisma/client';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
+import { User } from '../user/entities/user.entity';
 import {
   CreateSubcategoryDto,
   UpdateSubcategoryDto,
@@ -1506,8 +1509,7 @@ async approveDispatcher(
     throw new NotFoundException('Dispatcher not found');
   }
 
-  // if (dto.action === 'APPROVED') {
-    if (dto.userAction === 'APPROVED') {
+  if (dto.action === 'APPROVED') {
     const updated = await this.prisma.user.update({
       where: { id: dispatcherId },
       data: {
@@ -1539,7 +1541,7 @@ async approveDispatcher(
     };
   }
 
-  if (dto.userAction === 'REJECTED') {
+  if (dto.action === 'REJECTED') {
     if (!dto.rejectionReason) {
       throw new BadRequestException('Rejection reason is required');
     }
@@ -1578,7 +1580,7 @@ async approveDispatcher(
     };
   }
 
-  if (dto.userAction === 'SUSPENDED') {
+  if (dto.action === 'SUSPENDED') {
     const updated = await this.prisma.user.update({
       where: { id: dispatcherId },
       data: {
