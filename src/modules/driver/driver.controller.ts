@@ -13,7 +13,6 @@ import {
   Param,
   ParseIntPipe,
   Query,
-  ConflictException,
 } from '@nestjs/common';
 import { Request } from 'express';
 

@@ -1,22 +1,18 @@
 import {
   Injectable,
   Logger,
-  ForbiddenException,
   NotFoundException,
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { CreateAdminDto } from './dto/create-admin.dto';
 import { ApproveVendorDto } from './dto/approve-vendor.dto';
 import { ApproveStoreDto } from './dto/approve-store.dto';
 import { VendorFilterDto } from './dto/vendor-filter.dto';
 import { StoreFilterDto } from './dto/store-filter.dto';
 import { PrismaService } from '../../shared/services/prisma.service';
 import { StoreStatus, UserRole } from '../../shared/enums';
-import Helper from '../../shared/utils/helpers';
 import { CommissionStatus, DriverActivityStatus, OnBoardingStatus, OrderStatus, PaymentStatus, Prisma, Role, SettlementStatus, UserStatus } from '@prisma/client';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
-import { User } from '../user/entities/user.entity';
 import {
   CreateSubcategoryDto,
   UpdateSubcategoryDto,
@@ -1489,7 +1485,136 @@ async updateDispatcher(
     };
   }
 
-  async approveDispatcher(
+  
+async approveDispatcher(
+  adminId: string,
+  dispatcherId: string,
+  dto: ApproveDispatcherDto,
+) {
+  this.logger.log(
+    `Admin ${adminId} updating dispatcher ${dispatcherId}`,
+  );
+
+  const dispatcher = await this.prisma.user.findFirst({
+    where: {
+      id: dispatcherId,
+      role: Role.DISPATCHER,
+    },
+  });
+
+  if (!dispatcher) {
+    throw new NotFoundException('Dispatcher not found');
+  }
+
+  if (dto.action === 'APPROVED') {
+    const updated = await this.prisma.user.update({
+      where: { id: dispatcherId },
+      data: {
+        status: UserStatus.ACTIVE,
+        approvedAt: new Date(),
+        approvedBy: adminId,
+        rejectionReason: null,
+      },
+    });
+
+    // Send approval notification
+    try {
+      await this.zohoEmailProvider.sendDispatcherApprovalNotification(
+        dispatcher.email,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Dispatcher ${dispatcherId} was approved, but approval email could not be sent`,
+        error,
+      );
+    }
+
+    this.logger.log(`Dispatcher ${dispatcherId} approved`);
+
+    return {
+      success: true,
+      message: 'Dispatcher approved successfully',
+      data: updated,
+    };
+  }
+
+  if (dto.action === 'REJECTED') {
+    if (!dto.rejectionReason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: dispatcherId },
+      data: {
+        status: UserStatus.REJECTED,
+        approvedAt: null,
+        approvedBy: adminId,
+        rejectionReason: dto.rejectionReason,
+      },
+    });
+
+    // Send rejection notification
+    try {
+      await this.zohoEmailProvider.sendDispatcherRejectionNotification(
+        dispatcher.email,
+        dto.rejectionReason,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Dispatcher ${dispatcherId} was rejected, but rejection email could not be sent`,
+        error,
+      );
+    }
+
+    this.logger.log(
+      `Dispatcher ${dispatcherId} rejected: ${dto.rejectionReason}`,
+    );
+
+    return {
+      success: true,
+      message: 'Dispatcher rejected',
+      data: updated,
+    };
+  }
+
+  if (dto.action === 'SUSPENDED') {
+    const updated = await this.prisma.user.update({
+      where: { id: dispatcherId },
+      data: {
+        status: UserStatus.SUSPENDED,
+        approvedAt: null,
+        approvedBy: adminId,
+        rejectionReason: dto.rejectionReason,
+      },
+    });
+
+    // Send suspension notification
+    try {
+      await this.zohoEmailProvider.sendDispatcherSuspensionNotification(
+        dispatcher.email,
+        dto.rejectionReason,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Dispatcher ${dispatcherId} was suspended, but suspension email could not be sent`,
+        error,
+      );
+    }
+
+    this.logger.log(`Dispatcher ${dispatcherId} suspended`);
+
+    return {
+      success: true,
+      message: 'Dispatcher suspended',
+      data: updated,
+    };
+  }
+
+  throw new BadRequestException('Invalid action');
+}
+
+
+  async approveDispatcherWithouNotification(
     adminId: string,
     dispatcherId: string,
     dto: ApproveDispatcherDto,

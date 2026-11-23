@@ -13,7 +13,6 @@ import {
   Delete,
   Res,
   UseInterceptors,
-  UploadedFile,
   UploadedFiles,
   BadRequestException,
   ParseUUIDPipe,
@@ -33,8 +32,7 @@ import {
   ApiNotFoundResponse,
   ApiConsumes,
   ApiQuery,
-  ApiForbiddenResponse,
-  ApiUnauthorizedResponse,
+
 } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { Roles } from '../../common/decorators/role.decorator';
@@ -42,7 +40,6 @@ import { RolesGuard } from '../../common/guards/role.guard';
 import { UserRole } from '../../shared/enums';
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
-import { CreateAdminDto } from './dto/create-admin.dto';
 import { ApproveVendorDto } from './dto/approve-vendor.dto';
 import { ApproveStoreDto } from './dto/approve-store.dto';
 import { VendorFilterDto } from './dto/vendor-filter.dto';
@@ -54,7 +51,6 @@ import {
 } from './dto/subcategory.dto';
 import {
   FileFieldsInterceptor,
-  FileInterceptor,
 } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { DispatcherFilterDto } from './dto/dispatcher-filter.dto';
