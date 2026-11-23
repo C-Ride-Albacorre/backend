@@ -1506,7 +1506,8 @@ async approveDispatcher(
     throw new NotFoundException('Dispatcher not found');
   }
 
-  if (dto.action === 'APPROVED') {
+  // if (dto.action === 'APPROVED') {
+    if (dto.userAction === 'APPROVED') {
     const updated = await this.prisma.user.update({
       where: { id: dispatcherId },
       data: {
@@ -1538,7 +1539,7 @@ async approveDispatcher(
     };
   }
 
-  if (dto.action === 'REJECTED') {
+  if (dto.userAction === 'REJECTED') {
     if (!dto.rejectionReason) {
       throw new BadRequestException('Rejection reason is required');
     }
@@ -1577,7 +1578,7 @@ async approveDispatcher(
     };
   }
 
-  if (dto.action === 'SUSPENDED') {
+  if (dto.userAction === 'SUSPENDED') {
     const updated = await this.prisma.user.update({
       where: { id: dispatcherId },
       data: {
