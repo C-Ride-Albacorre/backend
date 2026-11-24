@@ -7,7 +7,7 @@ export class PayOrderDto {
   @ApiProperty({
   description: 'Payment method to use for the transaction',
   enum: PaymentMethodDto,
-  example: PaymentMethodDto.WALLET,
+  example: PaymentMethodDto,
 })
   @IsEnum(PaymentMethodDto)
   paymentMethod: PaymentMethodDto;
