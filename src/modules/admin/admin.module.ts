@@ -1,6 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { AdminService } from './admin.service';
-import { AdminController, AdminDispatchController, AdminWalletController, DriverPayoutController, GodsViewController } from './admin.controller';
+import { AdminController, AdminDispatchController, AdminWalletController, DriverPayoutController, GodsViewController, HeatMapController } from './admin.controller';
 import { AbstractUserRepository } from '../user/repositories/abstract-user.repository';
 import { PrismaUserRepository } from '../user/repositories/prisma-user.repository';
 import { UserService } from '../user/user.service';
@@ -16,9 +16,10 @@ import { DriverModule } from '../driver/driver.module';
 import { NotificationModule } from '../notification/notification.module';
 import { BullModule } from '@nestjs/bullmq';
 import { QUEUES } from '../../shared/constants';
+import { HeatViewService } from './heat-view.service';
 
 @Module({
-  controllers: [AdminController, AdminWalletController, DriverPayoutController, AdminDispatchController, GodsViewController],
+  controllers: [AdminController, AdminWalletController, DriverPayoutController, AdminDispatchController, GodsViewController, HeatMapController],
   imports: [VerificationModule, AuthModule, OrderModule, WalletModule, PaymentModule,
     forwardRef(() => DriverModule),
     forwardRef(() => NotificationModule),
@@ -37,8 +38,9 @@ import { QUEUES } from '../../shared/constants';
     },
     VerificationService,
     DriverPayoutService,
-    AdminDispatchService
+    AdminDispatchService,
+    HeatViewService
   ],
-  exports: [UserService, AbstractUserRepository, VerificationService, DriverPayoutService, AdminDispatchService],
+  exports: [UserService, AbstractUserRepository, VerificationService, DriverPayoutService, AdminDispatchService, HeatViewService],
 })
 export class AdminModule { }
