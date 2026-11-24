@@ -18,7 +18,7 @@ import {
   InitializePaymentDto,
   MonnifyPaymentResponse,
 } from '../customer/dto/payment.dto';
-import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
+import { OrderStatus, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import axios, { AxiosError } from 'axios';
 import { randomUUID } from 'crypto';
 import * as crypto from 'crypto';
@@ -133,245 +133,244 @@ export class MonnifyService {
     }
   }
 
-  
-async initializePayment(
-  userId: string,
-  dto: InitializePaymentDto,
-): Promise<MonnifyPaymentResponse> {
-  this.logger.log(
-    `Initializing payment for order: ${dto.orderId}`,
-  );
 
-  // Payment methods to display on Monnify checkout
-  const allowedMethods = [
-    'CARD',
-    'ACCOUNT_TRANSFER',
-    'USSD',
-  ];
+  async initializePayment(
+    userId: string,
+    dto: InitializePaymentDto,
+  ): Promise<MonnifyPaymentResponse> {
+    this.logger.log(
+      `Initializing payment for order: ${dto.orderId}`,
+    );
 
-  // ---------- PHASE 1: Reserve payment reference ----------
+    // Payment methods to display on Monnify checkout
+    const allowedMethods = [
+      'CARD',
+      'ACCOUNT_TRANSFER',
+      'USSD',
+    ];
 
-  const reservation = await this.prisma.$transaction(
-    async (tx) => {
-      await tx.$queryRaw`
+    // ---------- PHASE 1: Reserve payment reference ----------
+
+    const reservation = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`
         SELECT 1
         FROM "Order"
         WHERE id = ${dto.orderId}
         FOR UPDATE
       `;
 
-      const order = await tx.order.findUnique({
-        where: { id: dto.orderId },
-      });
-
-      if (!order) {
-        throw new NotFoundException('Order not found');
-      }
-
-      if (order.userId !== userId) {
-        throw new ForbiddenException(
-          'Order does not belong to user',
-        );
-      }
-
-      if (order.paymentReference) {
-        throw new BadRequestException(
-          'Payment already initialized for this order',
-        );
-      }
-
-      if (order.paymentStatus !== PaymentStatus.PENDING) {
-        throw new BadRequestException(
-          'Payment already processed',
-        );
-      }
-
-      const user = await tx.user.findUnique({
-        where: { id: userId },
-      });
-
-      if (!user) {
-        throw new BadRequestException('User not found');
-      }
-
-      const customerEmail =
-        dto.email?.trim() || user.email?.trim();
-
-      if (!customerEmail) {
-        throw new BadRequestException({
-          statusCode: 400,
-          code: 'EMAIL_REQUIRED_FOR_PAYMENT',
-          message:
-            'Please provide your email address to continue with payment.',
+        const order = await tx.order.findUnique({
+          where: { id: dto.orderId },
         });
-      }
 
-      if (!user.email?.trim()) {
-        await tx.user.update({
+        if (!order) {
+          throw new NotFoundException('Order not found');
+        }
+
+        if (order.userId !== userId) {
+          throw new ForbiddenException(
+            'Order does not belong to user',
+          );
+        }
+
+        if (order.paymentReference) {
+          throw new BadRequestException(
+            'Payment already initialized for this order',
+          );
+        }
+
+        if (order.paymentStatus !== PaymentStatus.PENDING) {
+          throw new BadRequestException(
+            'Payment already processed',
+          );
+        }
+
+        const user = await tx.user.findUnique({
           where: { id: userId },
-          data: { email: customerEmail },
         });
+
+        if (!user) {
+          throw new BadRequestException('User not found');
+        }
+
+        const customerEmail =
+          dto.email?.trim() || user.email?.trim();
+
+        if (!customerEmail) {
+          throw new BadRequestException({
+            statusCode: 400,
+            code: 'EMAIL_REQUIRED_FOR_PAYMENT',
+            message:
+              'Please provide your email address to continue with payment.',
+          });
+        }
+
+        if (!user.email?.trim()) {
+          await tx.user.update({
+            where: { id: userId },
+            data: { email: customerEmail },
+          });
+        }
+
+        const paymentReference = `PAY-${randomUUID()}`;
+
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            paymentReference,
+          },
+        });
+
+        return {
+          order,
+          user,
+          customerEmail,
+          paymentReference,
+        };
+      },
+    );
+
+    const {
+      order,
+      user,
+      customerEmail,
+      paymentReference,
+    } = reservation;
+
+    // ---------- PHASE 2: Initialize with Monnify ----------
+
+    const payload = {
+      amount: Number(order.totalAmount),
+
+      customerName:
+        `${user.firstName || ''} ${user.lastName || ''}`
+          .trim() || 'Customer',
+
+      customerEmail,
+      paymentReference,
+
+      paymentDescription: `Order ${order.orderNumber}`,
+
+      currencyCode: 'NGN',
+
+      contractCode: this.contractCode,
+
+      redirectUrl:
+        dto.callbackUrl ||
+        `${this.configService.get('BACKEND_URI')}/api/v1/payment/callback`,
+
+      // Request all three payment methods
+      paymentMethods: allowedMethods,
+    };
+
+    try {
+      this.logger.log(
+        `Requested Monnify payment methods: ${allowedMethods.join(', ')}`,
+      );
+
+      const data = await this.postToMonnify<any>(
+        `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
+        payload,
+      );
+
+      if (!data?.requestSuccessful || !data?.responseBody) {
+        throw new Error(
+          data?.responseMessage ||
+          'Monnify payment initialization failed',
+        );
       }
 
-      const paymentReference = `PAY-${randomUUID()}`;
+      const responseBody = data.responseBody;
 
-      await tx.order.update({
+      const monnifyReference =
+        responseBody.transactionReference;
+
+      const checkoutUrl = responseBody.checkoutUrl;
+
+      if (!monnifyReference || !checkoutUrl) {
+        throw new Error(
+          'Monnify did not return a valid transaction reference or checkout URL',
+        );
+      }
+
+      // Log methods actually enabled by Monnify
+      const enabledMethods =
+        responseBody.enabledPaymentMethod || [];
+
+      this.logger.log(
+        `Monnify enabled payment methods: ${JSON.stringify(enabledMethods)}`,
+      );
+
+      // ---------- PHASE 3: Save Monnify reference ----------
+
+      await this.prisma.order.update({
         where: { id: order.id },
         data: {
-          paymentReference,
+          monnifyReference,
         },
       });
 
-      return {
-        order,
-        user,
-        customerEmail,
-        paymentReference,
-      };
-    },
-  );
-
-  const {
-    order,
-    user,
-    customerEmail,
-    paymentReference,
-  } = reservation;
-
-  // ---------- PHASE 2: Initialize with Monnify ----------
-
-  const payload = {
-    amount: Number(order.totalAmount),
-
-    customerName:
-      `${user.firstName || ''} ${user.lastName || ''}`
-        .trim() || 'Customer',
-
-    customerEmail,
-    paymentReference,
-
-    paymentDescription: `Order ${order.orderNumber}`,
-
-    currencyCode: 'NGN',
-
-    contractCode: this.contractCode,
-
-    redirectUrl:
-      dto.callbackUrl ||
-      `${this.configService.get('BACKEND_URI')}/api/v1/payment/callback`,
-
-    // Request all three payment methods
-    paymentMethods: allowedMethods,
-  };
-
-  try {
-    this.logger.log(
-      `Requested Monnify payment methods: ${allowedMethods.join(', ')}`,
-    );
-
-    const data = await this.postToMonnify<any>(
-      `${this.baseUrl}/api/v1/merchant/transactions/init-transaction`,
-      payload,
-    );
-
-    if (!data?.requestSuccessful || !data?.responseBody) {
-      throw new Error(
-        data?.responseMessage ||
-          'Monnify payment initialization failed',
+      this.logger.log(
+        `Payment initialized successfully for order ${order.orderNumber}`,
       );
-    }
 
-    const responseBody = data.responseBody;
+      return data as MonnifyPaymentResponse;
 
-    const monnifyReference =
-      responseBody.transactionReference;
+    } catch (error) {
+      // Only release the reservation if it still belongs
+      // to this initialization attempt.
+      //
+      // Note: A timeout or network failure can happen after
+      // Monnify has created the transaction. Such cases should
+      // be reconciled before allowing another initialization.
 
-    const checkoutUrl = responseBody.checkoutUrl;
+      const isAmbiguousNetworkFailure =
+        axios.isAxiosError(error) &&
+        (!error.response ||
+          error.code === 'ECONNABORTED' ||
+          error.code === 'ETIMEDOUT');
 
-    if (!monnifyReference || !checkoutUrl) {
-      throw new Error(
-        'Monnify did not return a valid transaction reference or checkout URL',
-      );
-    }
-
-    // Log methods actually enabled by Monnify
-    const enabledMethods =
-      responseBody.enabledPaymentMethod || [];
-
-    this.logger.log(
-      `Monnify enabled payment methods: ${JSON.stringify(enabledMethods)}`,
-    );
-
-    // ---------- PHASE 3: Save Monnify reference ----------
-
-    await this.prisma.order.update({
-      where: { id: order.id },
-      data: {
-        monnifyReference,
-      },
-    });
-
-    this.logger.log(
-      `Payment initialized successfully for order ${order.orderNumber}`,
-    );
-
-    return data as MonnifyPaymentResponse;
-
-  } catch (error) {
-    // Only release the reservation if it still belongs
-    // to this initialization attempt.
-    //
-    // Note: A timeout or network failure can happen after
-    // Monnify has created the transaction. Such cases should
-    // be reconciled before allowing another initialization.
-
-    const isAmbiguousNetworkFailure =
-      axios.isAxiosError(error) &&
-      (!error.response ||
-        error.code === 'ECONNABORTED' ||
-        error.code === 'ETIMEDOUT');
-
-    if (!isAmbiguousNetworkFailure) {
-      await this.prisma.order.updateMany({
-        where: {
-          id: order.id,
-          paymentReference,
-          monnifyReference: null,
-        },
-        data: {
-          paymentReference: null,
-        },
-      }).catch((releaseError) => {
+      if (!isAmbiguousNetworkFailure) {
+        await this.prisma.order.updateMany({
+          where: {
+            id: order.id,
+            paymentReference,
+            monnifyReference: null,
+          },
+          data: {
+            paymentReference: null,
+          },
+        }).catch((releaseError) => {
+          this.logger.error(
+            `Failed to release payment reservation: ${releaseError.message}`,
+          );
+        });
+      } else {
         this.logger.error(
-          `Failed to release payment reservation: ${releaseError.message}`,
+          `Ambiguous Monnify initialization result for ${paymentReference}. Reservation retained for reconciliation.`,
         );
-      });
-    } else {
-      this.logger.error(
-        `Ambiguous Monnify initialization result for ${paymentReference}. Reservation retained for reconciliation.`,
+      }
+
+      if (axios.isAxiosError(error)) {
+        this.logger.error(
+          `Monnify HTTP ${error.response?.status}: ${JSON.stringify(error.response?.data) || error.message
+          }`,
+        );
+      } else {
+        this.logger.error(
+          error instanceof Error
+            ? error.message
+            : String(error),
+        );
+      }
+
+      throw new HttpException(
+        this.extractMonnifyErrorMessage(error),
+        HttpStatus.BAD_REQUEST,
       );
     }
-
-    if (axios.isAxiosError(error)) {
-      this.logger.error(
-        `Monnify HTTP ${error.response?.status}: ${
-          JSON.stringify(error.response?.data) || error.message
-        }`,
-      );
-    } else {
-      this.logger.error(
-        error instanceof Error
-          ? error.message
-          : String(error),
-      );
-    }
-
-    throw new HttpException(
-      this.extractMonnifyErrorMessage(error),
-      HttpStatus.BAD_REQUEST,
-    );
   }
-}
 
 
   async initializePaymentOld(
@@ -566,25 +565,25 @@ async initializePayment(
     // });
     const verification = await this.verifyPayment(transactionRef);
 
-if (verification?.responseBody?.paymentStatus !== 'PAID') {
-  throw new BadRequestException('Payment verification failed');
-}
+    if (verification?.responseBody?.paymentStatus !== 'PAID') {
+      throw new BadRequestException('Payment verification failed');
+    }
 
-const paymentUpdate = await this.prisma.order.updateMany({
-  where: {
-    id: order.id,
-    paymentStatus: PaymentStatus.PENDING,
-  },
-  data: {
-    paymentStatus: PaymentStatus.PAID,
-    paymentReference: paymentReference ?? order.paymentReference,
-  },
-});
+    const paymentUpdate = await this.prisma.order.updateMany({
+      where: {
+        id: order.id,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+      data: {
+        paymentStatus: PaymentStatus.PAID,
+        paymentReference: paymentReference ?? order.paymentReference,
+      },
+    });
 
-if (paymentUpdate.count === 0) {
-  this.logger.warn(`Payment already processed for order ${order.id}`);
-  return { success: true };
-}
+    if (paymentUpdate.count === 0) {
+      this.logger.warn(`Payment already processed for order ${order.id}`);
+      return { success: true };
+    }
 
     if (paymentUpdate.count === 0) {
       this.logger.warn(`Webhook already processed for order ${order.id}`);
@@ -1003,115 +1002,115 @@ if (paymentUpdate.count === 0) {
 
 
   // in monnify.service.ts
-async resolveOrderId(ref: string): Promise<string> {
-  const o = await this.prisma.order.findFirst({
-    where: { OR: [{ monnifyReference: ref }, { paymentReference: ref }] },
-    select: { id: true },
-  });
-  return o?.id || '';
-}
-
-  // ==================== VERIFICATION & CALLBACK ====================
-  
-async verifyPaymentAndUpdateNew(transactionReference: string) {
-  this.logger.log(
-    `Verifying and updating for transaction: ${transactionReference}`,
-  );
-
-  const order = await this.prisma.order.findFirst({
-    where: { monnifyReference: transactionReference },
-  });
-
-  if (!order) {
-    throw new NotFoundException(
-      'Order not found for this transaction',
-    );
+  async resolveOrderId(ref: string): Promise<string> {
+    const o = await this.prisma.order.findFirst({
+      where: { OR: [{ monnifyReference: ref }, { paymentReference: ref }] },
+      select: { id: true },
+    });
+    return o?.id || '';
   }
 
-  // Verify with Monnify FIRST
-  const verification = await this.verifyPayment(transactionReference);
+  // ==================== VERIFICATION & CALLBACK ====================
 
-  const monnifyPaymentStatus =
-    verification?.responseBody?.paymentStatus;
+  async verifyPaymentAndUpdateNew(transactionReference: string) {
+    this.logger.log(
+      `Verifying and updating for transaction: ${transactionReference}`,
+    );
 
-  if (monnifyPaymentStatus !== 'PAID') {
-    // PENDING is not an error — the webhook will settle it later.
-    // Returning (not throwing) lets the callback show a "processing"
-    // state with a real orderId instead of the error page.
-    if (monnifyPaymentStatus === 'PENDING') {
+    const order = await this.prisma.order.findFirst({
+      where: { monnifyReference: transactionReference },
+    });
+
+    if (!order) {
+      throw new NotFoundException(
+        'Order not found for this transaction',
+      );
+    }
+
+    // Verify with Monnify FIRST
+    const verification = await this.verifyPayment(transactionReference);
+
+    const monnifyPaymentStatus =
+      verification?.responseBody?.paymentStatus;
+
+    if (monnifyPaymentStatus !== 'PAID') {
+      // PENDING is not an error — the webhook will settle it later.
+      // Returning (not throwing) lets the callback show a "processing"
+      // state with a real orderId instead of the error page.
+      if (monnifyPaymentStatus === 'PENDING') {
+        return {
+          status: 'PENDING',
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        };
+      }
+
+      // FAILED / CANCELLED / anything unknown → real error, still
+      // carries orderId so the error redirect isn't blank.
+      throw new BadRequestException(
+        `Payment not confirmed by Monnify (status: ${monnifyPaymentStatus ?? 'UNKNOWN'})`,
+      );
+    }
+
+    // Update payment status only after verification
+    const paymentUpdate = await this.prisma.order.updateMany({
+      where: {
+        id: order.id,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+      data: {
+        paymentStatus: PaymentStatus.PAID,
+      },
+    });
+
+    if (paymentUpdate.count === 0) {
+      this.logger.warn(
+        `Payment already processed for order ${order.id}`,
+      );
+
       return {
-        status: 'PENDING',
+        status: 'PAID',
+        message: 'Payment already processed',
         orderId: order.id,
         orderNumber: order.orderNumber,
       };
     }
 
-    // FAILED / CANCELLED / anything unknown → real error, still
-    // carries orderId so the error redirect isn't blank.
-    throw new BadRequestException(
-      `Payment not confirmed by Monnify (status: ${monnifyPaymentStatus ?? 'UNKNOWN'})`,
-    );
-  }
+    // Transition order
+    try {
+      await this.orderService.transition(
+        order.id,
+        OrderStatus.CONFIRMED,
+        {
+          actorId: order.userId,
+          actorRole: 'CUSTOMER',
+          reason: 'Payment verified via callback',
+        },
+      );
+    } catch (err) {
+      if (
+        err instanceof BadRequestException &&
+        String(err.message).includes('Invalid transition')
+      ) {
+        this.logger.warn(
+          `Order ${order.id} already CONFIRMED; skipping`,
+        );
+      } else {
+        throw err;
+      }
+    }
 
-  // Update payment status only after verification
-  const paymentUpdate = await this.prisma.order.updateMany({
-    where: {
-      id: order.id,
-      paymentStatus: PaymentStatus.PENDING,
-    },
-    data: {
-      paymentStatus: PaymentStatus.PAID,
-    },
-  });
-
-  if (paymentUpdate.count === 0) {
-    this.logger.warn(
-      `Payment already processed for order ${order.id}`,
-    );
+    // Notify vendors
+    await this.notificationService
+      .notifyVendorsForOrder(order.id)
+      .catch((e) => this.logger.error(e));
 
     return {
       status: 'PAID',
-      message: 'Payment already processed',
       orderId: order.id,
       orderNumber: order.orderNumber,
     };
   }
-
-  // Transition order
-  try {
-    await this.orderService.transition(
-      order.id,
-      OrderStatus.CONFIRMED,
-      {
-        actorId: order.userId,
-        actorRole: 'CUSTOMER',
-        reason: 'Payment verified via callback',
-      },
-    );
-  } catch (err) {
-    if (
-      err instanceof BadRequestException &&
-      String(err.message).includes('Invalid transition')
-    ) {
-      this.logger.warn(
-        `Order ${order.id} already CONFIRMED; skipping`,
-      );
-    } else {
-      throw err;
-    }
-  }
-
-  // Notify vendors
-  await this.notificationService
-    .notifyVendorsForOrder(order.id)
-    .catch((e) => this.logger.error(e));
-
-  return {
-    status: 'PAID',
-    orderId: order.id,
-    orderNumber: order.orderNumber,
-  };
-}
 
 
 
@@ -1131,6 +1130,17 @@ async verifyPaymentAndUpdateNew(transactionReference: string) {
 
     if (!order) {
       throw new NotFoundException('Order not found for this transaction');
+    }
+
+    if (order.paymentMethod === PaymentMethod.WALLET) {
+      // Wallet orders never go through Monnify. If a callback arrives for
+      // one, it's a misconfiguration or a spoofed URL — refuse it.
+      this.logger.warn(`Monnify callback for WALLET order ${order.id}; ignoring`);
+      return {
+        status: 'PAID',
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      };
     }
 
     // Idempotent payment status update
@@ -1194,60 +1204,59 @@ async verifyPaymentAndUpdateNew(transactionReference: string) {
     };
   }
 
-  
-async verifyPaymentNew(transactionReference: string) {
-  this.logger.log(
-    `Verifying Monnify transaction: ${transactionReference}`,
-  );
 
-  const accessToken = await this.getAccessToken();
+  async verifyPaymentNew(transactionReference: string) {
+    this.logger.log(
+      `Verifying Monnify transaction: ${transactionReference}`,
+    );
 
-  try {
-    const response = await axios.get(
-      `${this.baseUrl}/api/v1/merchant/transactions/query`,
-      {
-        params: { transactionReference },
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
+    const accessToken = await this.getAccessToken();
+
+    try {
+      const response = await axios.get(
+        `${this.baseUrl}/api/v1/merchant/transactions/query`,
+        {
+          params: { transactionReference },
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+          timeout: 15000,
         },
-        timeout: 15000,
-      },
-    );
-
-    this.logger.debug(
-      `Monnify response: ${JSON.stringify(response.data)}`,
-    );
-
-    if (!response.data?.requestSuccessful) {
-      throw new BadRequestException(
-        `Monnify rejected verification: ${
-          response.data?.responseMessage || 'Unknown error'
-        }`,
       );
-    }
 
-    return response.data;
+      this.logger.debug(
+        `Monnify response: ${JSON.stringify(response.data)}`,
+      );
 
-  } catch (error) {
-    const axiosError = error as any;
+      if (!response.data?.requestSuccessful) {
+        throw new BadRequestException(
+          `Monnify rejected verification: ${response.data?.responseMessage || 'Unknown error'
+          }`,
+        );
+      }
 
-    this.logger.error(
-      'Monnify verification error',
-      JSON.stringify({
-        message: axiosError.message,
-        status: axiosError.response?.status,
-        response: axiosError.response?.data,
-      }),
-    );
+      return response.data;
 
-    throw new HttpException(
-      axiosError.response?.data?.responseMessage ||
+    } catch (error) {
+      const axiosError = error as any;
+
+      this.logger.error(
+        'Monnify verification error',
+        JSON.stringify({
+          message: axiosError.message,
+          status: axiosError.response?.status,
+          response: axiosError.response?.data,
+        }),
+      );
+
+      throw new HttpException(
+        axiosError.response?.data?.responseMessage ||
         axiosError.message ||
         'Payment verification failed',
-      HttpStatus.BAD_REQUEST,
-    );
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
-}
 
 
   async verifyPayment(transactionReference: string) {
@@ -1272,7 +1281,7 @@ async verifyPaymentNew(transactionReference: string) {
         'Payment verification failed',
         HttpStatus.BAD_REQUEST,
       );
-      
+
     }
   }
 
@@ -1344,32 +1353,32 @@ async verifyPaymentNew(transactionReference: string) {
    * Useful for callback flows where only paymentReference is available
    */
   async verifyByPaymentReferenceNew(paymentReference: string) {
-  this.logger.log(`Verifying payment by reference: ${paymentReference}`);
+    this.logger.log(`Verifying payment by reference: ${paymentReference}`);
 
-  if (!paymentReference) {
-    throw new BadRequestException('Payment reference is required');
+    if (!paymentReference) {
+      throw new BadRequestException('Payment reference is required');
+    }
+
+    // Find order by paymentReference (the one we generated: PAY-xxx)
+    const order = await this.prisma.order.findFirst({
+      where: { paymentReference },
+    });
+
+    if (!order) {
+      throw new NotFoundException(
+        `Order not found for payment reference: ${paymentReference}`,
+      );
+    }
+
+    // Monnify only knows its own transactionReference. Never pass PAY-xxx.
+    if (!order.monnifyReference) {
+      throw new BadRequestException(
+        'Missing monnifyReference for order; cannot verify with Monnify',
+      );
+    }
+
+    return this.verifyPaymentAndUpdate(order.monnifyReference);
   }
-
-  // Find order by paymentReference (the one we generated: PAY-xxx)
-  const order = await this.prisma.order.findFirst({
-    where: { paymentReference },
-  });
-
-  if (!order) {
-    throw new NotFoundException(
-      `Order not found for payment reference: ${paymentReference}`,
-    );
-  }
-
-  // Monnify only knows its own transactionReference. Never pass PAY-xxx.
-  if (!order.monnifyReference) {
-    throw new BadRequestException(
-      'Missing monnifyReference for order; cannot verify with Monnify',
-    );
-  }
-
-  return this.verifyPaymentAndUpdate(order.monnifyReference);
-}
   async verifyByPaymentReference(paymentReference: string) {
     this.logger.log(`Verifying payment by reference: ${paymentReference}`);
 
