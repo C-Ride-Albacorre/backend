@@ -10,18 +10,23 @@ import {
   HttpCode,
   RawBodyRequest,
   Req,
+  Param,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { MonnifyService } from './monnify.service';
 import {
+  ApiBody,
   ApiOperation,
+  ApiParam,
   ApiProduces,
   ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { PrismaService } from '../../shared/services/prisma.service';
+import { PayOrderDto } from './dto/pay-order.dto';
+import { PaymentService } from './payment.service';
 
 @ApiTags('Payment')
 @Controller('payment')
@@ -32,7 +37,56 @@ export class PaymentController {
     private readonly monnifyService: MonnifyService,
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly paymentService: PaymentService
   ) {}
+
+
+@Post('orders/:orderId/pay')
+@ApiOperation({
+  summary: 'Pay for an order',
+  description: 'Initiates payment for a specific order using the selected payment method.',
+})
+@ApiParam({
+  name: 'orderId',
+  type: String,
+  description: 'The ID of the order to pay for',
+  example: '65f2a8b9c1234567890abcde',
+})
+@ApiBody({
+  type: PayOrderDto,
+  description: 'Payment details',
+})
+@ApiResponse({
+  status: 200,
+  description: 'Payment initiated successfully',
+})
+@ApiResponse({
+  status: 400,
+  description: 'Invalid payment details or order cannot be paid for',
+})
+@ApiResponse({
+  status: 401,
+  description: 'Unauthorized',
+})
+@ApiResponse({
+  status: 403,
+  description: 'Forbidden',
+})
+@ApiResponse({
+  status: 404,
+  description: 'Order not found',
+})
+@ApiResponse({
+  status: 409,
+  description: 'Payment conflict or order already paid',
+})
+async payOrder(
+  @Param('orderId') orderId: string,
+  @Body() dto: PayOrderDto,
+  @Req() req: any,
+) {
+  return this.paymentService.payOrder(orderId, req.user.id, dto);
+}
 
   @Get('/callback')
   @ApiOperation({
