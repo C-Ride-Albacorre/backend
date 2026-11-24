@@ -403,6 +403,7 @@ model CartItem {
   @@index([packageId])
 }
 
+
 model Order {
   id                          String             @id @default(uuid())
   orderNumber                 String             @unique
@@ -1315,3 +1316,5 @@ model Vacancy {
   @@index([status])
   @@map("vacancies")
 }
+
+

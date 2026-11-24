@@ -32,6 +32,7 @@ import { ListVendorStoresQueryDto } from './dto/list-vendor-stores-query.dto';
 import { ListStoreOrdersQueryDto } from './dto/list-store-orders-query.dto';
 import { SearchOrdersByVendorCodeDto } from './dto/search-orders-by-vendor-code.dto';
 import { Throttle } from '@nestjs/throttler';
+import { PayOrderDto } from '../payment/dto/pay-order.dto';
 
 @ApiTags('Vendor Orders')
 @ApiBearerAuth()
@@ -224,6 +225,8 @@ async markOrderReady(
 ) {
   return this.orderService.markOrderReady(orderId, user.id);
 }
+
+
   
 
   @Get(':orderId/tracking')

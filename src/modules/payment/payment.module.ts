@@ -7,6 +7,7 @@ import { NotificationModule } from '../notification/notification.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { QUEUES } from '../../shared/constants';
 import { BullModule } from '@nestjs/bullmq';
+import { PaymentService } from './payment.service';
 
 @Module({
   imports: [
@@ -18,8 +19,8 @@ import { BullModule } from '@nestjs/bullmq';
           { name: QUEUES.VENDOR_NOTIFICATION },
     ),
   ],
-  providers: [MonnifyService],
+  providers: [MonnifyService, PaymentService],
   controllers: [PaymentController],
-  exports: [MonnifyService], // export so other modules can use it
+  exports: [MonnifyService, PaymentService], // export so other modules can use it
 })
 export class PaymentModule {}

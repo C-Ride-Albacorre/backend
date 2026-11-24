@@ -100,3 +100,8 @@ export enum PostStatus {
   DRAFT = 'DRAFT',
   CLOSED = 'CLOSED',
 }
+
+export enum PaymentMethodDto {
+  MONNIFY = 'MONNIFY',
+  WALLET = 'WALLET',
+}

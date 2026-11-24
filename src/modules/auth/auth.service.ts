@@ -328,7 +328,44 @@ export class AuthService {
     };
   }
 
-  async registerCustomer(
+  
+async registerCustomer(
+  dto: CreateCustomerDto,
+  sessionId?: string,
+): Promise<RegisterResponseDto> {
+
+  const registrationResponse =
+    await this.userService.createCustomer(dto, sessionId);
+
+  const { user, requiresVerification } = registrationResponse;
+
+  let verificationToken: string | null = null;
+
+  if (user && requiresVerification) {
+    verificationToken = this.jwtService.sign(
+      {
+        sub: user.id,
+        type: 'verify',
+      },
+      {
+        expiresIn: '10m',
+      },
+    );
+  }
+
+  return {
+    accessToken: '',
+    verificationToken,
+    status: registrationResponse.status,
+    requiresVerification,
+    registrationMethod: registrationResponse.registrationMethod,
+    verificationIdentifier: registrationResponse.verificationIdentifier,
+    role: UserRole.CUSTOMER as any,
+  };
+}
+
+
+  async registerCustomerOld(
   dto: CreateCustomerDto,
   sessionId?: string,
 ): Promise<RegisterResponseDto> {

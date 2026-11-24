@@ -56,8 +56,115 @@ export class UserService {
    * Create a new customer with automatic OTP verification
    */
 
+async createCustomer(
+  dto: Partial<User>,
+  sessionId?: string,
+): Promise<PendingVerificationDto> {
 
-  async createCustomer(
+  // Normalize phone number
+  if (dto.phoneNumber) {
+    const phone = parsePhoneNumberFromString(
+      dto.phoneNumber,
+      (dto.countryCode || 'NG') as CountryCode,
+    );
+
+    if (!phone || !phone.isValid()) {
+      throw new BadRequestException('Invalid phone number');
+    }
+
+    dto.phoneNumber = phone.format('E.164');
+  }
+
+  // Check whether email or phone is already registered
+  const existingUser = await this.userRepository.findExistingUser(
+    dto.email,
+    dto.phoneNumber,
+  );
+
+  // Reject ALL existing accounts, verified or unverified
+  if (existingUser) {
+    throw new ConflictException(
+      'An account with this email or phone number already exists. Please log in.',
+    );
+  }
+
+  // Validate referral code if provided
+  if (dto.referralCode) {
+    const existingReferral = await this.prisma.user.findUnique({
+      where: { referralCode: dto.referralCode },
+    });
+
+    if (existingReferral) {
+      throw new BadRequestException('Referral code already exists');
+    }
+  }
+
+  const registrationInput = dto.email || dto.phoneNumber;
+
+  if (!registrationInput) {
+    throw new BadRequestException(
+      'Email or phone number is required',
+    );
+  }
+
+  const registrationMethod =
+    Helper.getRegistrationMethod(registrationInput);
+
+  // Hash password
+  const hashedPassword = await Helper.hashText(dto.password);
+
+  // Create CUSTOMER only
+  const { user } = await this.prisma.$transaction(async (tx) => {
+    const createdUser = await this.userRepository.create(
+      {
+        ...dto,
+        phoneNumber: dto.phoneNumber,
+        countryCode: dto.countryCode,
+        password: hashedPassword,
+
+        // Never accept role from the request DTO
+        role: UserRole.CUSTOMER,
+
+        isActive: true,
+        isVerified: false,
+        lastLoginAt: null,
+      },
+    );
+
+    await tx.user.update({
+      where: { id: createdUser.id },
+      data: {
+        pendingSessionId: sessionId?.trim() || null,
+      },
+    });
+
+    await tx.wallet.create({
+      data: {
+        userId: createdUser.id,
+        balance: 0,
+        currency: 'NGN',
+      },
+    });
+
+    return { user: createdUser };
+  });
+
+  // Send verification OTP
+  await this.sendVerificationOtp(user);
+
+  return {
+    status: RegistrationStatus.NEW,
+    requiresVerification: true,
+    registrationMethod,
+    verificationIdentifier: registrationInput,
+    user,
+    isNewUser: true,
+    hasEmail: !!user.email,
+  };
+}
+
+
+  async createCustomerOld(
     dto: Partial<User>,
     sessionId?: string,
   ): Promise<PendingVerificationDto> {
