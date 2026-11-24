@@ -70,6 +70,9 @@ import { GeneratePayoutsDto, ListPayoutsDto, UpdatePayoutStatusDto } from './dto
 import { UpdateDispatcherDto } from './dto/update-dispatcher.dto';
 import { AdminDispatchService } from './admin-dispatch.service';
 import { GodViewFleetQueryDto } from './dto/god-view-fleet-query.dto';
+import { HeatViewResponseDto } from './heat-view-response.dto';
+import { GetHeatViewQueryDto } from './dto/get-heat-view-query.dto';
+import { HeatViewService } from './heat-view.service';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -1127,14 +1130,43 @@ export class AdminDispatchController {
 
 export class GodsViewController {
   constructor(private readonly adminService: AdminService) { }
-// GOD VIEW STATS
+
+  // GOD VIEW STATS
   @Get('stats')
+  @ApiOperation({
+    summary: 'Get God View statistics',
+    description: 'Returns overall platform statistics for the God View dashboard.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'God View statistics retrieved successfully.',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error.',
+  })
   async getGodViewStats() {
     return this.adminService.getGodViewStats();
   }
 
   // GOD VIEW FLEET
   @Get('fleet')
+  @ApiOperation({
+    summary: 'Get God View fleet',
+    description: 'Returns fleet information with optional filtering and pagination.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Fleet data retrieved successfully.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid query parameters.',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error.',
+  })
   async getGodViewFleet(
     @Query() query: GodViewFleetQueryDto,
   ) {
@@ -1143,10 +1175,63 @@ export class GodsViewController {
 
   // GOD VIEW DRIVER DETAIL
   @Get('drivers/:driverId')
+  @ApiOperation({
+    summary: 'Get God View driver details',
+    description: 'Returns detailed information about a specific driver.',
+  })
+  @ApiParam({
+    name: 'driverId',
+    description: 'Unique ID of the driver.',
+    example: '65f1a2b3c4d5e6f789012345',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Driver details retrieved successfully.',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Driver not found.',
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Internal server error.',
+  })
   async getGodViewDriverDetail(
     @Param('driverId') driverId: string,
   ) {
     return this.adminService.getGodViewDriverDetail(driverId);
   }
+
+}
+
+@ApiTags('Heat Map')
+@Controller('admin/heat-map')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+@ApiBearerAuth()
+
+export class HeatMapController {
+constructor(private readonly heatViewService: HeatViewService) {}
+
+  @Get('heat-view')
+  @ApiOperation({
+    summary: 'Get heat map demand data',
+    description:
+      'Returns clustered order dropoff coordinates (heatmapData) and recent active customer dots (activeCustomerDots) for the specified time window. ' +
+      'Results are cached in Redis for 20 seconds to optimize performance.',
+  })
+  @ApiOkResponse({
+    description: 'Successfully retrieved heat view data.',
+    type: HeatViewResponseDto,
+  })
+  async getHeatView(
+    @Query() query: GetHeatViewQueryDto,
+  ): Promise<HeatViewResponseDto> {
+    return this.heatViewService.getHeatViewData(
+      query.timeWindow ?? 60,
+      query.refresh ?? false,
+    );
+  }
+
 }
 
