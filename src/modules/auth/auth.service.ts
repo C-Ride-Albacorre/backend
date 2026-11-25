@@ -540,17 +540,17 @@ async registerCustomer(
   }
 
   async loginCustomer(loginDto: LoginCustomerDto, sessionId?: string) {
-  //   const { phoneNumber } = loginDto;
-  // const email = Helper.normalizeEmail(loginDto.email ?? '');
-  //   const identifier = email || phoneNumber;
-  //   const verificationMethod = email ? 'email' : 'phone';
+    const { phoneNumber } = loginDto;
+  const email = Helper.normalizeEmail(loginDto.email ?? '');
+    const identifier = email || phoneNumber;
+    const verificationMethod = email ? 'email' : 'phone';
 
-    //this.logger.log(`Login attempt: ${identifier}`);
+    this.logger.log(`Login attempt: ${identifier}`);
     ///
-    const email = Helper.normalizeEmail(loginDto.email ?? '');
-const phoneNumber = await Helper.phoneNormalize(loginDto.phoneNumber);
-  const identifier = email ?? phoneNumber;
-  const verificationMethod: 'email' | 'phone' = email ? 'email' : 'phone';
+//     const email = Helper.normalizeEmail(loginDto.email ?? '');
+// const phoneNumber = await Helper.phoneNormalize(loginDto.phoneNumber);
+//   const identifier = email ?? phoneNumber;
+//   const verificationMethod: 'email' | 'phone' = email ? 'email' : 'phone';
 
   if (!identifier) {
     throw new BadRequestException('Email or phone number is required');
