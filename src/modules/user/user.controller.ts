@@ -28,6 +28,7 @@ import { UpdateEmailDto } from './dto/update-email.dto.';
 import { UserResponseDto } from '../auth/dto/user-response.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateBusinessProfileDto } from './dto/update-busines-profile';
+import { DocumentType } from '../../shared/enums';
 
 @ApiTags('User')
 @Controller('user')
