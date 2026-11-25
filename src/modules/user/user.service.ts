@@ -479,14 +479,15 @@ async createCustomer(
     const phoneNumber =
       verificationMethod === 'phone' ? identifier : undefined;
 
-    const user = await this.userRepository.findExistingUser(
+    const user= await this.userRepository.findExistingUser(
       email,
       phoneNumber,
     );
 
+
     if (!user) {
       throw new NotFoundException(
-        'Account not found. Please create an account first.',
+        `Account not found for ${phoneNumber} | ${email}. Please create an account first.`,
       );
     }
 
