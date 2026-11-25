@@ -459,21 +459,32 @@ STEP 4 – Bank Details
    * GET CURRENT ONBOARDING STATE
    * ================================
    */
-  @Get('/vendor/onboarding/state')
-  @ApiOperation({
-    summary: 'Get current vendor onboarding state',
-    description:
-      'Returns onboardingStatus, onboardingStep, and account status for redirect logic.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Onboarding state retrieved successfully',
-  })
-  async getOnboardingState(@Req() req: Request) {
-    const vendorId = (req.user as any).id;
+  // @Get('/vendor/onboarding/state')
+  // @ApiOperation({
+  //   summary: 'Get current vendor onboarding state',
+  //   description:
+  //     'Returns onboardingStatus, onboardingStep, and account status for redirect logic.',
+  // })
+  // @ApiResponse({
+  //   status: 200,
+  //   description: 'Onboarding state retrieved successfully',
+  // })
+  // async getOnboardingState(@Req() req: Request) {
+  //   const vendorId = (req.user as any).id;
 
-    return this.authService.getVendorOnboardingState(vendorId);
-  }
+  //   return this.authService.getVendorOnboardingState(vendorId);
+  // }
+
+@Get('/vendor/onboarding/state')
+@ApiBearerAuth()
+@ApiOperation({
+  summary: 'Get current vendor onboarding state',
+  description: 'Returns the vendor onboarding progress and submitted information.',
+})
+async getOnboardingState(@Req() req: Request) {
+  const user = req.user as any;
+  return this.authService.getVendorOnboardingState(user.id);
+}
 
   //DRIVER
   @Post('/driver/register')
