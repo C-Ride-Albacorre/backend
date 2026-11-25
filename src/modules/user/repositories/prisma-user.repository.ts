@@ -78,34 +78,49 @@ async findByPhone(
     throw error;
   }
 }
-  async findExistingUser(
+
+async findExistingUser(
   email?: string,
   phoneNumber?: string,
-  pendingSessionId?: string,
 ): Promise<User | null> {
-  const normalizedEmail = email?.trim().toLowerCase();
-  const normalizedPhone = phoneNumber?.trim();
-
-  const conditions: any[] = [];
-
-  if (normalizedEmail) {
-    conditions.push({ email: normalizedEmail });
-  }
-
-  if (normalizedPhone) {
-    conditions.push({ phoneNumber: normalizedPhone });
-  }
-
-  if (conditions.length === 0) {
-    return null;
-  }
+  // Input is already canonical. No trim/lowercase/normalize here.
+  const conditions: Prisma.UserWhereInput[] = [];
+  if (email) conditions.push({ email });
+  if (phoneNumber) conditions.push({ phoneNumber });
+  if (!conditions.length) return null;
 
   return this.prisma.user.findFirst({
-    where: {
-      OR: conditions,
-    },
+    where: conditions.length === 1 ? conditions[0] : { OR: conditions },
   });
 }
+
+//   async findExistingUser(
+//   email?: string,
+//   phoneNumber?: string,
+// ): Promise<User | null> {
+//   const normalizedEmail = email?.trim().toLowerCase();
+//   const normalizedPhone = phoneNumber?.trim();
+
+//   const conditions: any[] = [];
+
+//   if (normalizedEmail) {
+//     conditions.push({ email: normalizedEmail });
+//   }
+
+//   if (normalizedPhone) {
+//     conditions.push({ phoneNumber: normalizedPhone });
+//   }
+
+//   if (conditions.length === 0) {
+//     return null;
+//   }
+
+//   return this.prisma.user.findFirst({
+//     where: {
+//       OR: conditions,
+//     },
+//   });
+// }
 
   async create(userData: Partial<User>): Promise<User> {
     try {
