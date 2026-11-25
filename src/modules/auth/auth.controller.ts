@@ -477,6 +477,8 @@ STEP 4 – Bank Details
 
 @Get('/vendor/onboarding/state')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.VENDOR)
 @ApiOperation({
   summary: 'Get current vendor onboarding state',
   description: 'Returns the vendor onboarding progress and submitted information.',
