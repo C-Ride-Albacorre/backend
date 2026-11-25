@@ -4,6 +4,7 @@ import {
   Delete,
   Patch,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -19,7 +20,7 @@ import {
 import { JwtAuthGuard } from '../../common/guards/auth.guard';
 import { GetUser } from '../../common/decorators/get-user.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { CreateBusinessProfileDto } from './dto/create-business-profile.dto';
 import { ApiResponseDto } from '../../common/dto/api-response.dto';
 import { ApiErrorResponseDto } from '../../common/dto/api-error-response.dto';
@@ -33,37 +34,32 @@ import { UpdateBusinessProfileDto } from './dto/update-busines-profile';
 export class UserController {
   constructor(private readonly userService: UserService) { }
 
-  @Patch('business-profile')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({
-    summary: 'Create or update business profile (authenticated)',
-  })
-  @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiBody({
-    description: 'Business profile data with optional logo upload',
-    type: CreateBusinessProfileDto,
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Business profile created or updated successfully',
-    type: ApiResponseDto<CreateBusinessProfileDto>,
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Unauthorized',
-    type: ApiErrorResponseDto,
-  })
+  
+@Patch('business-profile')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+@ApiOperation({
+  summary: 'Create or update vendor business profile and upload documents',
+})
+@ApiConsumes('multipart/form-data')
+@UseInterceptors(
+  FilesInterceptor('files', 10),
+)
+@ApiBody({
+  description: 'Business information and vendor document uploads',
+  type: UpdateBusinessProfileDto,
+})
 async updateBusinessProfile(
   @GetUser() user: any,
   @Body() dto: UpdateBusinessProfileDto,
-  @UploadedFile() file?: Express.Multer.File,
+  @UploadedFiles() files: Express.Multer.File[],
+  @Body('documentTypes') documentTypes?: string[],
 ) {
   return this.userService.updateBusinessProfile(
     user.id,
     dto,
-    file,
+    files ?? [],
+    documentTypes ?? [],
   );
 }
 

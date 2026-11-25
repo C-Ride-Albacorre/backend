@@ -1089,95 +1089,135 @@ export class UserService {
     };
   }
 
-  async updateBusinessProfile(
-    userId: string,
-    dto: UpdateBusinessProfileDto,
-    file?: Express.Multer.File,
-  ) {
-    try {
-      let logoUrl: string | null = null;
 
-      // Upload new business logo if provided
-      if (file) {
-        const uploadResult = await this.cloudinaryService.uploadLogo(file);
-        logoUrl = uploadResult.secure_url;
-      }
+async updateBusinessProfile(
+  userId: string,
+  dto: UpdateBusinessProfileDto,
+  files: Express.Multer.File[] = [],
+  documentTypes: string[] = [],
+) {
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+  });
 
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-      });
+  if (!user) {
+    throw new NotFoundException('User not found');
+  }
 
-      if (!user) {
-        throw new NotFoundException('User not found');
-      }
+  if (files.length !== documentTypes.length) {
+    throw new BadRequestException(
+      'Each uploaded document must have a document type',
+    );
+  }
 
-      const businessInfo = await this.prisma.businessInfo.upsert({
+  const validDocumentTypes = Object.values(DocumentType);
+
+  for (const type of documentTypes) {
+    if (!validDocumentTypes.includes(type as DocumentType)) {
+      throw new BadRequestException(
+        `Invalid document type: ${type}`,
+      );
+    }
+  }
+
+  // Upload documents
+  const uploadedDocuments = await Promise.all(
+    files.map(async (file, index) => {
+      const uploadResult =
+        await this.cloudinaryService.uploadDocument(file);
+
+      return {
+        userId,
+        documentUrl: uploadResult.secure_url,
+        documentType: documentTypes[index] as DocumentType,
+        status: 'PENDING' as const,
+      };
+    }),
+  );
+
+  const {
+    businessName,
+    businessType,
+    registrationNumber,
+    taxId,
+    description,
+    businessPhone,
+    businessEmail,
+    address,
+    city,
+    state,
+    bankName,
+    accountName,
+    accountNumber,
+  } = dto;
+
+  const businessInfo = await this.prisma.$transaction(
+    async (tx) => {
+      const profile = await tx.businessInfo.upsert({
         where: { userId },
 
         update: {
-          ...(dto.businessName !== undefined && {
-            businessName: dto.businessName,
+          ...(businessName !== undefined && { businessName }),
+          ...(businessType !== undefined && { businessType }),
+          ...(registrationNumber !== undefined && {
+            registrationNumber,
           }),
+          ...(taxId !== undefined && { taxId }),
+          ...(description !== undefined && { description }),
 
-          ...(dto.businessType !== undefined && {
-            businessType: dto.businessType,
-          }),
+          ...(businessPhone !== undefined && { businessPhone }),
+          ...(businessEmail !== undefined && { businessEmail }),
 
-          ...(dto.phoneNumber !== undefined && {
-            businessPhone: dto.phoneNumber,
-          }),
+          ...(address !== undefined && { address }),
+          ...(city !== undefined && { city }),
+          ...(state !== undefined && { state }),
 
-          ...(dto.businessEmail !== undefined && {
-            businessEmail: dto.businessEmail,
-          }),
-
-          ...(dto.address !== undefined && {
-            address: dto.address,
-          }),
-
-          ...(dto.city !== undefined && {
-            city: dto.city,
-          }),
-
-          ...(dto.state !== undefined && {
-            state: dto.state,
-          }),
-
-          ...(dto.shortDescription !== undefined && {
-            description: dto.shortDescription,
-          }),
-
-          ...(dto.openingHours !== undefined && {
-            openingHours: dto.openingHours,
-          }),
-
-          ...(logoUrl && {
-            logoUrl,
-          }),
+          ...(bankName !== undefined && { bankName }),
+          ...(accountName !== undefined && { accountName }),
+          ...(accountNumber !== undefined && { accountNumber }),
         },
 
         create: {
           userId,
-          businessName: dto.businessName,
-          businessType: dto.businessType,
-          businessPhone: dto.phoneNumber,
-          businessEmail: dto.businessEmail,
-          address: dto.address,
-          city: dto.city,
-          state: dto.state,
-          description: dto.shortDescription,
-          ...(logoUrl && { logoUrl }),
+          businessName,
+          businessType,
+          registrationNumber,
+          taxId,
+          description,
+          businessPhone,
+          businessEmail,
+          address,
+          city,
+          state,
+          bankName,
+          accountName,
+          accountNumber,
         },
       });
 
-      return {
-        message: 'Business profile updated successfully',
-        data: businessInfo,
-      };
-    } catch (error) {
-      throw error;
-    }
-  }
+      if (uploadedDocuments.length > 0) {
+        await tx.vendorDocument.createMany({
+          data: uploadedDocuments,
+        });
+      }
+
+      return profile;
+    },
+  );
+
+  return {
+    message: 'Business profile updated successfully',
+    data: {
+      businessInfo,
+      uploadedDocuments: uploadedDocuments.map((document) => ({
+        documentType: document.documentType,
+        documentUrl: document.documentUrl,
+        status: document.status,
+      })),
+    },
+  };
+}
+
 
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {

@@ -1,34 +1,64 @@
+
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  MaxLength,
+  IsEmail,
+} from 'class-validator';
 
 export class UpdateBusinessProfileDto {
-  @ApiPropertyOptional({ example: 'Johns Enterprise' })
+  // STEP 1 - Business Information
+
+  @ApiPropertyOptional({ example: 'Esko Venture' })
   @IsOptional()
   @IsString()
   @MaxLength(100)
   businessName?: string;
 
-  @ApiPropertyOptional({ example: 'Retail' })
+  @ApiPropertyOptional({ example: 'Italian Restaurant' })
   @IsOptional()
   @IsString()
   businessType?: string;
 
-  @ApiPropertyOptional({ example: '+2348012345678' })
+  @ApiPropertyOptional({ example: '0102293993' })
   @IsOptional()
   @IsString()
-  phoneNumber?: string;
+  registrationNumber?: string;
 
-  @ApiPropertyOptional({ example: 'business@example.com' })
+  @ApiPropertyOptional({ example: 'TX0000000000' })
   @IsOptional()
   @IsString()
+  taxId?: string;
+
+  @ApiPropertyOptional({ example: 'Best Italian Delicacy' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+
+  // STEP 2 - Contact Details
+
+  @ApiPropertyOptional({ example: '07060875593' })
+  @IsOptional()
+  @IsString()
+  businessPhone?: string;
+
+  @ApiPropertyOptional({ example: 'esko@gmail.com' })
+  @IsOptional()
+  @IsEmail()
   businessEmail?: string;
 
-  @ApiPropertyOptional({ example: '12 Allen Avenue' })
+  // STEP 3 - Business Address
+
+  @ApiPropertyOptional({
+    example: 'First Gate, Ikota Estate, KM 14, Lekki-Epe Expressway',
+  })
   @IsOptional()
   @IsString()
   address?: string;
 
-  @ApiPropertyOptional({ example: 'Ikeja' })
+  @ApiPropertyOptional({ example: 'Lekki' })
   @IsOptional()
   @IsString()
   city?: string;
@@ -38,14 +68,20 @@ export class UpdateBusinessProfileDto {
   @IsString()
   state?: string;
 
-  @ApiPropertyOptional({ example: 'Mon-Fri, 9AM-5PM' })
-  @IsOptional()
-  @IsString()
-  openingHours?: string;
+  // STEP 4 - Bank Details
 
-  @ApiPropertyOptional({ example: 'We offer quality products.' })
+  @ApiPropertyOptional({ example: 'Zenith Bank' })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
-  shortDescription?: string;
+  bankName?: string;
+
+  @ApiPropertyOptional({ example: 'Esko Ventures' })
+  @IsOptional()
+  @IsString()
+  accountName?: string;
+
+  @ApiPropertyOptional({ example: '01099022334' })
+  @IsOptional()
+  @IsString()
+  accountNumber?: string;
 }
