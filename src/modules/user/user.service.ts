@@ -56,112 +56,112 @@ export class UserService {
    * Create a new customer with automatic OTP verification
    */
 
-async createCustomer(
-  dto: Partial<User>,
-  sessionId?: string,
-): Promise<PendingVerificationDto> {
+  async createCustomer(
+    dto: Partial<User>,
+    sessionId?: string,
+  ): Promise<PendingVerificationDto> {
 
-  // Normalize phone number
-  if (dto.phoneNumber) {
-    const phone = parsePhoneNumberFromString(
+    // Normalize phone number
+    if (dto.phoneNumber) {
+      const phone = parsePhoneNumberFromString(
+        dto.phoneNumber,
+        (dto.countryCode || 'NG') as CountryCode,
+      );
+
+      if (!phone || !phone.isValid()) {
+        throw new BadRequestException('Invalid phone number');
+      }
+
+      dto.phoneNumber = phone.format('E.164');
+    }
+
+    // Check whether email or phone is already registered
+    const existingUser = await this.userRepository.findExistingUser(
+      dto.email,
       dto.phoneNumber,
-      (dto.countryCode || 'NG') as CountryCode,
     );
 
-    if (!phone || !phone.isValid()) {
-      throw new BadRequestException('Invalid phone number');
+    // Reject ALL existing accounts, verified or unverified
+    if (existingUser) {
+      throw new ConflictException(
+        'An account with this email or phone number already exists. Please log in.',
+      );
     }
 
-    dto.phoneNumber = phone.format('E.164');
-  }
+    // Validate referral code if provided
+    if (dto.referralCode) {
+      const existingReferral = await this.prisma.user.findUnique({
+        where: { referralCode: dto.referralCode },
+      });
 
-  // Check whether email or phone is already registered
-  const existingUser = await this.userRepository.findExistingUser(
-    dto.email,
-    dto.phoneNumber,
-  );
-
-  // Reject ALL existing accounts, verified or unverified
-  if (existingUser) {
-    throw new ConflictException(
-      'An account with this email or phone number already exists. Please log in.',
-    );
-  }
-
-  // Validate referral code if provided
-  if (dto.referralCode) {
-    const existingReferral = await this.prisma.user.findUnique({
-      where: { referralCode: dto.referralCode },
-    });
-
-    if (existingReferral) {
-      throw new BadRequestException('Referral code already exists');
+      if (existingReferral) {
+        throw new BadRequestException('Referral code already exists');
+      }
     }
-  }
 
-  const registrationInput = dto.email || dto.phoneNumber;
+    const registrationInput = dto.email || dto.phoneNumber;
 
-  if (!registrationInput) {
-    throw new BadRequestException(
-      'Email or phone number is required',
-    );
-  }
+    if (!registrationInput) {
+      throw new BadRequestException(
+        'Email or phone number is required',
+      );
+    }
 
-  const registrationMethod =
-    Helper.getRegistrationMethod(registrationInput);
+    const registrationMethod =
+      Helper.getRegistrationMethod(registrationInput);
 
-  // Hash password
-  const hashedPassword = await Helper.hashText(dto.password);
+    // Hash password
+    const hashedPassword = await Helper.hashText(dto.password);
 
-  // Create CUSTOMER only
-  const { user } = await this.prisma.$transaction(async (tx) => {
-    const createdUser = await this.userRepository.create(
-      {
-        ...dto,
-        phoneNumber: dto.phoneNumber,
-        countryCode: dto.countryCode,
-        password: hashedPassword,
+    // Create CUSTOMER only
+    const { user } = await this.prisma.$transaction(async (tx) => {
+      const createdUser = await this.userRepository.create(
+        {
+          ...dto,
+          phoneNumber: dto.phoneNumber,
+          countryCode: dto.countryCode,
+          password: hashedPassword,
 
-        // Never accept role from the request DTO
-        role: UserRole.CUSTOMER,
+          // Never accept role from the request DTO
+          role: UserRole.CUSTOMER,
 
-        isActive: true,
-        isVerified: false,
-        lastLoginAt: null,
-      },
-    );
+          isActive: true,
+          isVerified: false,
+          lastLoginAt: null,
+        },
+      );
 
-    await tx.user.update({
-      where: { id: createdUser.id },
-      data: {
-        pendingSessionId: sessionId?.trim() || null,
-      },
+      await tx.user.update({
+        where: { id: createdUser.id },
+        data: {
+          pendingSessionId: sessionId?.trim() || null,
+        },
+      });
+
+      await tx.wallet.create({
+        data: {
+          userId: createdUser.id,
+          balance: 0,
+          currency: 'NGN',
+        },
+      });
+
+      return { user: createdUser };
     });
 
-    await tx.wallet.create({
-      data: {
-        userId: createdUser.id,
-        balance: 0,
-        currency: 'NGN',
-      },
-    });
+    // Send verification OTP
+    await this.sendVerificationOtp(user);
 
-    return { user: createdUser };
-  });
-
-  // Send verification OTP
-  await this.sendVerificationOtp(user);
-
-  return {
-    status: RegistrationStatus.NEW,
-    requiresVerification: true,
-    registrationMethod,
-    verificationIdentifier: registrationInput,
-    user,
-    isNewUser: true,
-    hasEmail: !!user.email,
-  };
-}
+    return {
+      status: RegistrationStatus.NEW,
+      requiresVerification: true,
+      registrationMethod,
+      verificationIdentifier: registrationInput,
+      user,
+      isNewUser: true,
+      hasEmail: !!user.email,
+    };
+  }
 
 
   async createCustomerOld(
@@ -473,17 +473,28 @@ async createCustomer(
     // const user = await this.userRepository.findExistingUser(email, phoneNumber);
     const { password } = loginDto;
 
+    // const email =
+    //   verificationMethod === 'email' ? identifier : undefined;
+
+    // const phoneNumber =
+    //   verificationMethod === 'phone' ? identifier : undefined;
+
+
     const email =
-      verificationMethod === 'email' ? identifier : undefined;
+      verificationMethod === 'email' ? Helper.normalizeEmail(identifier) : undefined;
 
     const phoneNumber =
-      verificationMethod === 'phone' ? identifier : undefined;
+      verificationMethod === 'phone'
+        ? parsePhoneNumberFromString(identifier, 'NG')?.format('E.164')
+        : undefined;
 
-    const user= await this.userRepository.findExistingUser(
+    if (verificationMethod === 'phone' && !phoneNumber) {
+      throw new BadRequestException('Invalid phone number');
+    }
+    const user = await this.userRepository.findExistingUser(
       email,
       phoneNumber,
     );
-
 
     if (!user) {
       throw new NotFoundException(
@@ -1078,18 +1089,100 @@ async createCustomer(
     };
   }
 
-async updateBusinessProfile(
-  userId: string,
-  dto: UpdateBusinessProfileDto,
-  file?: Express.Multer.File,
-) {
-  try {
-    let logoUrl: string | null = null;
+  async updateBusinessProfile(
+    userId: string,
+    dto: UpdateBusinessProfileDto,
+    file?: Express.Multer.File,
+  ) {
+    try {
+      let logoUrl: string | null = null;
 
-    // Upload new business logo if provided
-    if (file) {
-      const uploadResult = await this.cloudinaryService.uploadLogo(file);
-      logoUrl = uploadResult.secure_url;
+      // Upload new business logo if provided
+      if (file) {
+        const uploadResult = await this.cloudinaryService.uploadLogo(file);
+        logoUrl = uploadResult.secure_url;
+      }
+
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      const businessInfo = await this.prisma.businessInfo.upsert({
+        where: { userId },
+
+        update: {
+          ...(dto.businessName !== undefined && {
+            businessName: dto.businessName,
+          }),
+
+          ...(dto.businessType !== undefined && {
+            businessType: dto.businessType,
+          }),
+
+          ...(dto.phoneNumber !== undefined && {
+            businessPhone: dto.phoneNumber,
+          }),
+
+          ...(dto.businessEmail !== undefined && {
+            businessEmail: dto.businessEmail,
+          }),
+
+          ...(dto.address !== undefined && {
+            address: dto.address,
+          }),
+
+          ...(dto.city !== undefined && {
+            city: dto.city,
+          }),
+
+          ...(dto.state !== undefined && {
+            state: dto.state,
+          }),
+
+          ...(dto.shortDescription !== undefined && {
+            description: dto.shortDescription,
+          }),
+
+          ...(dto.openingHours !== undefined && {
+            openingHours: dto.openingHours,
+          }),
+
+          ...(logoUrl && {
+            logoUrl,
+          }),
+        },
+
+        create: {
+          userId,
+          businessName: dto.businessName,
+          businessType: dto.businessType,
+          businessPhone: dto.phoneNumber,
+          businessEmail: dto.businessEmail,
+          address: dto.address,
+          city: dto.city,
+          state: dto.state,
+          description: dto.shortDescription,
+          ...(logoUrl && { logoUrl }),
+        },
+      });
+
+      return {
+        message: 'Business profile updated successfully',
+        data: businessInfo,
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    if (!userId) {
+      throw new UnauthorizedException('User not authenticated');
     }
 
     const user = await this.prisma.user.findUnique({
@@ -1100,171 +1193,89 @@ async updateBusinessProfile(
       throw new NotFoundException('User not found');
     }
 
-    const businessInfo = await this.prisma.businessInfo.upsert({
-      where: { userId },
-
-      update: {
-        ...(dto.businessName !== undefined && {
-          businessName: dto.businessName,
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.firstName !== undefined && {
+          firstName: dto.firstName.trim(),
         }),
-
-        ...(dto.businessType !== undefined && {
-          businessType: dto.businessType,
+        ...(dto.lastName !== undefined && {
+          lastName: dto.lastName.trim(),
         }),
-
-        ...(dto.phoneNumber !== undefined && {
-          businessPhone: dto.phoneNumber,
-        }),
-
-        ...(dto.businessEmail !== undefined && {
-          businessEmail: dto.businessEmail,
-        }),
-
-        ...(dto.address !== undefined && {
-          address: dto.address,
-        }),
-
-        ...(dto.city !== undefined && {
-          city: dto.city,
-        }),
-
-        ...(dto.state !== undefined && {
-          state: dto.state,
-        }),
-
-        ...(dto.shortDescription !== undefined && {
-          description: dto.shortDescription,
-        }),
-
-        ...(dto.openingHours !== undefined && {
-          openingHours: dto.openingHours,
-        }),
-
-        ...(logoUrl && {
-          logoUrl,
+        ...(dto.profileImage !== undefined && {
+          profileImage: dto.profileImage,
         }),
       },
-
-      create: {
-        userId,
-        businessName: dto.businessName,
-        businessType: dto.businessType,
-        businessPhone: dto.phoneNumber,
-        businessEmail: dto.businessEmail,
-        address: dto.address,
-        city: dto.city,
-        state: dto.state,
-        description: dto.shortDescription,
-        ...(logoUrl && { logoUrl }),
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+        oauthProviders: {
+          select: {
+            provider: true,
+            providerId: true,
+          },
+        },
+        driverProfile: {
+          select: {
+            driverType: true,
+          },
+        },
+        businessInfo: true,
+        onboardingStatus: true,
+        onboardingStep: true,
+        status: true,
       },
     });
 
     return {
-      message: 'Business profile updated successfully',
-      data: businessInfo,
+      message: 'Profile updated successfully',
+      data: {
+        ...updatedUser,
+        driverType: updatedUser.driverProfile?.driverType ?? null,
+      },
     };
-  } catch (error) {
-    throw error;
   }
-}
-
-
-  async updateProfile(userId: string, dto: UpdateProfileDto) {
-  if (!userId) {
-    throw new UnauthorizedException('User not authenticated');
-  }
-
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId },
-  });
-
-  if (!user) {
-    throw new NotFoundException('User not found');
-  }
-
-  const updatedUser = await this.prisma.user.update({
-    where: { id: userId },
-    data: {
-      ...(dto.firstName !== undefined && {
-        firstName: dto.firstName.trim(),
-      }),
-      ...(dto.lastName !== undefined && {
-        lastName: dto.lastName.trim(),
-      }),
-      ...(dto.profileImage !== undefined && {
-        profileImage: dto.profileImage,
-      }),
-    },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      role: true,
-      createdAt: true,
-      updatedAt: true,
-      oauthProviders: {
-        select: {
-          provider: true,
-          providerId: true,
-        },
-      },
-      driverProfile: {
-        select: {
-          driverType: true,
-        },
-      },
-      businessInfo: true,
-      onboardingStatus: true,
-      onboardingStep: true,
-      status: true,
-    },
-  });
-
-  return {
-    message: 'Profile updated successfully',
-    data: {
-      ...updatedUser,
-      driverType: updatedUser.driverProfile?.driverType ?? null,
-    },
-  };
-}
 
   async updateEmail(userId: string, email: string) {
-  if (!userId) {
-    throw new UnauthorizedException('User not authenticated');
+    if (!userId) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (existingUser && existingUser.id !== userId) {
+      throw new ConflictException('Email already exists');
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        email: normalizedEmail,
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: true,
+        updatedAt: true,
+      },
+    });
+
+    return {
+      message: 'Email updated successfully',
+      data: updatedUser,
+    };
   }
-
-  const normalizedEmail = email.toLowerCase().trim();
-
-  const existingUser = await this.prisma.user.findUnique({
-    where: { email: normalizedEmail },
-  });
-
-  if (existingUser && existingUser.id !== userId) {
-    throw new ConflictException('Email already exists');
-  }
-
-  const updatedUser = await this.prisma.user.update({
-    where: { id: userId },
-    data: {
-      email: normalizedEmail,
-    },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      role: true,
-      updatedAt: true,
-    },
-  });
-
-  return {
-    message: 'Email updated successfully',
-    data: updatedUser,
-  };
-}
 
   async changePassword(
     userId: string,
