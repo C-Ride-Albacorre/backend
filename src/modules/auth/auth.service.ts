@@ -539,23 +539,29 @@ async registerCustomer(
     );
   }
 
-  async loginCustomer(loginDto: LoginCustomerDto, sessionId?: string) {
-    const { phoneNumber } = loginDto;
+ async loginCustomer(loginDto: LoginCustomerDto, sessionId?: string) {
   const email = Helper.normalizeEmail(loginDto.email ?? '');
-    const identifier = email || phoneNumber;
-    const verificationMethod = email ? 'email' : 'phone';
 
-    this.logger.log(`Login attempt: ${identifier}`);
-    ///
-//     const email = Helper.normalizeEmail(loginDto.email ?? '');
-// const phoneNumber = await Helper.phoneNormalize(loginDto.phoneNumber);
-//   const identifier = email ?? phoneNumber;
-//   const verificationMethod: 'email' | 'phone' = email ? 'email' : 'phone';
+  let phoneNumber: string | undefined;
+  if (!email && loginDto.phoneNumber) {
+    const phone = parsePhoneNumberFromString(
+      loginDto.phoneNumber,
+      (loginDto.countryCode || 'NG') as CountryCode,
+    );
+
+    if (!phone || !phone.isValid()) {
+      throw new BadRequestException('Invalid phone number');
+    }
+
+    phoneNumber = phone.format('E.164');   // ✅ same as signup
+  }
+
+  const identifier = email || phoneNumber;
+  const verificationMethod: 'email' | 'phone' = email ? 'email' : 'phone';
 
   if (!identifier) {
     throw new BadRequestException('Email or phone number is required');
   }
-
 
     ///
 

@@ -78,8 +78,25 @@ async findByPhone(
     throw error;
   }
 }
+async findExistingUser(email?: string, phoneNumber?: string) {
+  if (email) {
+    return this.prisma.user.findFirst({ where: { email } });
+  }
+  if (phoneNumber) {
+    // try E.164 first, fall back to a loose match
+    return this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { phoneNumber },
+          { phoneNumber: { endsWith: phoneNumber.slice(-10) } },
+        ],
+      },
+    });
+  }
+  return null;
+}
 
-async findExistingUser(
+async findExistingUserbk(
   email?: string,
   phoneNumber?: string,
 ): Promise<User | null> {
