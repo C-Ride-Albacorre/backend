@@ -35,6 +35,58 @@ export class UserController {
   constructor(private readonly userService: UserService) { }
 
   
+// @Patch('business-profile')
+// @ApiBearerAuth()
+// @UseGuards(JwtAuthGuard)
+// @ApiOperation({
+//   summary: 'Create or update vendor business profile and upload documents',
+// })
+// @ApiConsumes('multipart/form-data')
+// @UseInterceptors(
+//   FilesInterceptor('files', 10),
+// )
+// @ApiBody({
+//   description: 'Business information and vendor document uploads',
+//   type: UpdateBusinessProfileDto,
+// })
+// async updateBusinessProfile(
+//   @GetUser() user: any,
+//   @Body() dto: UpdateBusinessProfileDto,
+//   @UploadedFiles() files: Express.Multer.File[],
+//   @Body('documentTypes') documentTypes?: string[],
+// ) {
+//   return this.userService.updateBusinessProfile(
+//     user.id,
+//     dto,
+//     files ?? [],
+//     documentTypes ?? [],
+//   );
+// }
+
+
+
+//   @Patch('profile')
+//   @ApiOperation({ summary: 'Edit logged-in user profile' })
+//   @UseGuards(JwtAuthGuard)
+//   @ApiBearerAuth()
+//   @ApiResponse({
+//     status: 200,
+//     description: 'Profile updated successfully',
+//     type: ApiResponseDto<UserResponseDto>,
+//   })
+//   @ApiResponse({
+//     status: 401,
+//     description: 'Unauthorized',
+//     type: ApiErrorResponseDto,
+//   })
+//   async updateProfile(
+//     @GetUser() user: any,
+//     @Body() dto: UpdateProfileDto,
+//   ) {
+//     return this.userService.updateProfile(user.id, dto);
+//   }
+
+
 @Patch('business-profile')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -46,45 +98,72 @@ export class UserController {
   FilesInterceptor('files', 10),
 )
 @ApiBody({
-  description: 'Business information and vendor document uploads',
-  type: UpdateBusinessProfileDto,
+  schema: {
+    type: 'object',
+    properties: {
+      businessName: { type: 'string', example: 'Esko Venture' },
+      businessType: { type: 'string', example: 'Italian Restaurant' },
+      registrationNumber: { type: 'string', example: '0102293993' },
+      taxId: { type: 'string', example: 'TX0000000000' },
+      description: { type: 'string', example: 'Best Italian Delicacy' },
+
+      businessPhone: { type: 'string', example: '07060875593' },
+      businessEmail: { type: 'string', example: 'esko@gmail.com' },
+
+      address: {
+        type: 'string',
+        example: 'First Gate, Ikota Estate, KM 14, Lekki-Epe Expressway',
+      },
+      city: { type: 'string', example: 'Lekki' },
+      state: { type: 'string', example: 'Lagos' },
+
+      bankName: { type: 'string', example: 'Zenith Bank' },
+      accountName: { type: 'string', example: 'Esko Ventures' },
+      accountNumber: { type: 'string', example: '01099022334' },
+
+      files: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'binary',
+        },
+        description: 'Upload multiple vendor documents',
+      },
+
+      documentTypes: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: Object.values(DocumentType),
+        },
+        example: ['CAC'],
+        description: 'Document type for each uploaded file, in matching order',
+      },
+    },
+  },
+})
+@ApiResponse({
+  status: 200,
+  description: 'Business profile updated successfully',
 })
 async updateBusinessProfile(
   @GetUser() user: any,
   @Body() dto: UpdateBusinessProfileDto,
   @UploadedFiles() files: Express.Multer.File[],
-  @Body('documentTypes') documentTypes?: string[],
 ) {
+  const documentTypes = Array.isArray(dto['documentTypes'])
+    ? dto['documentTypes']
+    : dto['documentTypes']
+      ? [dto['documentTypes']]
+      : [];
+
   return this.userService.updateBusinessProfile(
     user.id,
     dto,
     files ?? [],
-    documentTypes ?? [],
+    documentTypes,
   );
 }
-
-
-
-  @Patch('profile')
-  @ApiOperation({ summary: 'Edit logged-in user profile' })
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
-  @ApiResponse({
-    status: 200,
-    description: 'Profile updated successfully',
-    type: ApiResponseDto<UserResponseDto>,
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Unauthorized',
-    type: ApiErrorResponseDto,
-  })
-  async updateProfile(
-    @GetUser() user: any,
-    @Body() dto: UpdateProfileDto,
-  ) {
-    return this.userService.updateProfile(user.id, dto);
-  }
 
 
   @Patch('update-email')
