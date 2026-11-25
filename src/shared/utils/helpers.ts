@@ -1193,4 +1193,34 @@ static async generateOrderNumber(
   );
 }
 
+
+// helpers/phone.helper.ts
+  static async phoneNormalize(raw?: string | null, defaultCountry = 'NG'): Promise<string | undefined> {
+    if (!raw) return undefined;
+
+    // strip everything except digits and leading +
+    let digits = raw.trim().replace(/[^\d+]/g, '');
+    if (!digits) return undefined;
+
+    // already E.164
+    if (digits.startsWith('+')) return digits;
+
+    // Nigerian local format: 08067284436 -> +2348067284436
+    if (defaultCountry === 'NG') {
+      if (digits.startsWith('0')) return `+234${digits.slice(1)}`;
+      if (digits.startsWith('234')) return `+${digits}`;
+    }
+
+    // fallback: assume already has country code without +
+    return `+${digits}`;
+  }
+
+
+// helpers/email.helper.ts
+  static emailNormalize(raw?: string | null): string | undefined {
+    const v = raw?.trim().toLowerCase();
+    return v ? v : undefined;   // '' -> undefined, never empty string
+  }
+
+
 }
