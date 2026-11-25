@@ -3336,83 +3336,139 @@ export class AuthService {
     };
   }
 
-  async getVendorOnboardingState(vendorId: string) {
-    const vendor = await this.userRepository.findById(vendorId);
 
-    if (!vendor) {
-      throw new NotFoundException('Vendor not found');
-    }
-
-    const businessInfo = vendor.businessInfo;
-    const registrationNumber = (
-      businessInfo as (typeof businessInfo & { registrationNumber?: string | null }) | null
-    )?.registrationNumber;
-    const taxId = (
-      businessInfo as (typeof businessInfo & { taxId?: string | null }) | null
-    )?.taxId;
-    
-    const steps = {
-      businessInformation: {
-        businessName: businessInfo?.businessName,
-        businessType: businessInfo?.businessType,
-        registrationNumber,
-        taxId,
-        description: businessInfo?.description,
+async getVendorOnboardingState(vendorId: string) {
+  const vendor = await this.prisma.user.findUnique({
+    where: {
+      id: vendorId,
+    },
+    include: {
+      businessInfo: true,
+      documents: {
+        orderBy: {
+          createdAt: 'desc',
+        },
+        select: {
+          id: true,
+          documentType: true,
+          documentUrl: true,
+          status: true,
+          metadata: true,
+          uploadedAt: true,
+          reviewedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       },
+    },
+  });
 
-      contactDetails: {
-        businessPhone: businessInfo?.businessPhone,
-        businessEmail: businessInfo?.businessEmail,
-      },
-
-      businessAddress: {
-        address: businessInfo?.address,
-        city: businessInfo?.city,
-        state: businessInfo?.state,
-      },
-
-      bankDetails: {
-        bankName: businessInfo?.bankName,
-        accountName: businessInfo?.accountName,
-        accountNumber: businessInfo?.accountNumber,
-      },
-    };
-
-    return {
-      onboardingStatus: vendor.onboardingStatus,
-      onboardingStep: vendor.onboardingStep,
-      status: vendor.status,
-
-      steps,
-
-      completedSteps: {
-        businessInformation: !!(
-          businessInfo?.businessName &&
-          businessInfo?.businessType &&
-          registrationNumber &&
-          taxId &&
-          businessInfo?.description
-        ),
-
-        contactDetails: !!(
-          businessInfo?.businessPhone &&
-          businessInfo?.businessEmail
-        ),
-
-        businessAddress: !!(
-          businessInfo?.address &&
-          businessInfo?.city &&
-          businessInfo?.state
-        ),
-
-        bankDetails: !!(
-          businessInfo?.bankName &&
-          businessInfo?.accountName &&
-          businessInfo?.accountNumber
-        ),
-      },
-    };
+  if (!vendor) {
+    throw new NotFoundException('Vendor not found');
   }
+
+  const business = vendor.businessInfo;
+
+  // Helper to check whether all required fields are populated
+  const isComplete = (values: (string | null | undefined)[]) =>
+    values.every(
+      (value) => typeof value === 'string' && value.trim().length > 0,
+    );
+
+  // STEP 1 - Business Information
+  const businessInformation = {
+    businessName: business?.businessName ?? null,
+    businessType: business?.businessType ?? null,
+    registrationNumber: business?.registrationNumber ?? null,
+    taxId: business?.taxId ?? null,
+    description: business?.description ?? null,
+  };
+
+  // STEP 2 - Contact Details
+  const contactDetails = {
+    businessPhone: business?.businessPhone ?? null,
+    businessEmail: business?.businessEmail ?? null,
+  };
+
+  // STEP 3 - Business Address
+  const businessAddress = {
+    address: business?.address ?? null,
+    city: business?.city ?? null,
+    state: business?.state ?? null,
+  };
+
+  // STEP 4 - Bank Details
+  const bankDetails = {
+    bankName: business?.bankName ?? null,
+    accountName: business?.accountName ?? null,
+    accountNumber: business?.accountNumber
+      ? `******${business.accountNumber.slice(-4)}`
+      : null,
+  };
+
+  // STEP 5 - Vendor Documents
+  const vendorDocuments = vendor.documents.map((document) => ({
+    id: document.id,
+    documentType: document.documentType,
+    documentUrl: document.documentUrl,
+    status: document.status,
+    metadata: document.metadata,
+    uploadedAt: document.uploadedAt,
+    reviewedAt: document.reviewedAt,
+  }));
+
+  const completedSteps = {
+    businessInformation: isComplete([
+      business?.businessName,
+      business?.businessType,
+      business?.registrationNumber,
+      business?.taxId,
+      business?.description,
+    ]),
+
+    contactDetails: isComplete([
+      business?.businessPhone,
+      business?.businessEmail,
+    ]),
+
+    businessAddress: isComplete([
+      business?.address,
+      business?.city,
+      business?.state,
+    ]),
+
+    bankDetails: isComplete([
+      business?.bankName,
+      business?.accountName,
+      business?.accountNumber,
+    ]),
+
+    vendorDocuments: vendorDocuments.length > 0,
+  };
+
+  return {
+    onboardingStatus: vendor.onboardingStatus,
+    onboardingStep: vendor.onboardingStep,
+    status: vendor.status,
+
+    steps: {
+      businessInformation,
+      contactDetails,
+      businessAddress,
+      bankDetails,
+      vendorDocuments,
+    },
+
+    completedSteps,
+
+    onboardingSummary: {
+      totalSteps: 5,
+      completedCount: Object.values(completedSteps).filter(Boolean).length,
+      isCompleted: Object.values(completedSteps).every(Boolean),
+    },
+  };
+}
+
 
   async getVendorOnboardingStateOld(vendorId: string) {
     const vendor = await this.userRepository.findById(vendorId);
