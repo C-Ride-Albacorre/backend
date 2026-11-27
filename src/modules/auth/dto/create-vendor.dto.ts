@@ -565,7 +565,7 @@ export class CompleteOnboardingDto {
   registrationNumber: string;
 
   @ApiProperty({ example: '12345678-0001', required: false })
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   taxId: string;
 
